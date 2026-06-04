@@ -68,16 +68,18 @@ export class GenericProviderAdapter implements PaymentProviderAdapter {
       [this.definition.baseUrlEnv, binding.baseUrl],
       [this.definition.credentialTokenRefEnv, binding.credentialTokenRef],
       [this.definition.webhookSecretTokenRefEnv, binding.webhookSecretTokenRef],
+      ...this.connectionEnvBindings(),
     ]
       .filter((entry): entry is [string, string | undefined] => Boolean(entry[0]) && !entry[1])
       .map(([key]) => key);
     const configured = isProviderCredentialBound(binding);
+    const engine = protocolEngineRegistry.get(this.definition.protocol);
 
     return {
       providerCode: this.code,
-      status: configured ? 'DEGRADED' : 'DOWN',
+      status: configured && engine.capabilities.executionMode !== 'fail-closed' ? 'DEGRADED' : 'DOWN',
       message: configured
-        ? `Tokenized provider binding is present; ${this.definition.protocol} protocol engine is selected.`
+        ? `Tokenized provider binding is present; ${this.definition.protocol} protocol engine is selected with ${engine.capabilities.executionMode} execution.`
         : 'Tokenized provider binding is not configured.',
       configured,
       rail: this.definition.rail,
@@ -86,9 +88,12 @@ export class GenericProviderAdapter implements PaymentProviderAdapter {
       currencies: this.definition.currencies,
       operations: this.definition.operations,
       missingEnv,
+      protocolCapabilities: engine.capabilities,
       credentialBinding: credentialBindingStatus(binding),
-      nextAction: configured
+      nextAction: configured && engine.capabilities.executionMode !== 'fail-closed'
         ? 'Complete provider certification, endpoint mapping, webhook verification, and acceptance testing.'
+        : configured
+          ? 'Install and certify the provider-specific protocol engine before enabling live traffic.'
         : 'Set provider token reference environment variables and restart the gateway.',
     };
   }
@@ -124,6 +129,12 @@ export class GenericProviderAdapter implements PaymentProviderAdapter {
       directApiKey: envValue(this.definition.directApiKeyEnv),
       directApiSecret: envValue(this.definition.directApiSecretEnv),
     };
+  }
+
+  private connectionEnvBindings(): Array<[string | undefined, string | undefined]> {
+    const connection = this.definition.connection;
+    if (!connection) return [];
+    return Object.values(connection).map((key) => [key, envValue(key)]);
   }
 
   private firstField(event: Record<string, unknown>, fields: string[]) {

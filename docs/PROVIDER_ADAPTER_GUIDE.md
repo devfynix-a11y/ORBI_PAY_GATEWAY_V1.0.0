@@ -102,6 +102,41 @@ Example traditional switch provider:
 
 Traditional switch engines remain fail-closed until the bank/switch contract, test certificates, VPN profile, ISO8583 field packager, and certification evidence are approved.
 
+## Universal Executor Model
+
+ORBI Pay Gateway uses a universal orchestration layer, but not a single unsafe universal provider implementation.
+
+The universal layer handles:
+
+- provider discovery from `config/providers.json`
+- request validation and normalized ORBI references
+- tokenized credential binding
+- idempotency propagation
+- SCA/3DS enforcement when required
+- webhook signature verification
+- normalized status mapping
+- forwarding verified provider events to ORBI Core
+
+The protocol engine handles the provider/network dialect:
+
+- `REST_JSON` and `REST_HMAC` are generic online HTTP engines.
+- `ISO8583_TCP_TLS` needs a certified ISO8583 packager, field profile, MTI rules, response-code map, and private connectivity.
+- `SFTP_SETTLEMENT_FILE` needs a file layout, PGP/SFTP key profile, settlement calendar, and reconciliation parser.
+- `SDK_PROVIDER` needs an approved wrapper around the provider SDK so secrets and raw payloads are still controlled by ORBI.
+- `VPN_PRIVATE_API` needs private network routing plus mTLS or request signing.
+
+This keeps onboarding flexible without pretending that every bank, mobile money provider, card switch, or crypto custodian speaks the same protocol.
+
+## Protocol Readiness And Fail-Closed Behavior
+
+Provider health exposes `protocolCapabilities` so the admin portal can distinguish:
+
+- `generic-live`: the generic executor can call a configured REST provider.
+- `certified-live`: a custom certified engine is installed and approved.
+- `fail-closed`: the manifest is known, but the protocol engine refuses live money movement until certification is complete.
+
+Fail-closed protocols are intentional. They prevent accidental live transactions through a partially configured bank/switch rail.
+
 ## Webhook Signature Manifest
 
 Each provider can declare its callback signature contract:

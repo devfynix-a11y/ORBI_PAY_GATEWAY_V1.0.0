@@ -2,6 +2,7 @@ import type {
   GatewayPaymentRequest,
   GatewayPaymentResponse,
   PaymentDirection,
+  ProviderHealth,
   ProviderDefinition,
   ProviderOperationDefinition,
 } from '../types.js';
@@ -17,5 +18,6 @@ export type ProtocolExecutionInput = {
 
 export interface PaymentProtocolEngine {
   protocol: ProviderDefinition['protocol'];
+  capabilities: NonNullable<ProviderHealth['protocolCapabilities']>;
   execute(input: ProtocolExecutionInput): Promise<GatewayPaymentResponse>;
 }

@@ -3,6 +3,15 @@ import { buildProviderPayload, responseToGatewayPaymentResponse } from './httpMa
 
 export class RestJsonEngine implements PaymentProtocolEngine {
   protocol = 'REST_JSON' as const;
+  capabilities = {
+    executionMode: 'generic-live',
+    certificationRequired: false,
+    supportsOnlineAuthorization: true,
+    supportsWebhookCallbacks: true,
+    supportsBatchSettlement: false,
+    networkControls: ['HTTPS_TLS', 'TOKENIZED_CREDENTIAL_REFERENCE', 'IDEMPOTENCY'],
+    settlementModel: 'async-callback',
+  } as const;
 
   async execute(input: ProtocolExecutionInput) {
     const url = new URL(input.endpoint.path, input.credentialBinding.baseUrl.endsWith('/')

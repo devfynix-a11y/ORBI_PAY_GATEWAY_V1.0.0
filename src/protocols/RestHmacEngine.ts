@@ -5,6 +5,15 @@ import { resolveTokenSecret } from '../security/tokenResolver.js';
 
 export class RestHmacEngine implements PaymentProtocolEngine {
   protocol = 'REST_HMAC' as const;
+  capabilities = {
+    executionMode: 'generic-live',
+    certificationRequired: false,
+    supportsOnlineAuthorization: true,
+    supportsWebhookCallbacks: true,
+    supportsBatchSettlement: false,
+    networkControls: ['HTTPS_TLS', 'HMAC_REQUEST_SIGNING', 'TOKENIZED_CREDENTIAL_REFERENCE', 'IDEMPOTENCY'],
+    settlementModel: 'async-callback',
+  } as const;
 
   async execute(input: ProtocolExecutionInput) {
     const url = new URL(input.endpoint.path, input.credentialBinding.baseUrl.endsWith('/')

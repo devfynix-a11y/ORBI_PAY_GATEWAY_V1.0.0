@@ -17,6 +17,7 @@ GET /ready
 ```
 
 Returns Core callback target, mTLS mode, provider mode, and provider adapter readiness. Secrets are never returned.
+Provider readiness includes `protocolCapabilities` so operators can see whether a rail is `generic-live`, `certified-live`, or intentionally `fail-closed`.
 
 ## Provider List
 
@@ -26,6 +27,14 @@ GET /v1/providers/:providerCode/health
 ```
 
 Provider codes are loaded from the provider manifest. They are not hardcoded in source.
+
+Provider health response includes:
+
+- `rail`: mobile money, bank, card gateway, or crypto.
+- `protocol`: selected protocol engine.
+- `missingEnv`: required env references that are not configured.
+- `credentialBinding`: tokenized credential status without exposing secrets.
+- `protocolCapabilities`: online authorization, webhook, batch, network-control, and certification posture.
 
 ## Collections
 

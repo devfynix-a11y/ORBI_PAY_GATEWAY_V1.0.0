@@ -66,6 +66,15 @@ export type ProviderHealth = {
   operations: PaymentDirection[];
   missingEnv: string[];
   nextAction?: string;
+  protocolCapabilities?: {
+    executionMode: 'generic-live' | 'certified-live' | 'fail-closed';
+    certificationRequired: boolean;
+    supportsOnlineAuthorization: boolean;
+    supportsWebhookCallbacks: boolean;
+    supportsBatchSettlement: boolean;
+    networkControls: readonly string[];
+    settlementModel: 'realtime' | 'async-callback' | 'batch-file' | 'provider-specific';
+  };
   credentialBinding?: {
     mode: 'tokenized' | 'direct';
     configured: boolean;
@@ -108,6 +117,7 @@ export type ProviderDefinition = {
     vpnProfileEnv?: string;
     iso8583ProfileEnv?: string;
     sdkProfileEnv?: string;
+    settlementFileProfileEnv?: string;
   };
   operationEndpoints?: Partial<Record<PaymentDirection, ProviderOperationDefinition>>;
   webhookStatusField?: string;

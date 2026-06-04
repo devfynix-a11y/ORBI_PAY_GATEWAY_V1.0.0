@@ -8,6 +8,11 @@ const OperationDefinitionSchema = z.object({
   method: z.enum(['GET', 'POST', 'PUT', 'PATCH']),
   path: z.string().min(1),
   requiresStrongCustomerAuth: z.boolean().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  idempotencyHeader: z.string().min(1).optional(),
+  responseReferenceFields: z.array(z.string().min(1)).optional(),
+  responseStatusField: z.string().min(1).optional(),
+  responseMessageField: z.string().min(1).optional(),
 });
 
 const ProviderDefinitionSchema = z.object({
@@ -32,6 +37,7 @@ const ProviderDefinitionSchema = z.object({
     vpnProfileEnv: z.string().optional(),
     iso8583ProfileEnv: z.string().optional(),
     sdkProfileEnv: z.string().optional(),
+    settlementFileProfileEnv: z.string().optional(),
   }).optional(),
   operationEndpoints: z.object({
     collection: OperationDefinitionSchema.optional(),
@@ -48,6 +54,52 @@ const ProviderDefinitionSchema = z.object({
     toleranceSeconds: z.number().int().positive().optional(),
     signedPayloadFormat: z.enum(['raw', 'timestamp.raw']).optional(),
   }).optional(),
+}).superRefine((provider, ctx) => {
+  for (const operation of provider.operations) {
+    if (!provider.operationEndpoints?.[operation]) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['operationEndpoints', operation],
+        message: `Provider ${provider.code} declares ${operation} but does not map its endpoint.`,
+      });
+    }
+  }
+
+  if (provider.protocol === 'ISO8583_TCP_TLS') {
+    const missing = [
+      ['connection.hostEnv', provider.connection?.hostEnv],
+      ['connection.portEnv', provider.connection?.portEnv],
+      ['connection.mtlsProfileEnv', provider.connection?.mtlsProfileEnv],
+      ['connection.iso8583ProfileEnv', provider.connection?.iso8583ProfileEnv],
+    ].filter(([, value]) => !value);
+
+    for (const [pathName] of missing as Array<[string, unknown]>) {
+      ctx.addIssue({
+        code: 'custom',
+        path: pathName.split('.'),
+        message: `ISO8583 provider ${provider.code} requires ${pathName}.`,
+      });
+    }
+  }
+
+  if (provider.protocol === 'SFTP_SETTLEMENT_FILE' && !provider.connection?.settlementFileProfileEnv) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['connection', 'settlementFileProfileEnv'],
+      message: `SFTP provider ${provider.code} requires a settlement file profile env reference.`,
+    });
+  }
+
+  if (provider.protocol === 'VPN_PRIVATE_API') {
+    const hasPrivateNetwork = provider.connection?.vpnProfileEnv || provider.connection?.mtlsProfileEnv;
+    if (!hasPrivateNetwork) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['connection'],
+        message: `VPN/private API provider ${provider.code} requires vpnProfileEnv or mtlsProfileEnv.`,
+      });
+    }
+  }
 });
 
 const ProviderManifestSchema = z.object({
