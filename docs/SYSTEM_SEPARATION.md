@@ -52,4 +52,4 @@ ORBI Talk Gateway is the communication and template service.
 - `ORBI_PAY_GATEWAY_BASE_URL` in Core means ORBI Pay Gateway only.
 - `PAYMENT_GATEWAY_*` belongs to Pay Gateway runtime, providers, and Core callback signing.
 - `ORBI_TALK_GATEWAY_*` belongs to Talk Gateway messaging, templates, email, SMS, and push.
-- Legacy `ORBI_COMMUNICATIONS_GATEWAY_*` and messaging-flavored `ORBI_GATEWAY_*` names are compatibility aliases only.
+- Legacy ambiguous messaging variable names are not accepted in new Core configuration.
