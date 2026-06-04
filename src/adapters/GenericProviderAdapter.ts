@@ -15,6 +15,7 @@ import {
 } from '../security/providerCredentialVault.js';
 import { config } from '../config.js';
 import { verifyProviderWebhookSignature } from '../security/webhookSignature.js';
+import { protocolEngineRegistry } from '../protocols/ProtocolEngineRegistry.js';
 
 const envValue = (key?: string) => (key ? process.env[key]?.trim() || '' : '');
 
@@ -76,31 +77,40 @@ export class GenericProviderAdapter implements PaymentProviderAdapter {
       providerCode: this.code,
       status: configured ? 'DEGRADED' : 'DOWN',
       message: configured
-        ? 'Tokenized provider binding is present; operation executor still requires provider contract mapping.'
+        ? `Tokenized provider binding is present; ${this.definition.protocol} protocol engine is selected.`
         : 'Tokenized provider binding is not configured.',
       configured,
       rail: this.definition.rail,
+      protocol: this.definition.protocol,
       countries: this.definition.countries,
       currencies: this.definition.currencies,
       operations: this.definition.operations,
       missingEnv,
       credentialBinding: credentialBindingStatus(binding),
       nextAction: configured
-        ? 'Complete provider-specific request signing, endpoint mapping, and webhook verification.'
+        ? 'Complete provider certification, endpoint mapping, webhook verification, and acceptance testing.'
         : 'Set provider token reference environment variables and restart the gateway.',
     };
   }
 
-  private async execute(operation: PaymentDirection, _request: GatewayPaymentRequest): Promise<GatewayPaymentResponse> {
-    assertProviderCredentialBound(this.credentialBinding());
+  private async execute(operation: PaymentDirection, request: GatewayPaymentRequest): Promise<GatewayPaymentResponse> {
+    const credentialBinding = this.credentialBinding();
+    assertProviderCredentialBound(credentialBinding);
     if (!this.definition.operations.includes(operation)) {
       throw new Error(`PAYMENT_PROVIDER_OPERATION_UNSUPPORTED:${operation}`);
     }
-    if (!this.definition.operationEndpoints?.[operation]) {
+    const endpoint = this.definition.operationEndpoints?.[operation];
+    if (!endpoint) {
       throw new Error(`PAYMENT_PROVIDER_OPERATION_NOT_MAPPED:${operation}`);
     }
 
-    throw new Error(`PAYMENT_PROVIDER_EXECUTOR_NOT_IMPLEMENTED:${this.code}:${operation}`);
+    return protocolEngineRegistry.get(this.definition.protocol).execute({
+      provider: this.definition,
+      operation,
+      endpoint,
+      request,
+      credentialBinding,
+    });
   }
 
   private credentialBinding(): ProviderCredentialBinding {

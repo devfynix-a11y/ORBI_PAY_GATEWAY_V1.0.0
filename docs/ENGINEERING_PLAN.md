@@ -82,6 +82,7 @@ Phase 1:
 
 - manifest-driven provider readiness and request normalization
 - generic provider adapter contract for configured rails
+- pluggable protocol engine registry for REST, HMAC, ISO8583, SFTP, SDK, and VPN/private APIs
 - signed Core callback bridge
 - provider webhook endpoint skeletons
 

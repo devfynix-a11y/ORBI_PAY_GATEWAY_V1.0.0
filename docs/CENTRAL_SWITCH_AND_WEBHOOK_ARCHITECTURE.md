@@ -55,6 +55,19 @@ PAYMENT_GATEWAY_PROVIDER_MANIFEST_PATH=config/providers.json
 
 Each provider definition declares provider code, rail type, supported countries/currencies, supported operations, tokenized credential env names, webhook signature rules, and status/reference mapping fields.
 
+The manifest also selects a protocol engine:
+
+```txt
+REST_JSON
+REST_HMAC
+ISO8583_TCP_TLS
+SFTP_SETTLEMENT_FILE
+SDK_PROVIDER
+VPN_PRIVATE_API
+```
+
+REST engines can execute through the generic executor. Traditional engines are fail-closed until the bank/switch certificate, VPN, ISO8583 profile, settlement-file schema, or SDK contract is certified.
+
 ## 4. Tokenized Credential Layer
 
 The gateway stores token references, not the financial credentials themselves.

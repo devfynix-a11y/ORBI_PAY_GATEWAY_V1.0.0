@@ -1,6 +1,13 @@
 export type PaymentDirection = 'collection' | 'payout' | 'refund';
 export type NormalizedProviderStatus = 'pending' | 'processing' | 'completed' | 'failed';
 export type PaymentRail = 'MOBILE_MONEY' | 'BANK' | 'CARD_GATEWAY' | 'CRYPTO';
+export type PaymentProtocol =
+  | 'REST_JSON'
+  | 'REST_HMAC'
+  | 'ISO8583_TCP_TLS'
+  | 'SFTP_SETTLEMENT_FILE'
+  | 'SDK_PROVIDER'
+  | 'VPN_PRIVATE_API';
 export type StrongCustomerAuthStatus = 'not_required' | 'required' | 'challenged' | 'authenticated' | 'failed';
 
 export type StrongCustomerAuthContext = {
@@ -53,6 +60,7 @@ export type ProviderHealth = {
   message: string;
   configured: boolean;
   rail: PaymentRail;
+  protocol: PaymentProtocol;
   countries: string[];
   currencies: string[];
   operations: PaymentDirection[];
@@ -71,12 +79,19 @@ export type ProviderOperationDefinition = {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH';
   path: string;
   requiresStrongCustomerAuth?: boolean;
+  timeoutMs?: number;
+  idempotencyHeader?: string;
+  responseReferenceFields?: string[];
+  responseStatusField?: string;
+  responseMessageField?: string;
 };
 
 export type ProviderDefinition = {
   code: string;
   displayName: string;
   rail: PaymentRail;
+  protocol: PaymentProtocol;
+  protocolProfile?: string;
   countries: string[];
   currencies: string[];
   operations: PaymentDirection[];
@@ -86,6 +101,14 @@ export type ProviderDefinition = {
   threeDsProfileIdEnv?: string;
   directApiKeyEnv?: string;
   directApiSecretEnv?: string;
+  connection?: {
+    hostEnv?: string;
+    portEnv?: string;
+    mtlsProfileEnv?: string;
+    vpnProfileEnv?: string;
+    iso8583ProfileEnv?: string;
+    sdkProfileEnv?: string;
+  };
   operationEndpoints?: Partial<Record<PaymentDirection, ProviderOperationDefinition>>;
   webhookStatusField?: string;
   webhookReferenceFields?: string[];

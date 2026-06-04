@@ -4,6 +4,8 @@
       "code": "provider-code",
       "displayName": "Provider Display Name",
       "rail": "MOBILE_MONEY",
+      "protocol": "REST_HMAC",
+      "protocolProfile": "provider-rest-hmac-v1",
       "countries": ["TZ"],
       "currencies": ["TZS"],
       "operations": ["collection", "payout", "refund"],
@@ -25,6 +27,30 @@
         "timestampHeader": "x-provider-timestamp",
         "toleranceSeconds": 300,
         "signedPayloadFormat": "timestamp.raw"
+      }
+    },
+    {
+      "code": "bank-switch-code",
+      "displayName": "Bank Switch Display Name",
+      "rail": "BANK",
+      "protocol": "ISO8583_TCP_TLS",
+      "protocolProfile": "bank-switch-iso8583-profile-v1",
+      "countries": ["TZ"],
+      "currencies": ["TZS"],
+      "operations": ["collection", "payout"],
+      "baseUrlEnv": "BANK_SWITCH_TLS_ENDPOINT",
+      "credentialTokenRefEnv": "BANK_SWITCH_CREDENTIAL_TOKEN_REF",
+      "webhookSecretTokenRefEnv": "BANK_SWITCH_MESSAGE_AUTH_TOKEN_REF",
+      "connection": {
+        "hostEnv": "BANK_SWITCH_HOST",
+        "portEnv": "BANK_SWITCH_PORT",
+        "mtlsProfileEnv": "BANK_SWITCH_MTLS_PROFILE",
+        "vpnProfileEnv": "BANK_SWITCH_VPN_PROFILE",
+        "iso8583ProfileEnv": "BANK_SWITCH_ISO8583_PROFILE"
+      },
+      "operationEndpoints": {
+        "collection": { "method": "POST", "path": "iso8583://0200" },
+        "payout": { "method": "POST", "path": "iso8583://0200" }
       }
     }
   ]

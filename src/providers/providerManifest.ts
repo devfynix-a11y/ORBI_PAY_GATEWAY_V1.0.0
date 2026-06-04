@@ -14,6 +14,8 @@ const ProviderDefinitionSchema = z.object({
   code: z.string().min(1).transform((value) => value.trim().toLowerCase()),
   displayName: z.string().min(1),
   rail: z.enum(['MOBILE_MONEY', 'BANK', 'CARD_GATEWAY', 'CRYPTO']),
+  protocol: z.enum(['REST_JSON', 'REST_HMAC', 'ISO8583_TCP_TLS', 'SFTP_SETTLEMENT_FILE', 'SDK_PROVIDER', 'VPN_PRIVATE_API']).default('REST_JSON'),
+  protocolProfile: z.string().optional(),
   countries: z.array(z.string().min(2)).default([]),
   currencies: z.array(z.string().min(3)).default([]),
   operations: z.array(z.enum(['collection', 'payout', 'refund'])).default([]),
@@ -23,6 +25,14 @@ const ProviderDefinitionSchema = z.object({
   threeDsProfileIdEnv: z.string().optional(),
   directApiKeyEnv: z.string().optional(),
   directApiSecretEnv: z.string().optional(),
+  connection: z.object({
+    hostEnv: z.string().optional(),
+    portEnv: z.string().optional(),
+    mtlsProfileEnv: z.string().optional(),
+    vpnProfileEnv: z.string().optional(),
+    iso8583ProfileEnv: z.string().optional(),
+    sdkProfileEnv: z.string().optional(),
+  }).optional(),
   operationEndpoints: z.object({
     collection: OperationDefinitionSchema.optional(),
     payout: OperationDefinitionSchema.optional(),
