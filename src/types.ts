@@ -1,5 +1,18 @@
 export type PaymentDirection = 'collection' | 'payout' | 'refund';
 export type NormalizedProviderStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type PaymentRail = 'MOBILE_MONEY' | 'BANK' | 'CARD_GATEWAY' | 'CRYPTO';
+export type StrongCustomerAuthStatus = 'not_required' | 'required' | 'challenged' | 'authenticated' | 'failed';
+
+export type StrongCustomerAuthContext = {
+  status: StrongCustomerAuthStatus;
+  protocol?: '3DS2' | '3DS1' | 'OTP' | 'BIOMETRIC' | 'PASSKEY';
+  challengeId?: string;
+  authenticationValue?: string;
+  eci?: string;
+  dsTransactionId?: string;
+  liabilityShift?: boolean;
+  authenticatedAt?: string;
+};
 
 export type GatewayPaymentRequest = {
   providerCode: string;
@@ -10,6 +23,8 @@ export type GatewayPaymentRequest = {
   accountNumber?: string;
   walletId?: string;
   description?: string;
+  rail?: PaymentRail;
+  sca?: StrongCustomerAuthContext;
   metadata?: Record<string, unknown>;
 };
 
@@ -37,12 +52,44 @@ export type ProviderHealth = {
   status: 'UP' | 'DOWN' | 'DEGRADED';
   message: string;
   configured: boolean;
-  rail: 'MOBILE_MONEY' | 'BANK' | 'CARD_GATEWAY' | 'CRYPTO';
+  rail: PaymentRail;
   countries: string[];
   currencies: string[];
   operations: PaymentDirection[];
   missingEnv: string[];
   nextAction?: string;
+  credentialBinding?: {
+    mode: 'tokenized' | 'direct';
+    configured: boolean;
+    credentialTokenFingerprint?: string;
+    webhookTokenFingerprint?: string;
+    threeDsProfileId?: string;
+  };
+};
+
+export type ProviderOperationDefinition = {
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH';
+  path: string;
+  requiresStrongCustomerAuth?: boolean;
+};
+
+export type ProviderDefinition = {
+  code: string;
+  displayName: string;
+  rail: PaymentRail;
+  countries: string[];
+  currencies: string[];
+  operations: PaymentDirection[];
+  baseUrlEnv: string;
+  credentialTokenRefEnv: string;
+  webhookSecretTokenRefEnv: string;
+  threeDsProfileIdEnv?: string;
+  directApiKeyEnv?: string;
+  directApiSecretEnv?: string;
+  operationEndpoints?: Partial<Record<PaymentDirection, ProviderOperationDefinition>>;
+  webhookStatusField?: string;
+  webhookReferenceFields?: string[];
+  webhookEventIdFields?: string[];
 };
 
 export interface PaymentProviderAdapter {

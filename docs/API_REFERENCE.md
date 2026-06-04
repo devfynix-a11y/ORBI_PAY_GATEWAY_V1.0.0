@@ -25,10 +25,7 @@ GET /v1/providers
 GET /v1/providers/:providerCode/health
 ```
 
-Provider codes currently prepared:
-
-- `selcom`
-- `mpesa-tanzania`
+Provider codes are loaded from the provider manifest. They are not hardcoded in source.
 
 ## Collections
 
@@ -37,11 +34,11 @@ POST /v1/collections
 Content-Type: application/json
 ```
 
-Use collections when external money is moving into ORBI, for example M-Pesa to ORBI wallet.
+Use collections when external money is moving into ORBI, for example external rail to ORBI wallet.
 
 ```json
 {
-  "providerCode": "mpesa-tanzania",
+  "providerCode": "provider-code",
   "reference": "ORBI-DEP-20260604-0001",
   "amount": 10000,
   "currency": "TZS",
@@ -66,7 +63,7 @@ Use payouts when ORBI-approved money is moving out to an external provider rail.
 
 ```json
 {
-  "providerCode": "selcom",
+  "providerCode": "provider-code",
   "reference": "ORBI-WDR-20260604-0001",
   "amount": 5000,
   "currency": "TZS",
@@ -90,7 +87,7 @@ Refunds must reference the original ORBI transaction or provider reference so Co
 
 ```json
 {
-  "providerCode": "selcom",
+  "providerCode": "provider-code",
   "reference": "ORBI-RFD-20260604-0001",
   "amount": 5000,
   "currency": "TZS",
@@ -114,7 +111,7 @@ Provider adapters parse provider-specific callbacks into normalized events:
 
 ```json
 {
-  "providerId": "mpesa-tanzania",
+  "providerId": "provider-code",
   "reference": "ORBI-DEP-20260604-0001",
   "status": "completed",
   "message": "Provider confirmed payment",

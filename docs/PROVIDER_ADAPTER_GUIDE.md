@@ -41,12 +41,13 @@ Production adapters must:
 
 ## Adding A Provider
 
-1. Create `src/adapters/<provider>/<Provider>Adapter.ts`.
-2. Implement the adapter contract.
-3. Add environment variables to `.env.example`.
-4. Register the adapter in `src/adapters/AdapterRegistry.ts`.
-5. Add tests for readiness, status mapping, signing, and webhook parsing.
-6. Document required provider dashboard callback URLs.
+1. Add a provider definition to `config/providers.json` or `PAYMENT_GATEWAY_PROVIDER_MANIFEST_JSON`.
+2. Set provider token reference env vars from the manifest.
+3. Add a custom adapter plugin only when the provider cannot be represented by the generic HTTP contract.
+4. Add tests for readiness, status mapping, signing, and webhook parsing.
+5. Document required provider dashboard callback URLs.
+
+Providers are not hardcoded into the gateway source. The default registry loads provider definitions from the manifest and creates generic adapters dynamically.
 
 ## Provider Callback URL
 
@@ -57,6 +58,6 @@ https://pay.orbifinancial.com/v1/webhooks/<providerCode>
 Examples:
 
 ```txt
-https://pay.orbifinancial.com/v1/webhooks/mpesa-tanzania
-https://pay.orbifinancial.com/v1/webhooks/selcom
+https://pay.orbifinancial.com/v1/webhooks/provider-code
+https://pay.orbifinancial.com/v1/webhooks/bank-rail-provider
 ```

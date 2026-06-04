@@ -13,7 +13,7 @@ test('signed internal headers include Core worker authentication headers', () =>
   const headers = buildSignedInternalHeaders({
     method: 'POST',
     path: '/api/internal/gateway/provider-events',
-    body: { providerId: 'mpesa-tanzania', reference: 'TX-1', status: 'completed' },
+    body: { providerId: 'provider-code', reference: 'TX-1', status: 'completed' },
     workerId: 'orbi-payment-gateway',
     scopes: ['gateway:events:write'],
     signingSecret: 'test-secret',

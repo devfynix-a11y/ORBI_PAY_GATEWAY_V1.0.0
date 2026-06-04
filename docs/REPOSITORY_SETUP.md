@@ -25,10 +25,8 @@ git push -u origin main
 Configure these in the deployment platform, not Git:
 
 - `WORKER_SIGNING_SECRET`
-- `SELCOM_API_KEY`
-- `SELCOM_API_SECRET`
-- `MPESA_TZ_API_KEY`
-- `MPESA_TZ_API_SECRET`
+- `PAYMENT_GATEWAY_PROVIDER_MANIFEST_PATH` or `PAYMENT_GATEWAY_PROVIDER_MANIFEST_JSON`
+- provider token reference env vars declared by the manifest
 - mTLS private key paths/certificates where applicable
 
 ## Release Rule

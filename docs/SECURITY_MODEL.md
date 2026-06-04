@@ -68,6 +68,46 @@ Adapters must reject:
 - amount/currency mismatches when provider payload contains expected values
 - callbacks for unknown references
 
+## Tokenized Provider Credentials
+
+Provider credentials are represented by token references such as:
+
+```env
+PROVIDER_CREDENTIAL_TOKEN_REF=vault://orbi-pay/provider-code/api-credential
+PROVIDER_WEBHOOK_SECRET_TOKEN_REF=vault://orbi-pay/provider-code/webhook-secret
+```
+
+The token reference is safe to store in service configuration because it is not the credential itself. A future vault/HSM adapter resolves the token at signing time inside the gateway process boundary. Logs and readiness responses expose only token fingerprints, never the token value or underlying provider secret.
+
+Production default:
+
+```env
+PAYMENT_GATEWAY_CREDENTIAL_MODE=tokenized
+```
+
+Direct provider secrets are development-only and rejected when production runs in tokenized mode.
+
+## 3D Secure / Strong Customer Authentication
+
+Card-style rails must include authenticated SCA evidence from ORBI Core before the gateway executes the provider call. The gateway accepts redacted proof fields only:
+
+```json
+{
+  "rail": "CARD_GATEWAY",
+  "sca": {
+    "status": "authenticated",
+    "protocol": "3DS2",
+    "challengeId": "core-issued-challenge-id",
+    "dsTransactionId": "directory-server-transaction-id",
+    "eci": "05",
+    "liabilityShift": true,
+    "authenticatedAt": "2026-06-04T10:30:00.000Z"
+  }
+}
+```
+
+Never send raw card data, OTP values, passwords, PINs, or provider credentials through gateway payment payloads.
+
 ## Secrets
 
 Never commit:
@@ -82,6 +122,7 @@ Never commit:
 ## Fail-Closed Rules
 
 - If Core callback signing secret is missing in production, gateway startup fails.
-- If provider credentials are missing, provider readiness returns `DOWN`.
+- If provider token bindings are missing, provider readiness returns `DOWN`.
+- If card-style rails lack authenticated SCA evidence, the gateway rejects the operation before provider execution.
 - If provider webhook parsing fails, event is not forwarded to Core.
 - If Core callback fails, the gateway returns an error and logs the failed operation.

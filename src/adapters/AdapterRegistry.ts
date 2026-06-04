@@ -1,12 +1,12 @@
 import type { PaymentProviderAdapter } from '../types.js';
-import { MpesaTanzaniaAdapter } from './mpesa-tanzania/MpesaTanzaniaAdapter.js';
-import { SelcomAdapter } from './selcom/SelcomAdapter.js';
+import { GenericProviderAdapter } from './GenericProviderAdapter.js';
+import { loadProviderManifest } from '../providers/providerManifest.js';
 
 export class AdapterRegistry {
   private readonly adapters = new Map<string, PaymentProviderAdapter>();
 
   constructor() {
-    [new SelcomAdapter(), new MpesaTanzaniaAdapter()].forEach((adapter) => {
+    loadProviderManifest().map((provider) => new GenericProviderAdapter(provider)).forEach((adapter) => {
       this.adapters.set(adapter.code, adapter);
     });
   }

@@ -1,0 +1,24 @@
+{
+  "providers": [
+    {
+      "code": "provider-code",
+      "displayName": "Provider Display Name",
+      "rail": "MOBILE_MONEY",
+      "countries": ["TZ"],
+      "currencies": ["TZS"],
+      "operations": ["collection", "payout", "refund"],
+      "baseUrlEnv": "PROVIDER_API_BASE_URL",
+      "credentialTokenRefEnv": "PROVIDER_CREDENTIAL_TOKEN_REF",
+      "webhookSecretTokenRefEnv": "PROVIDER_WEBHOOK_SECRET_TOKEN_REF",
+      "threeDsProfileIdEnv": "PROVIDER_3DS_PROFILE_ID",
+      "operationEndpoints": {
+        "collection": { "method": "POST", "path": "/collections" },
+        "payout": { "method": "POST", "path": "/payouts" },
+        "refund": { "method": "POST", "path": "/refunds" }
+      },
+      "webhookStatusField": "status",
+      "webhookReferenceFields": ["reference", "order_id", "transid"],
+      "webhookEventIdFields": ["event_id", "transid", "reference"]
+    }
+  ]
+}

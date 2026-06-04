@@ -113,12 +113,14 @@ This reference is for maintainability only. It intentionally does not store secr
 | `PAYMENT_GATEWAY_INTERNAL_MTLS_KEY_PATH` | Runtime | Secret path | No | Payment gateway only | Payment gateway client private key path for direct mTLS. |
 | `PAYMENT_GATEWAY_INTERNAL_MTLS_CA_PATH` | Runtime | Non-secret | No | Payment gateway only | Internal CA path used to validate Core during direct mTLS. |
 | `PAYMENT_GATEWAY_INTERNAL_MTLS_REJECT_UNAUTHORIZED` | Runtime | Non-secret | No | Payment gateway only | Keeps Core certificate validation strict for direct mTLS. |
-| `SELCOM_API_BASE_URL` | Runtime | Non-secret | No | Payment gateway only | Selcom adapter API base URL. |
-| `SELCOM_API_KEY` | Runtime | Secret | No | Payment gateway only | Selcom adapter API key. |
-| `SELCOM_API_SECRET` | Runtime | Secret | No | Payment gateway only | Selcom adapter API secret. |
-| `MPESA_TZ_API_BASE_URL` | Runtime | Non-secret | No | Payment gateway only | M-Pesa Tanzania adapter API base URL. |
-| `MPESA_TZ_API_KEY` | Runtime | Secret | No | Payment gateway only | M-Pesa Tanzania adapter API key. |
-| `MPESA_TZ_API_SECRET` | Runtime | Secret | No | Payment gateway only | M-Pesa Tanzania adapter API secret. |
+| `PAYMENT_GATEWAY_PROVIDER_MANIFEST_PATH` | Runtime | Non-secret | No | Payment gateway only | Path to the provider manifest file, commonly `config/providers.json`. |
+| `PAYMENT_GATEWAY_PROVIDER_MANIFEST_JSON` | Runtime | Secret/config | No | Payment gateway only | Inline provider manifest JSON for deployment platforms that do not mount files. |
+| `PAYMENT_GATEWAY_CREDENTIAL_MODE` | Runtime | Non-secret | No | Payment gateway only | Use `tokenized` in production. Direct provider secrets are rejected in production tokenized mode. |
+| `PAYMENT_GATEWAY_REQUIRE_STRONG_CUSTOMER_AUTH` | Runtime | Non-secret | No | Payment gateway only | Requires authenticated SCA/3DS evidence for card-style rails. |
+| `<PROVIDER>_API_BASE_URL` | Runtime | Non-secret | No | Payment gateway only | Provider API base URL declared by the provider manifest. |
+| `<PROVIDER>_CREDENTIAL_TOKEN_REF` | Runtime | Secret/config | No | Payment gateway only | Token reference to provider API credentials in vault/HSM/KMS-backed storage. |
+| `<PROVIDER>_WEBHOOK_SECRET_TOKEN_REF` | Runtime | Secret/config | No | Payment gateway only | Token reference to provider webhook verification secret. |
+| `<PROVIDER>_3DS_PROFILE_ID` | Runtime | Non-secret | No | Payment gateway only | Optional 3DS/SCA profile id for card-style rails. |
 
 ## Monitoring And Alerts
 

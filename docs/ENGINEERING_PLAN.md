@@ -80,8 +80,8 @@ Future hardening adds mTLS on top of HMAC. HMAC must remain permanently enabled.
 
 Phase 1:
 
-- Selcom adapter readiness and request normalization
-- M-Pesa Tanzania adapter readiness and request normalization
+- manifest-driven provider readiness and request normalization
+- generic provider adapter contract for configured rails
 - signed Core callback bridge
 - provider webhook endpoint skeletons
 

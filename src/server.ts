@@ -5,6 +5,8 @@ import { config, requireGatewayRuntimeSecrets } from './config.js';
 import { logger } from './logger.js';
 import { adapterRegistry } from './adapters/AdapterRegistry.js';
 import { orbiCoreClient } from './core/orbiCoreClient.js';
+import { rejectUnsafeDirectSecretsInProduction } from './security/providerCredentialVault.js';
+import { assertStrongCustomerAuth, redactedScaForCore } from './security/strongCustomerAuth.js';
 import type { GatewayPaymentResponse, NormalizedProviderEvent } from './types.js';
 
 const PaymentRequestSchema = z.object({
@@ -16,6 +18,17 @@ const PaymentRequestSchema = z.object({
   accountNumber: z.string().optional(),
   walletId: z.string().optional(),
   description: z.string().max(500).optional(),
+  rail: z.enum(['MOBILE_MONEY', 'BANK', 'CARD_GATEWAY', 'CRYPTO']).optional(),
+  sca: z.object({
+    status: z.enum(['not_required', 'required', 'challenged', 'authenticated', 'failed']),
+    protocol: z.enum(['3DS2', '3DS1', 'OTP', 'BIOMETRIC', 'PASSKEY']).optional(),
+    challengeId: z.string().optional(),
+    authenticationValue: z.string().optional(),
+    eci: z.string().optional(),
+    dsTransactionId: z.string().optional(),
+    liabilityShift: z.boolean().optional(),
+    authenticatedAt: z.string().optional(),
+  }).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -97,9 +110,14 @@ const operationHandler = (operation: 'collect' | 'payout' | 'refund') => async (
 
   try {
     const adapter = adapterRegistry.get(parsed.data.providerCode);
+    assertStrongCustomerAuth(parsed.data);
     const response = await adapter[operation]({
       ...parsed.data,
-      metadata: { ...(parsed.data.metadata || {}), direction: operation },
+      metadata: {
+        ...(parsed.data.metadata || {}),
+        direction: operation,
+        sca: redactedScaForCore(parsed.data.sca),
+      },
     });
 
     let coreResult: unknown = null;
@@ -140,6 +158,7 @@ app.post('/v1/webhooks/:providerCode', async (req, res) => {
 });
 
 requireGatewayRuntimeSecrets();
+rejectUnsafeDirectSecretsInProduction();
 
 app.listen(config.port, () => {
   logger.info('payment_gateway_started', {
