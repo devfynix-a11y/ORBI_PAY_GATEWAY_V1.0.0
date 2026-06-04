@@ -22,6 +22,8 @@ This reference is for maintainability only. It intentionally does not store secr
 
 - `ORBI_MONITOR_API_KEY` is now a dedicated internal monitor token used only for protected monitor endpoints.
 - monitor routes no longer reuse tenant-facing `x-api-key` authentication.
+- `PAYMENT_GATEWAY_*` variables belong to ORBI Pay Gateway runtime, provider credentials, and Core callback signing.
+- `ORBI_PAY_GATEWAY_BASE_URL` in ORBI Core means the ORBI Pay Gateway base URL only.
 - `ORBI_TALK_GATEWAY_API_KEY` is for backend-to-ORBI-Talk-Gateway messaging calls such as SMS, email, push, and templates.
 - Legacy `ORBI_COMMUNICATIONS_GATEWAY_*` and `ORBI_GATEWAY_*` messaging variables are still accepted as fallback, but new deployments should use `ORBI_TALK_GATEWAY_*` to avoid mixing messaging with payment gateway configuration.
 - `ORBI_BASE_URL` is also script-only. In practice it often points to the same value as `BACKEND_URL`.
@@ -99,11 +101,11 @@ This reference is for maintainability only. It intentionally does not store secr
 
 | Variable | Type | Secret | In Shared Env | In `.env.example` | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `ORBI_GATEWAY_BASE_URL` | Runtime | Non-secret | Yes | Yes | Base URL for the payment gateway/payment bridge, not for SMS/email templates. |
+| `ORBI_PAY_GATEWAY_BASE_URL` | Runtime | Non-secret | Yes | Yes | Base URL for ORBI Pay Gateway, not for SMS/email templates. |
 | `ORBI_ENABLE_CORE_PROVIDER_GATEWAY_ROUTES` | Runtime | Non-secret | No | No | Temporary migration switch for legacy Core `/v1/gateway/*` provider-execution routes. Keep unset/false in production when using the separate Payment Gateway service. |
 | `ORBI_ALLOW_STUB_PROVIDER_RECONCILIATION` | Runtime | Non-secret | No | No | Non-production-only settlement lab override. Never enable in production; live settlement requires trusted provider proof before ledger commit. |
 | `PAYMENT_GATEWAY_PORT` | Runtime | Non-secret | No | Payment gateway only | Local port for the standalone ORBI Payment Gateway service. |
-| `PAYMENT_GATEWAY_PUBLIC_BASE_URL` | Runtime | Non-secret | No | Payment gateway only | Public base URL for external payment provider traffic, commonly `https://gateway.orbifinancial.com`. |
+| `PAYMENT_GATEWAY_PUBLIC_BASE_URL` | Runtime | Non-secret | No | Payment gateway only | Public base URL for external payment provider traffic, commonly `https://pay.orbifinancial.com`. |
 | `PAYMENT_GATEWAY_PROVIDER_MODE` | Runtime | Non-secret | No | Payment gateway only | Gateway provider mode. Use `live` for production provider adapters. |
 | `ORBI_CORE_INTERNAL_BASE_URL` | Runtime | Non-secret | No | Payment gateway only | Secure Core external root used by the payment gateway for signed callbacks, commonly `https://api.orbifinancial.com`. |
 | `ORBI_CORE_TRUSTED_GATEWAY_EVENT_PATH` | Runtime | Non-secret | No | Payment gateway only | Core internal route for normalized trusted provider events. |

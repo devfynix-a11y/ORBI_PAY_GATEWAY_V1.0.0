@@ -59,6 +59,7 @@ npm start
 - [Deployment Runbook](./docs/DEPLOYMENT_RUNBOOK.md)
 - [Provider Adapter Guide](./docs/PROVIDER_ADAPTER_GUIDE.md)
 - [Security Model](./docs/SECURITY_MODEL.md)
+- [System Separation](./docs/SYSTEM_SEPARATION.md)
 - [Core Environment Reference Snapshot](./docs/CORE_ENVIRONMENT_REFERENCE.md)
 
 ## Production Rule

@@ -51,12 +51,12 @@ Production adapters must:
 ## Provider Callback URL
 
 ```txt
-https://gateway.orbifinancial.com/v1/webhooks/<providerCode>
+https://pay.orbifinancial.com/v1/webhooks/<providerCode>
 ```
 
 Examples:
 
 ```txt
-https://gateway.orbifinancial.com/v1/webhooks/mpesa-tanzania
-https://gateway.orbifinancial.com/v1/webhooks/selcom
+https://pay.orbifinancial.com/v1/webhooks/mpesa-tanzania
+https://pay.orbifinancial.com/v1/webhooks/selcom
 ```

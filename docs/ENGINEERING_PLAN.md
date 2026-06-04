@@ -108,14 +108,14 @@ Core production:
 ```env
 ORBI_ENABLE_CORE_PROVIDER_GATEWAY_ROUTES=false
 ORBI_ALLOW_STUB_PROVIDER_RECONCILIATION=false
-ORBI_GATEWAY_BASE_URL=https://gateway.orbifinancial.com
+ORBI_PAY_GATEWAY_BASE_URL=https://pay.orbifinancial.com
 ```
 
 Gateway production:
 
 ```env
 NODE_ENV=production
-PAYMENT_GATEWAY_PUBLIC_BASE_URL=https://gateway.orbifinancial.com
+PAYMENT_GATEWAY_PUBLIC_BASE_URL=https://pay.orbifinancial.com
 PAYMENT_GATEWAY_PROVIDER_MODE=live
 ORBI_CORE_INTERNAL_BASE_URL=https://api.orbifinancial.com
 WORKER_SIGNING_SECRET=<same-secret-as-core>

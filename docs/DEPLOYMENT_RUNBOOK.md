@@ -5,14 +5,14 @@
 Run ORBI Pay Gateway on a separate VM or container from ORBI Core.
 
 ```txt
-gateway.orbifinancial.com -> Nginx -> ORBI Pay Gateway :3100
+pay.orbifinancial.com -> Nginx -> ORBI Pay Gateway :3100
 api.orbifinancial.com     -> Nginx -> ORBI Core :3000
 ```
 
 Core receives gateway callbacks through the secure Core external root and private internal route. The endpoint is externally reachable only as an authenticated service endpoint; it is not a public user API.
 
 ```txt
-https://gateway.orbifinancial.com
+https://pay.orbifinancial.com
   -> ORBI Pay Gateway
   -> https://api.orbifinancial.com/api/internal/gateway/provider-events
   -> ORBI Core worker-auth middleware
@@ -31,7 +31,7 @@ Security layers:
 ```env
 NODE_ENV=production
 PAYMENT_GATEWAY_PORT=3100
-PAYMENT_GATEWAY_PUBLIC_BASE_URL=https://gateway.orbifinancial.com
+PAYMENT_GATEWAY_PUBLIC_BASE_URL=https://pay.orbifinancial.com
 PAYMENT_GATEWAY_PROVIDER_MODE=live
 
 ORBI_CORE_INTERNAL_BASE_URL=https://api.orbifinancial.com
@@ -51,7 +51,7 @@ Core should keep legacy provider execution disabled:
 ```env
 ORBI_ENABLE_CORE_PROVIDER_GATEWAY_ROUTES=false
 ORBI_ALLOW_STUB_PROVIDER_RECONCILIATION=false
-ORBI_GATEWAY_BASE_URL=https://gateway.orbifinancial.com
+ORBI_PAY_GATEWAY_BASE_URL=https://pay.orbifinancial.com
 ```
 
 ## Build And Run
@@ -78,7 +78,7 @@ docker run -d --name orbi-pay-gateway --restart unless-stopped \
 ```nginx
 server {
   listen 443 ssl;
-  server_name gateway.orbifinancial.com;
+  server_name pay.orbifinancial.com;
 
   location / {
     proxy_pass http://127.0.0.1:3100;
@@ -94,9 +94,9 @@ server {
 ## Smoke Tests
 
 ```bash
-curl -i https://gateway.orbifinancial.com/health
-curl -i https://gateway.orbifinancial.com/ready
-curl -i https://gateway.orbifinancial.com/v1/providers
+curl -i https://pay.orbifinancial.com/health
+curl -i https://pay.orbifinancial.com/ready
+curl -i https://pay.orbifinancial.com/v1/providers
 ```
 
 ## Rollback
