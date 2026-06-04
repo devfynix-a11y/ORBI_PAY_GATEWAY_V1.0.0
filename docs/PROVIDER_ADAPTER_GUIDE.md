@@ -13,7 +13,7 @@ interface PaymentProviderAdapter {
   collect(request: GatewayPaymentRequest): Promise<GatewayPaymentResponse>;
   payout(request: GatewayPaymentRequest): Promise<GatewayPaymentResponse>;
   refund(request: GatewayPaymentRequest): Promise<GatewayPaymentResponse>;
-  parseWebhook(payload: unknown, headers: Record<string, string | undefined>): Promise<NormalizedProviderEvent>;
+  parseWebhook(payload: unknown, headers: Record<string, string | undefined>, rawBody?: Buffer): Promise<NormalizedProviderEvent>;
   health(): Promise<ProviderHealth>;
 }
 ```
@@ -22,13 +22,15 @@ interface PaymentProviderAdapter {
 
 Production adapters must:
 
-- validate credentials during readiness
+- validate tokenized credential bindings during readiness
 - use provider idempotency/reference fields
 - normalize statuses to `pending`, `processing`, `completed`, or `failed`
 - verify webhook signatures and timestamps
 - preserve raw provider payloads for audit, without logging secrets
 - never call ORBI Core with unverified provider success
 - never mutate ORBI balances directly
+- never log raw provider credentials, token refs, OTPs, PINs, card data, or SCA authentication values
+- reject unsigned, stale, or tampered provider callbacks before forwarding to Core
 
 ## Status Mapping
 
@@ -48,6 +50,24 @@ Production adapters must:
 5. Document required provider dashboard callback URLs.
 
 Providers are not hardcoded into the gateway source. The default registry loads provider definitions from the manifest and creates generic adapters dynamically.
+
+## Webhook Signature Manifest
+
+Each provider can declare its callback signature contract:
+
+```json
+{
+  "webhookSignature": {
+    "algorithm": "sha256",
+    "signatureHeader": "x-provider-signature",
+    "timestampHeader": "x-provider-timestamp",
+    "toleranceSeconds": 300,
+    "signedPayloadFormat": "timestamp.raw"
+  }
+}
+```
+
+The gateway signs/verifies the raw request body, not the parsed JSON object. This prevents attackers from changing payload fields and replaying a fake success callback.
 
 ## Provider Callback URL
 

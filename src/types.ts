@@ -90,6 +90,13 @@ export type ProviderDefinition = {
   webhookStatusField?: string;
   webhookReferenceFields?: string[];
   webhookEventIdFields?: string[];
+  webhookSignature?: {
+    algorithm: 'sha256' | 'sha512';
+    signatureHeader: string;
+    timestampHeader?: string;
+    toleranceSeconds?: number;
+    signedPayloadFormat?: 'raw' | 'timestamp.raw';
+  };
 };
 
 export interface PaymentProviderAdapter {
@@ -98,6 +105,6 @@ export interface PaymentProviderAdapter {
   collect(request: GatewayPaymentRequest): Promise<GatewayPaymentResponse>;
   payout(request: GatewayPaymentRequest): Promise<GatewayPaymentResponse>;
   refund(request: GatewayPaymentRequest): Promise<GatewayPaymentResponse>;
-  parseWebhook(payload: unknown, headers: Record<string, string | undefined>): Promise<NormalizedProviderEvent>;
+  parseWebhook(payload: unknown, headers: Record<string, string | undefined>, rawBody?: Buffer): Promise<NormalizedProviderEvent>;
   health(): Promise<ProviderHealth>;
 }

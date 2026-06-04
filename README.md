@@ -60,6 +60,7 @@ npm start
 - [Provider Adapter Guide](./docs/PROVIDER_ADAPTER_GUIDE.md)
 - [Security Model](./docs/SECURITY_MODEL.md)
 - [System Separation](./docs/SYSTEM_SEPARATION.md)
+- [Central Switch And Webhook Architecture](./docs/CENTRAL_SWITCH_AND_WEBHOOK_ARCHITECTURE.md)
 - [Core Environment Reference Snapshot](./docs/CORE_ENVIRONMENT_REFERENCE.md)
 
 ## Production Rule

@@ -14,6 +14,7 @@ import {
   type ProviderCredentialBinding,
 } from '../security/providerCredentialVault.js';
 import { config } from '../config.js';
+import { verifyProviderWebhookSignature } from '../security/webhookSignature.js';
 
 const envValue = (key?: string) => (key ? process.env[key]?.trim() || '' : '');
 
@@ -38,7 +39,12 @@ export class GenericProviderAdapter implements PaymentProviderAdapter {
     return this.execute('refund', request);
   }
 
-  async parseWebhook(payload: unknown): Promise<NormalizedProviderEvent> {
+  async parseWebhook(
+    payload: unknown,
+    headers: Record<string, string | undefined>,
+    rawBody?: Buffer,
+  ): Promise<NormalizedProviderEvent> {
+    verifyProviderWebhookSignature(this.definition, headers, rawBody);
     const event = payload as Record<string, unknown>;
     const reference = this.firstField(event, this.definition.webhookReferenceFields || ['reference', 'order_id', 'transid', 'ConversationID']);
     const providerEventId = this.firstField(event, this.definition.webhookEventIdFields || ['event_id', 'transid', 'TransactionID', 'reference']);

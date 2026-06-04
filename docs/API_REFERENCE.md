@@ -109,6 +109,8 @@ Content-Type: application/json
 
 Provider adapters parse provider-specific callbacks into normalized events:
 
+Provider callbacks are verified against the manifest-defined signature contract before normalization. Unsigned, stale, replayed, or tampered callbacks are rejected before ORBI Core receives any event.
+
 ```json
 {
   "providerId": "provider-code",

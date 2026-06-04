@@ -18,7 +18,14 @@
       },
       "webhookStatusField": "status",
       "webhookReferenceFields": ["reference", "order_id", "transid"],
-      "webhookEventIdFields": ["event_id", "transid", "reference"]
+      "webhookEventIdFields": ["event_id", "transid", "reference"],
+      "webhookSignature": {
+        "algorithm": "sha256",
+        "signatureHeader": "x-provider-signature",
+        "timestampHeader": "x-provider-timestamp",
+        "toleranceSeconds": 300,
+        "signedPayloadFormat": "timestamp.raw"
+      }
     }
   ]
 }

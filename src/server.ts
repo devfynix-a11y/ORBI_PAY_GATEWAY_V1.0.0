@@ -9,6 +9,14 @@ import { rejectUnsafeDirectSecretsInProduction } from './security/providerCreden
 import { assertStrongCustomerAuth, redactedScaForCore } from './security/strongCustomerAuth.js';
 import type { GatewayPaymentResponse, NormalizedProviderEvent } from './types.js';
 
+declare global {
+  namespace Express {
+    interface Request {
+      rawBody?: Buffer;
+    }
+  }
+}
+
 const PaymentRequestSchema = z.object({
   providerCode: z.string().min(1),
   reference: z.string().min(1),
@@ -54,7 +62,12 @@ const eventFromProviderResponse = (response: GatewayPaymentResponse): Normalized
 });
 
 const app = express();
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({
+  limit: '2mb',
+  verify: (req, _res, buf) => {
+    (req as express.Request).rawBody = Buffer.from(buf);
+  },
+}));
 
 app.use((req, res, next) => {
   const requestId = req.get('x-request-id') || crypto.randomUUID();
@@ -143,7 +156,7 @@ app.post('/v1/refunds', operationHandler('refund'));
 app.post('/v1/webhooks/:providerCode', async (req, res) => {
   try {
     const adapter = adapterRegistry.get(req.params.providerCode);
-    const event = await adapter.parseWebhook(req.body, normalizeHeaders(req.headers));
+    const event = await adapter.parseWebhook(req.body, normalizeHeaders(req.headers), req.rawBody);
     const coreResult = await orbiCoreClient.submitProviderEvent(event);
     logger.info('provider_webhook_forwarded_to_core', {
       providerCode: req.params.providerCode,

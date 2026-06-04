@@ -31,6 +31,13 @@ const ProviderDefinitionSchema = z.object({
   webhookStatusField: z.string().optional(),
   webhookReferenceFields: z.array(z.string()).optional(),
   webhookEventIdFields: z.array(z.string()).optional(),
+  webhookSignature: z.object({
+    algorithm: z.enum(['sha256', 'sha512']),
+    signatureHeader: z.string().min(1),
+    timestampHeader: z.string().min(1).optional(),
+    toleranceSeconds: z.number().int().positive().optional(),
+    signedPayloadFormat: z.enum(['raw', 'timestamp.raw']).optional(),
+  }).optional(),
 });
 
 const ProviderManifestSchema = z.object({
