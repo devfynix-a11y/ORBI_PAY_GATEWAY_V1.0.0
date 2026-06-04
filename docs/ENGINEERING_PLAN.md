@@ -1,0 +1,133 @@
+# ORBI Pay Gateway Enterprise Engineering Plan
+
+ORBI Pay Gateway is a standalone payment rail integration service. It must be operated as a separate deployable system from ORBI Core.
+
+## Target Architecture
+
+```txt
+User / Merchant / Agent
+  -> ORBI Core Banking Engine
+  -> ORBI Pay Gateway
+  -> External Provider Rail
+  -> ORBI Pay Gateway Provider Webhook
+  -> signed private callback over Core external root
+  -> ORBI Core ledger settlement
+```
+
+## Service Responsibilities
+
+ORBI Pay Gateway owns:
+
+- provider API credentials
+- provider request signing
+- collection, payout, and refund execution
+- provider webhook parsing and signature validation
+- provider health/readiness
+- normalized provider events sent to Core
+
+ORBI Core owns:
+
+- users, wallets, ledger, balances, double-entry posting
+- risk and limits
+- settlement authorization
+- account/wallet freeze and recovery policy
+- audit and operator controls
+
+The gateway must never directly mutate Core balances.
+
+## Secure Core Callback
+
+For separate infrastructure, the gateway calls Core through the secure Core root:
+
+```env
+ORBI_CORE_INTERNAL_BASE_URL=https://api.orbifinancial.com
+ORBI_CORE_TRUSTED_GATEWAY_EVENT_PATH=/api/internal/gateway/provider-events
+ORBI_CORE_CALLBACK_TIMEOUT_MS=7500
+```
+
+Full callback URL:
+
+```txt
+https://api.orbifinancial.com/api/internal/gateway/provider-events
+```
+
+This endpoint is private by protocol, not by obscurity. It must reject requests unless all worker-auth controls pass.
+
+## Callback Trust Controls
+
+Every gateway-to-Core callback includes:
+
+- `x-worker-id`
+- `x-worker-scopes`
+- `x-worker-request-id`
+- `x-worker-timestamp`
+- `x-worker-nonce`
+- `x-worker-signature`
+- optional `x-worker-key-id`
+
+Core verifies:
+
+- worker identity
+- scope `gateway:events:write`
+- timestamp freshness
+- nonce replay protection
+- body hash
+- HMAC signature
+
+Future hardening adds mTLS on top of HMAC. HMAC must remain permanently enabled.
+
+## Provider Adapter Roadmap
+
+Phase 1:
+
+- Selcom adapter readiness and request normalization
+- M-Pesa Tanzania adapter readiness and request normalization
+- signed Core callback bridge
+- provider webhook endpoint skeletons
+
+Phase 2:
+
+- provider-specific webhook signature validation
+- amount/currency/reference matching
+- provider idempotency keys
+- retry queues for provider/network failures
+- reconciliation status polling where provider supports it
+
+Phase 3:
+
+- direct mTLS or proxy mTLS between gateway and Core
+- provider SLA dashboards
+- settlement reconciliation files
+- provider failover policies
+- dual-control production provider onboarding
+
+## Production Rules
+
+Core production:
+
+```env
+ORBI_ENABLE_CORE_PROVIDER_GATEWAY_ROUTES=false
+ORBI_ALLOW_STUB_PROVIDER_RECONCILIATION=false
+ORBI_GATEWAY_BASE_URL=https://gateway.orbifinancial.com
+```
+
+Gateway production:
+
+```env
+NODE_ENV=production
+PAYMENT_GATEWAY_PUBLIC_BASE_URL=https://gateway.orbifinancial.com
+PAYMENT_GATEWAY_PROVIDER_MODE=live
+ORBI_CORE_INTERNAL_BASE_URL=https://api.orbifinancial.com
+WORKER_SIGNING_SECRET=<same-secret-as-core>
+```
+
+## Acceptance Criteria
+
+- Gateway can report `/health` and `/ready`.
+- Gateway provider readiness shows missing provider credentials without exposing secrets.
+- Gateway refuses to start in production without `WORKER_SIGNING_SECRET`.
+- Gateway refuses non-HTTPS Core callback roots in production.
+- Core rejects unsigned gateway events.
+- Core rejects gateway events without `gateway:events:write`.
+- Core posts ledger entries only after trusted provider proof.
+- Core legacy provider execution routes remain disabled in production.
