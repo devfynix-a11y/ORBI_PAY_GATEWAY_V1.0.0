@@ -24,7 +24,9 @@ Security layers:
 - HMAC worker signature on every callback.
 - timestamp freshness and nonce replay protection in Core.
 - worker scope `gateway:events:write`.
-- future mTLS/private endpoint policy once certificate lifecycle is ready.
+- direct mTLS from Pay Gateway to Core for transport-level service identity.
+
+HMAC remains mandatory even when mTLS is enabled. mTLS proves the calling service identity at the TLS layer; HMAC proves payload integrity, timestamp freshness, and replay safety at the application layer.
 
 ## Production Environment
 
@@ -42,6 +44,12 @@ PAYMENT_GATEWAY_WORKER_ID=orbi-payment-gateway
 PAYMENT_GATEWAY_WORKER_SCOPES=gateway:events:write
 WORKER_SIGNING_SECRET=<same-secret-configured-in-core>
 WORKER_KEY_ID=payment-gateway-v1
+
+PAYMENT_GATEWAY_INTERNAL_MTLS_ENABLED=true
+PAYMENT_GATEWAY_INTERNAL_MTLS_CERT_PATH=/opt/orbi/mtls/pay-gateway-client.crt
+PAYMENT_GATEWAY_INTERNAL_MTLS_KEY_PATH=/opt/orbi/mtls/pay-gateway-client.key
+PAYMENT_GATEWAY_INTERNAL_MTLS_CA_PATH=/opt/orbi/mtls/orbi-internal-ca.crt
+PAYMENT_GATEWAY_INTERNAL_MTLS_REJECT_UNAUTHORIZED=true
 ```
 
 ## Core Production Safety
@@ -52,7 +60,56 @@ Core should keep legacy provider execution disabled:
 ORBI_ENABLE_CORE_PROVIDER_GATEWAY_ROUTES=false
 ORBI_ALLOW_STUB_PROVIDER_RECONCILIATION=false
 ORBI_PAY_GATEWAY_BASE_URL=https://pay.orbifinancial.com
+
+ORBI_TLS_ENABLED=true
+ORBI_TLS_CERT_PATH=/opt/orbi/mtls/core-server.crt
+ORBI_TLS_KEY_PATH=/opt/orbi/mtls/core-server.key
+ORBI_TLS_CA_PATH=/opt/orbi/mtls/orbi-internal-ca.crt
+ORBI_TLS_REJECT_UNAUTHORIZED=true
+ORBI_INTERNAL_MTLS_MODE=required
+ORBI_INTERNAL_MTLS_SOURCE=direct
+ORBI_INTERNAL_MTLS_CA_PATH=/opt/orbi/mtls/orbi-internal-ca.crt
 ```
+
+## Direct mTLS Certificate Placement
+
+The local secrets bundle should contain:
+
+```txt
+mtls/orbi-internal-ca.crt
+mtls/core-server.crt
+mtls/core-server.key
+mtls/pay-gateway-client.crt
+mtls/pay-gateway-client.key
+```
+
+Install only the files each VM needs:
+
+```bash
+sudo mkdir -p /opt/orbi/mtls
+sudo chown root:root /opt/orbi/mtls
+sudo chmod 750 /opt/orbi/mtls
+```
+
+Core VM:
+
+```bash
+sudo cp orbi-internal-ca.crt core-server.crt core-server.key /opt/orbi/mtls/
+sudo chown root:root /opt/orbi/mtls/orbi-internal-ca.crt /opt/orbi/mtls/core-server.crt /opt/orbi/mtls/core-server.key
+sudo chmod 644 /opt/orbi/mtls/orbi-internal-ca.crt /opt/orbi/mtls/core-server.crt
+sudo chmod 600 /opt/orbi/mtls/core-server.key
+```
+
+Pay Gateway VM:
+
+```bash
+sudo cp orbi-internal-ca.crt pay-gateway-client.crt pay-gateway-client.key /opt/orbi/mtls/
+sudo chown root:root /opt/orbi/mtls/orbi-internal-ca.crt /opt/orbi/mtls/pay-gateway-client.crt /opt/orbi/mtls/pay-gateway-client.key
+sudo chmod 644 /opt/orbi/mtls/orbi-internal-ca.crt /opt/orbi/mtls/pay-gateway-client.crt
+sudo chmod 600 /opt/orbi/mtls/pay-gateway-client.key
+```
+
+If Core is behind a public reverse proxy, use a private DNS name or private IP route for `ORBI_CORE_INTERNAL_BASE_URL` where possible. The Core certificate must include the hostname used by Pay Gateway in its SAN list.
 
 ## Build And Run
 

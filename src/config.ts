@@ -60,4 +60,12 @@ export const requireGatewayRuntimeSecrets = () => {
   if (config.env === 'production' && !config.operatorDiscoveryApiKey) {
     throw new Error('PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY is required for production discovery endpoints.');
   }
+
+  if (config.env === 'production' && config.mtls.enabled) {
+    if (!config.mtls.cert || !config.mtls.key || !config.mtls.ca) {
+      throw new Error(
+        'PAYMENT_GATEWAY_INTERNAL_MTLS_CERT_PATH, PAYMENT_GATEWAY_INTERNAL_MTLS_KEY_PATH, and PAYMENT_GATEWAY_INTERNAL_MTLS_CA_PATH are required when mTLS is enabled.',
+      );
+    }
+  }
 };
