@@ -30,6 +30,41 @@
       }
     },
     {
+      "code": "tips-neighbor-bank",
+      "displayName": "TIPS Neighbor Bank Clearing Profile",
+      "rail": "BANK",
+      "protocol": "ISO20022_REST_XML",
+      "protocolProfile": "tips-iso20022-pacs-v1",
+      "countries": ["TZ"],
+      "currencies": ["TZS"],
+      "operations": ["collection", "payout", "refund"],
+      "baseUrlEnv": "TIPS_NEIGHBOR_BANK_BASE_URL",
+      "credentialTokenRefEnv": "TIPS_NEIGHBOR_BANK_CREDENTIAL_TOKEN_REF",
+      "webhookSecretTokenRefEnv": "TIPS_NEIGHBOR_BANK_WEBHOOK_SECRET_TOKEN_REF",
+      "connection": {
+        "iso20022ProfileEnv": "TIPS_ISO20022_PROFILE",
+        "clearingNetworkProfileEnv": "TIPS_CLEARING_NETWORK_PROFILE",
+        "participantIdEnv": "TIPS_ORBI_PARTICIPANT_ID",
+        "mtlsProfileEnv": "TIPS_MTLS_PROFILE",
+        "vpnProfileEnv": "TIPS_PRIVATE_CONNECTIVITY_PROFILE"
+      },
+      "operationEndpoints": {
+        "collection": { "method": "POST", "path": "/iso20022/pacs008", "idempotencyHeader": "Idempotency-Key" },
+        "payout": { "method": "POST", "path": "/iso20022/pacs008", "idempotencyHeader": "Idempotency-Key" },
+        "refund": { "method": "POST", "path": "/iso20022/pacs004", "idempotencyHeader": "Idempotency-Key" }
+      },
+      "webhookStatusField": "status",
+      "webhookReferenceFields": ["endToEndId", "transactionId", "reference"],
+      "webhookEventIdFields": ["messageId", "eventId", "transactionId"],
+      "webhookSignature": {
+        "algorithm": "sha256",
+        "signatureHeader": "x-tips-signature",
+        "timestampHeader": "x-tips-timestamp",
+        "toleranceSeconds": 300,
+        "signedPayloadFormat": "timestamp.raw"
+      }
+    },
+    {
       "code": "bank-switch-code",
       "displayName": "Bank Switch Display Name",
       "rail": "BANK",

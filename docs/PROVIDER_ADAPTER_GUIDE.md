@@ -8,6 +8,9 @@ Providers are loaded from a manifest, not hardcoded classes. The manifest choose
 | --- | --- | --- |
 | `REST_JSON` | Plain HTTPS JSON providers with tokenized credential binding. | Generic executor available. |
 | `REST_HMAC` | HTTPS JSON providers requiring HMAC-signed requests. | Generic executor available. |
+| `ISO20022_REST_JSON` | ISO 20022 semantic payload over HTTPS JSON. | Generic executor available for certified partner HTTP APIs. |
+| `ISO20022_REST_XML` | ISO 20022 XML document over HTTPS. | Generic executor available for certified partner HTTP APIs. |
+| `ISO20022_MTLS` | ISO 20022 over mTLS/private scheme or sponsored participant network. | Fail-closed until scheme/bank certification. |
 | `ISO8583_TCP_TLS` | Traditional bank/card/switch integrations over TCP/TLS. | Fail-closed extension point until bank profile certification. |
 | `SFTP_SETTLEMENT_FILE` | Settlement files, batch reconciliation, and clearing files. | Fail-closed extension point until partner file contract. |
 | `SDK_PROVIDER` | Providers requiring an official SDK. | Fail-closed extension point until SDK wrapper is installed. |
@@ -120,6 +123,8 @@ The universal layer handles:
 The protocol engine handles the provider/network dialect:
 
 - `REST_JSON` and `REST_HMAC` are generic online HTTP engines.
+- `ISO20022_REST_JSON` and `ISO20022_REST_XML` are the preferred engines for bank/switch participant integration where the partner exposes ISO 20022 over HTTP.
+- `ISO20022_MTLS` is the target for TIPS-style or scheme-grade private connectivity once certificates, participant IDs, and implementation guides are approved.
 - `ISO8583_TCP_TLS` needs a certified ISO8583 packager, field profile, MTI rules, response-code map, and private connectivity.
 - `SFTP_SETTLEMENT_FILE` needs a file layout, PGP/SFTP key profile, settlement calendar, and reconciliation parser.
 - `SDK_PROVIDER` needs an approved wrapper around the provider SDK so secrets and raw payloads are still controlled by ORBI.

@@ -64,3 +64,25 @@ test('manifest accepts a fully mapped generic REST provider', () => {
     assert.equal(providers[0].protocol, 'REST_HMAC');
   });
 });
+
+test('manifest rejects ISO 20022 providers without clearing profile references', () => {
+  withManifest({
+    providers: [{
+      code: 'tips-profile',
+      displayName: 'TIPS Profile',
+      rail: 'BANK',
+      protocol: 'ISO20022_REST_XML',
+      countries: ['TZ'],
+      currencies: ['TZS'],
+      operations: ['payout'],
+      baseUrlEnv: 'TIPS_BASE_URL',
+      credentialTokenRefEnv: 'TIPS_CREDENTIAL_TOKEN_REF',
+      webhookSecretTokenRefEnv: 'TIPS_WEBHOOK_SECRET_TOKEN_REF',
+      operationEndpoints: {
+        payout: { method: 'POST', path: '/iso20022/pacs008' },
+      },
+    }],
+  }, () => {
+    assert.throws(() => loadProviderManifest(), /ISO 20022 provider tips-profile requires/);
+  });
+});

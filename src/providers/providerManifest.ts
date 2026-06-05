@@ -19,7 +19,17 @@ const ProviderDefinitionSchema = z.object({
   code: z.string().min(1).transform((value) => value.trim().toLowerCase()),
   displayName: z.string().min(1),
   rail: z.enum(['MOBILE_MONEY', 'BANK', 'CARD_GATEWAY', 'CRYPTO']),
-  protocol: z.enum(['REST_JSON', 'REST_HMAC', 'ISO8583_TCP_TLS', 'SFTP_SETTLEMENT_FILE', 'SDK_PROVIDER', 'VPN_PRIVATE_API']).default('REST_JSON'),
+  protocol: z.enum([
+    'REST_JSON',
+    'REST_HMAC',
+    'ISO20022_REST_JSON',
+    'ISO20022_REST_XML',
+    'ISO20022_MTLS',
+    'ISO8583_TCP_TLS',
+    'SFTP_SETTLEMENT_FILE',
+    'SDK_PROVIDER',
+    'VPN_PRIVATE_API',
+  ]).default('REST_JSON'),
   protocolProfile: z.string().optional(),
   countries: z.array(z.string().min(2)).default([]),
   currencies: z.array(z.string().min(3)).default([]),
@@ -36,6 +46,9 @@ const ProviderDefinitionSchema = z.object({
     mtlsProfileEnv: z.string().optional(),
     vpnProfileEnv: z.string().optional(),
     iso8583ProfileEnv: z.string().optional(),
+    iso20022ProfileEnv: z.string().optional(),
+    clearingNetworkProfileEnv: z.string().optional(),
+    participantIdEnv: z.string().optional(),
     sdkProfileEnv: z.string().optional(),
     settlementFileProfileEnv: z.string().optional(),
   }).optional(),
@@ -78,6 +91,22 @@ const ProviderDefinitionSchema = z.object({
         code: 'custom',
         path: pathName.split('.'),
         message: `ISO8583 provider ${provider.code} requires ${pathName}.`,
+      });
+    }
+  }
+
+  if (provider.protocol.startsWith('ISO20022')) {
+    const missing = [
+      ['connection.iso20022ProfileEnv', provider.connection?.iso20022ProfileEnv],
+      ['connection.clearingNetworkProfileEnv', provider.connection?.clearingNetworkProfileEnv],
+      ['connection.participantIdEnv', provider.connection?.participantIdEnv],
+    ].filter(([, value]) => !value);
+
+    for (const [pathName] of missing as Array<[string, unknown]>) {
+      ctx.addIssue({
+        code: 'custom',
+        path: pathName.split('.'),
+        message: `ISO 20022 provider ${provider.code} requires ${pathName}.`,
       });
     }
   }

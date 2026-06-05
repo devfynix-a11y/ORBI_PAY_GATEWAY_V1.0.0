@@ -1,6 +1,8 @@
 import type { PaymentProtocol } from '../types.js';
 import type { PaymentProtocolEngine } from './PaymentProtocolEngine.js';
 import { FailClosedProtocolEngine } from './FailClosedProtocolEngine.js';
+import { Iso20022RestJsonEngine } from './Iso20022RestJsonEngine.js';
+import { Iso20022RestXmlEngine } from './Iso20022RestXmlEngine.js';
 import { RestHmacEngine } from './RestHmacEngine.js';
 import { RestJsonEngine } from './RestJsonEngine.js';
 
@@ -11,6 +13,9 @@ export class ProtocolEngineRegistry {
     [
       new RestJsonEngine(),
       new RestHmacEngine(),
+      new Iso20022RestJsonEngine(),
+      new Iso20022RestXmlEngine(),
+      new FailClosedProtocolEngine('ISO20022_MTLS'),
       new FailClosedProtocolEngine('ISO8583_TCP_TLS'),
       new FailClosedProtocolEngine('SFTP_SETTLEMENT_FILE'),
       new FailClosedProtocolEngine('SDK_PROVIDER'),

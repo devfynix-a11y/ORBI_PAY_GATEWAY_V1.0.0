@@ -4,6 +4,9 @@ export type PaymentRail = 'MOBILE_MONEY' | 'BANK' | 'CARD_GATEWAY' | 'CRYPTO';
 export type PaymentProtocol =
   | 'REST_JSON'
   | 'REST_HMAC'
+  | 'ISO20022_REST_JSON'
+  | 'ISO20022_REST_XML'
+  | 'ISO20022_MTLS'
   | 'ISO8583_TCP_TLS'
   | 'SFTP_SETTLEMENT_FILE'
   | 'SDK_PROVIDER'
@@ -116,6 +119,9 @@ export type ProviderDefinition = {
     mtlsProfileEnv?: string;
     vpnProfileEnv?: string;
     iso8583ProfileEnv?: string;
+    iso20022ProfileEnv?: string;
+    clearingNetworkProfileEnv?: string;
+    participantIdEnv?: string;
     sdkProfileEnv?: string;
     settlementFileProfileEnv?: string;
   };

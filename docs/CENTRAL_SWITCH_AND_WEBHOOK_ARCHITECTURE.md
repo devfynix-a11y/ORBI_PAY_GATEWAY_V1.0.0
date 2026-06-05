@@ -60,13 +60,16 @@ The manifest also selects a protocol engine:
 ```txt
 REST_JSON
 REST_HMAC
+ISO20022_REST_JSON
+ISO20022_REST_XML
+ISO20022_MTLS
 ISO8583_TCP_TLS
 SFTP_SETTLEMENT_FILE
 SDK_PROVIDER
 VPN_PRIVATE_API
 ```
 
-REST engines can execute through the generic executor. Traditional engines are fail-closed until the bank/switch certificate, VPN, ISO8583 profile, settlement-file schema, or SDK contract is certified.
+REST engines can execute through the generic executor. ISO 20022 REST JSON/XML engines provide the preferred bank/switch participant mapping for TIPS-style expansion. Private mTLS and traditional engines are fail-closed until the bank/switch certificate, participant profile, VPN, ISO 20022 implementation guide, ISO8583 profile, settlement-file schema, or SDK contract is certified.
 
 ## 4. Tokenized Credential Layer
 
@@ -85,9 +88,18 @@ Development may use `env://SOME_SECRET_ENV_NAME` token refs. Production should u
 
 Provider adapters translate ORBI-normalized requests into the provider or switch contract.
 
-Typical switch protocols include HTTPS JSON APIs, ISO 8583 over secure provider networks, provider SDKs, VPN/private tunnel APIs, and TLS or mTLS-protected HTTP APIs.
+Typical switch protocols include ISO 20022 XML/JSON over HTTPS or mTLS, HTTPS JSON APIs, ISO 8583 over secure provider networks, provider SDKs, VPN/private tunnel APIs, and TLS or mTLS-protected HTTP APIs.
 
-The gateway maps ORBI reference, amount, currency, rail identity, idempotency key, provider metadata, and SCA/3DS evidence where required.
+The gateway maps ORBI reference, amount, currency, rail identity, idempotency key, participant metadata, provider metadata, and SCA/3DS evidence where required.
+
+For ISO 20022 clearing paths, the gateway maps:
+
+- ORBI reference to `InstrId`, `EndToEndId`, and `TxId`
+- amount and currency to `IntrBkSttlmAmt`
+- sender account/wallet to debtor party/account
+- receiver account/wallet to creditor party/account
+- clearing route to settlement information and local instrument
+- payment return/refund to `pacs.004`
 
 ## 6. Inbound Provider Webhooks
 

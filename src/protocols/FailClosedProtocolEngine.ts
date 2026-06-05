@@ -26,6 +26,7 @@ export class FailClosedProtocolEngine implements PaymentProtocolEngine {
 
   private networkControls() {
     if (this.protocol === 'ISO8583_TCP_TLS') return ['PRIVATE_CONNECTIVITY', 'TLS_OR_MTLS', 'ISO8583_PROFILE', 'BANK_CERTIFICATION'];
+    if (this.protocol === 'ISO20022_MTLS') return ['PRIVATE_CONNECTIVITY', 'MTLS_PROFILE', 'ISO20022_PROFILE', 'PARTICIPANT_ID', 'SCHEME_CERTIFICATION'];
     if (this.protocol === 'SFTP_SETTLEMENT_FILE') return ['SFTP_KEYPAIR', 'PGP_FILE_ENCRYPTION', 'SETTLEMENT_FILE_CONTRACT'];
     if (this.protocol === 'SDK_PROVIDER') return ['PROVIDER_SDK_WRAPPER', 'TOKENIZED_CREDENTIAL_REFERENCE', 'SDK_CERTIFICATION'];
     if (this.protocol === 'VPN_PRIVATE_API') return ['VPN_OR_PRIVATE_LINK', 'MTLS_PROFILE', 'HMAC_OR_JWS_SIGNING'];

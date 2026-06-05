@@ -1,11 +1,11 @@
 # ORBI Pay Gateway
 
-ORBI Pay Gateway is the dedicated enterprise rail integration service for external money movement. It connects ORBI to providers such as mobile money, bank transfer rails, card processors, payout partners, and future crypto ramps.
+ORBI Pay Gateway is the dedicated enterprise rail integration service for external money movement. It is now ISO 20022-first, so ORBI can connect through a regulated neighbor bank or scheme participant, then expand into TIPS and other East African or global clearing pipelines without rewriting ORBI Core.
 
 It is intentionally separate from ORBI Core.
 
 - ORBI Core is the banking engine, ledger authority, risk engine, wallet authority, and admin control plane.
-- ORBI Pay Gateway is the provider adapter layer for collections, payouts, refunds, and provider callbacks.
+- ORBI Pay Gateway is the ISO 20022 clearing and provider execution boundary for collections, payouts, refunds, and clearing callbacks.
 - ORBI Pay Gateway never mutates wallet balances directly.
 - ORBI Pay Gateway normalizes provider events and sends signed internal events to ORBI Core.
 
@@ -15,7 +15,7 @@ It is intentionally separate from ORBI Core.
 Mobile / Admin / Partner
   -> ORBI Core
   -> ORBI Pay Gateway
-  -> External Provider
+  -> Neighbor Bank / TIPS / External Clearing Network
   -> ORBI Pay Gateway Webhook
   -> signed internal event over Core secure root
   -> ORBI Core ledger settlement
@@ -61,6 +61,7 @@ npm start
 - [Security Model](./docs/SECURITY_MODEL.md)
 - [System Separation](./docs/SYSTEM_SEPARATION.md)
 - [Central Switch And Webhook Architecture](./docs/CENTRAL_SWITCH_AND_WEBHOOK_ARCHITECTURE.md)
+- [ISO 20022 Clearing Architecture](./docs/ISO20022_CLEARING_ARCHITECTURE.md)
 - [Core Environment Reference Snapshot](./docs/CORE_ENVIRONMENT_REFERENCE.md)
 
 ## Production Rule

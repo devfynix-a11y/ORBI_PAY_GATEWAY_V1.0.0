@@ -2,13 +2,15 @@
 
 ORBI Pay Gateway is a standalone payment rail integration service. It must be operated as a separate deployable system from ORBI Core.
 
+The gateway is moving to an ISO 20022-first clearing model. Instead of onboarding every mobile money or bank provider one by one, ORBI can connect through a regulated neighbor bank or sponsored participant path, then speak standardized ISO 20022 messages into TIPS and future regional/global pipelines.
+
 ## Target Architecture
 
 ```txt
 User / Merchant / Agent
   -> ORBI Core Banking Engine
   -> ORBI Pay Gateway
-  -> External Provider Rail
+  -> Neighbor Bank / TIPS / External Clearing Network
   -> ORBI Pay Gateway Provider Webhook
   -> signed private callback over Core external root
   -> ORBI Core ledger settlement
@@ -83,11 +85,14 @@ Phase 1:
 - manifest-driven provider readiness and request normalization
 - generic provider adapter contract for configured rails
 - pluggable protocol engine registry for REST, HMAC, ISO8583, SFTP, SDK, and VPN/private APIs
+- ISO 20022 canonical mapping for `pacs.008`, `pacs.002`, and `pacs.004`
 - signed Core callback bridge
 - provider webhook endpoint skeletons
 
 Phase 2:
 
+- TIPS neighbor-bank clearing profile
+- ISO 20022 XML/JSON certification samples
 - provider-specific webhook signature validation
 - amount/currency/reference matching
 - provider idempotency keys
