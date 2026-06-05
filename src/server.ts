@@ -5,6 +5,7 @@ import { config, requireGatewayRuntimeSecrets } from './config.js';
 import { logger } from './logger.js';
 import { adapterRegistry } from './adapters/AdapterRegistry.js';
 import { orbiCoreClient } from './core/orbiCoreClient.js';
+import { obpDiscoveryService } from './discovery/ObpDiscoveryService.js';
 import { rejectUnsafeDirectSecretsInProduction } from './security/providerCredentialVault.js';
 import { assertStrongCustomerAuth, redactedScaForCore } from './security/strongCustomerAuth.js';
 import type { GatewayPaymentResponse, NormalizedProviderEvent } from './types.js';
@@ -108,6 +109,37 @@ app.get('/v1/providers/:providerCode/health', async (req, res) => {
     res.json({ success: true, data: result });
   } catch (e: any) {
     res.status(404).json({ success: false, error: e.message });
+  }
+});
+
+const requireOperatorDiscoveryAccess = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (!config.operatorDiscoveryApiKey && config.env !== 'production') return next();
+
+  const provided = req.get('x-orbi-pay-operator-key') || req.get('x-api-key') || '';
+  if (!config.operatorDiscoveryApiKey || provided !== config.operatorDiscoveryApiKey) {
+    return res.status(403).json({ success: false, error: 'PAY_GATEWAY_DISCOVERY_ACCESS_DENIED' });
+  }
+
+  return next();
+};
+
+app.get('/v1/discovery/obp/:providerCode/payment-capabilities', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const providerCode = String(req.params.providerCode || '');
+    const data = await obpDiscoveryService.discover(providerCode, {
+      bankId: String(req.query.bankId || '').trim() || undefined,
+      accountId: String(req.query.accountId || '').trim() || undefined,
+      viewId: String(req.query.viewId || '').trim() || undefined,
+      countryCode: String(req.query.countryCode || '').trim() || undefined,
+      currency: String(req.query.currency || '').trim() || undefined,
+    });
+    return res.json({ success: true, data });
+  } catch (e: any) {
+    logger.error('obp_payment_capability_discovery_failed', {
+      providerCode: req.params.providerCode,
+      error: e.message,
+    });
+    return res.status(502).json({ success: false, error: e.message || 'OBP_PAYMENT_CAPABILITY_DISCOVERY_FAILED' });
   }
 });
 

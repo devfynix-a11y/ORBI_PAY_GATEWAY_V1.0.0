@@ -88,6 +88,23 @@ export type ProviderHealth = {
   };
 };
 
+export type DiscoveredPaymentCapability = {
+  sourceProviderCode: string;
+  source: 'OBP_TRANSACTION_REQUEST_TYPE' | 'OBP_DYNAMIC_ENTITY' | 'OBP_BANK' | 'MANIFEST';
+  capabilityCode: string;
+  displayName: string;
+  rail: PaymentRail;
+  countryCode: string;
+  currency: string;
+  operations: PaymentDirection[];
+  operationCodes: string[];
+  status: 'DISCOVERED' | 'REQUIRES_REVIEW';
+  priority: number;
+  requires: Record<string, unknown>;
+  sourceReference?: string;
+  raw?: Record<string, unknown>;
+};
+
 export type ProviderOperationDefinition = {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH';
   path: string;

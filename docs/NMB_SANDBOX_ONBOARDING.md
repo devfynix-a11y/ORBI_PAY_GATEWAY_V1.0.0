@@ -72,9 +72,39 @@ NMB_OBP_SANDBOX_CONSUMER_ID=<consumer_id>
 NMB_OBP_SANDBOX_CONSUMER_KEY=<consumer_key>
 NMB_OBP_SANDBOX_CONSUMER_SECRET=<consumer_secret>
 NMB_OBP_SANDBOX_WEBHOOK_SECRET=<sandbox-webhook-secret-if-issued>
+NMB_OBP_SANDBOX_DIRECT_LOGIN_TOKEN=<optional-issued-direct-login-token>
+NMB_OBP_SANDBOX_USERNAME=<optional-obp-username-for-direct-login>
+NMB_OBP_SANDBOX_PASSWORD=<optional-obp-password-for-direct-login>
+PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY=<strong-random-operator-key>
 ```
 
 In production, do not use `env://` token refs. Use a vault/HSM/KMS token reference.
+
+## Discover NMB/OBP Payment Capabilities
+
+NMB sandbox exposes many OBP endpoints. ORBI should not hardcode mobile networks or bank rails from assumptions. Use Pay Gateway discovery first, then approve selected options into ORBI Core.
+
+```bash
+curl -s "https://pay.orbifinancial.com/v1/discovery/obp/nmb-obp-sandbox/payment-capabilities?bankId=nmbb.01.tz.nmbb&countryCode=TZ&currency=TZS" \
+  -H "x-orbi-pay-operator-key: $PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY"
+```
+
+The discovery service inspects:
+
+- `GET /obp/v4.0.0/banks`
+- `GET /obp/v2.1.0/banks/{BANK_ID}/transaction-request-types`
+- `GET /obp/v6.0.0/management/system-dynamic-entities`
+- `GET /obp/v6.0.0/management/banks/{BANK_ID}/dynamic-entities`
+- account-level transaction request types if `accountId` and `viewId` are supplied
+
+Discovery output is intentionally marked `REQUIRES_REVIEW`. Operators must review naming, limits, fees, required fields, and status in ORBI Admin Portal before the option appears in mobile apps.
+
+Production flow:
+
+1. Pay Gateway discovers NMB/OBP transaction request types and dynamic entity candidates.
+2. ORBI Admin reviews and saves selected candidates into Core `payment_rail_capabilities`.
+3. Mobile apps call Core `GET /v1/payment-methods`.
+4. Core routes selected capability codes through the parent partner bank/switch profile and Pay Gateway.
 
 ## Local Secret Import Helper
 

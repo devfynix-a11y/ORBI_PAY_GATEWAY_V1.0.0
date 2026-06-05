@@ -19,6 +19,7 @@ export const config = {
   publicBaseUrl: process.env.PAYMENT_GATEWAY_PUBLIC_BASE_URL || 'https://pay.orbifinancial.com',
   providerMode: process.env.PAYMENT_GATEWAY_PROVIDER_MODE || 'live',
   providerManifestPath: process.env.PAYMENT_GATEWAY_PROVIDER_MANIFEST_PATH || 'config/providers.json',
+  operatorDiscoveryApiKey: process.env.PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY || '',
   security: {
     credentialMode: (process.env.PAYMENT_GATEWAY_CREDENTIAL_MODE || 'tokenized') as 'tokenized' | 'direct',
     requireStrongCustomerAuth: boolFromEnv(process.env.PAYMENT_GATEWAY_REQUIRE_STRONG_CUSTOMER_AUTH, true),
@@ -54,5 +55,9 @@ export const requireGatewayRuntimeSecrets = () => {
 
   if (config.env === 'production' && !config.core.baseUrl.startsWith('https://')) {
     throw new Error('ORBI_CORE_INTERNAL_BASE_URL must use https:// in production.');
+  }
+
+  if (config.env === 'production' && !config.operatorDiscoveryApiKey) {
+    throw new Error('PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY is required for production discovery endpoints.');
   }
 };

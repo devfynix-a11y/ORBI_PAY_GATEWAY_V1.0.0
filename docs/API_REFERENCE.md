@@ -36,6 +36,45 @@ Provider health response includes:
 - `credentialBinding`: tokenized credential status without exposing secrets.
 - `protocolCapabilities`: online authorization, webhook, batch, network-control, and certification posture.
 
+## OBP/NMB Payment Capability Discovery
+
+```http
+GET /v1/discovery/obp/:providerCode/payment-capabilities?bankId=nmbb.01.tz.nmbb&countryCode=TZ&currency=TZS
+x-orbi-pay-operator-key: <PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY>
+```
+
+This operator-only endpoint discovers payment capability candidates from an Open Bank Project provider such as `nmb-obp-sandbox`.
+
+The gateway inspects:
+
+- `/obp/v4.0.0/banks`
+- `/obp/v2.1.0/banks/{BANK_ID}/transaction-request-types`
+- `/obp/v6.0.0/management/system-dynamic-entities`
+- `/obp/v6.0.0/management/banks/{BANK_ID}/dynamic-entities`
+- account-level transaction request types when `accountId` and `viewId` are provided
+
+The response is a review list, not a production switch-on command. ORBI Core and the Admin Portal must approve and save selected entries into `payment_rail_capabilities` before mobile apps display them.
+
+Example response item:
+
+```json
+{
+  "sourceProviderCode": "nmb-obp-sandbox",
+  "source": "OBP_TRANSACTION_REQUEST_TYPE",
+  "capabilityCode": "M_PESA_TZ_TZ",
+  "displayName": "M Pesa Tz",
+  "rail": "MOBILE_MONEY",
+  "countryCode": "TZ",
+  "currency": "TZS",
+  "operations": ["collection", "payout"],
+  "operationCodes": ["COLLECTION_REQUEST", "DISBURSEMENT_REQUEST"],
+  "status": "REQUIRES_REVIEW",
+  "requires": { "msisdn": true }
+}
+```
+
+Do not expose this endpoint publicly. It uses provider credentials to inspect bank capability metadata and must remain operator/internal only.
+
 ## Collections
 
 ```http
