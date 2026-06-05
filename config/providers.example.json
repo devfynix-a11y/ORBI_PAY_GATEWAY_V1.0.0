@@ -30,36 +30,6 @@
       }
     },
     {
-      "code": "nmb-obp-sandbox",
-      "displayName": "NMB OBP Sandbox",
-      "rail": "BANK",
-      "protocol": "REST_JSON",
-      "protocolProfile": "nmb-obp-sandbox-v1",
-      "countries": ["TZ"],
-      "currencies": ["TZS"],
-      "operations": ["collection", "payout", "refund"],
-      "baseUrlEnv": "NMB_OBP_SANDBOX_BASE_URL",
-      "credentialTokenRefEnv": "NMB_OBP_SANDBOX_CREDENTIAL_TOKEN_REF",
-      "credentialScheme": "OBP_CONSUMER",
-      "credentialMetadataEnv": "NMB_OBP_SANDBOX_CREDENTIAL_METADATA",
-      "webhookSecretTokenRefEnv": "NMB_OBP_SANDBOX_WEBHOOK_SECRET_TOKEN_REF",
-      "operationEndpoints": {
-        "collection": { "method": "POST", "path": "/obp/v4.0.0/banks/nmbb.01.tz.nmbb/transaction-request-types/SANDBOX_TAN/transaction-requests", "idempotencyHeader": "Idempotency-Key" },
-        "payout": { "method": "POST", "path": "/obp/v4.0.0/banks/nmbb.01.tz.nmbb/transaction-request-types/SANDBOX_TAN/transaction-requests", "idempotencyHeader": "Idempotency-Key" },
-        "refund": { "method": "POST", "path": "/obp/v4.0.0/banks/nmbb.01.tz.nmbb/transaction-request-types/SANDBOX_TAN/transaction-requests", "idempotencyHeader": "Idempotency-Key" }
-      },
-      "webhookStatusField": "status",
-      "webhookReferenceFields": ["id", "transaction_request_id", "reference", "end_to_end_id"],
-      "webhookEventIdFields": ["id", "transaction_request_id", "event_id"],
-      "webhookSignature": {
-        "algorithm": "sha256",
-        "signatureHeader": "x-nmb-obp-signature",
-        "timestampHeader": "x-nmb-obp-timestamp",
-        "toleranceSeconds": 300,
-        "signedPayloadFormat": "timestamp.raw"
-      }
-    },
-    {
       "code": "tips-neighbor-bank",
       "displayName": "TIPS Neighbor Bank Clearing Profile",
       "rail": "BANK",

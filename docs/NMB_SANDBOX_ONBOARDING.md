@@ -35,6 +35,32 @@ provider_metadata.pay_gateway_provider_code = nmb-obp-sandbox
 provider_metadata.switch_profile_code = nmb-obp-sandbox
 ```
 
+## Provider Manifest
+
+NMB-specific endpoints must live in the runtime provider manifest, not in source code.
+
+For sandbox, start from:
+
+```txt
+config/providers.nmb-sandbox.example.json
+```
+
+Create the real runtime manifest:
+
+```powershell
+Copy-Item `
+  -LiteralPath "D:\FYNIX\ORBI\ORBI CORE\ORBI PAY GATEWAY\config\providers.nmb-sandbox.example.json" `
+  -Destination "D:\FYNIX\ORBI\ORBI CORE\ORBI PAY GATEWAY\config\providers.json"
+```
+
+Then keep:
+
+```env
+PAYMENT_GATEWAY_PROVIDER_MANIFEST_PATH=config/providers.json
+```
+
+`config/providers.json` is ignored by Git and should be treated like deployment configuration.
+
 ## Environment Variables
 
 ```env
