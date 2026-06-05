@@ -106,6 +106,62 @@ Production flow:
 3. Mobile apps call Core `GET /v1/payment-methods`.
 4. Core routes selected capability codes through the parent partner bank/switch profile and Pay Gateway.
 
+## Create Or Inspect Test Accounts
+
+OBP sandbox accounts are operator test data. They are not ORBI customer wallets and must not be shown directly in consumer mobile UI.
+
+### Option A: Import Sandbox Data
+
+If your NMB/OBP sandbox user has the `CanCreateSandbox` entitlement, you can import a full test dataset:
+
+```powershell
+$headers = @{
+  "x-orbi-pay-operator-key" = $env:PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY
+  "Content-Type" = "application/json"
+}
+
+$payload = Get-Content -Raw ".\sandbox-import.sample.json"
+
+Invoke-RestMethod `
+  -Uri "https://pay.orbifinancial.com/v1/discovery/obp/nmb-obp-sandbox/sandbox/data-import" `
+  -Method POST `
+  -Headers $headers `
+  -Body $payload |
+  ConvertTo-Json -Depth 30
+```
+
+This proxies to:
+
+```txt
+POST /obp/v2.1.0/sandbox/data-import
+```
+
+If OBP returns an entitlement error, request or assign `CanCreateSandbox` to the sandbox user first.
+
+### Option B: List Existing Accounts
+
+After import, or if NMB already provides accounts, inspect them through Pay Gateway:
+
+```powershell
+$headers = @{
+  "x-orbi-pay-operator-key" = $env:PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY
+}
+
+Invoke-RestMethod `
+  -Uri "https://pay.orbifinancial.com/v1/discovery/obp/nmb-obp-sandbox/banks/nmbb.01.tz.nmbb/accounts?scope=all" `
+  -Headers $headers |
+  ConvertTo-Json -Depth 30
+```
+
+Supported scopes:
+
+- `latest`: `/obp/v6.0.0/banks/{BANK_ID}/accounts`
+- `private`: `/obp/v3.0.0/banks/{BANK_ID}/accounts/private`
+- `public`: `/obp/v2.0.0/banks/{BANK_ID}/accounts/public`
+- `all`: inspect all three and merge the sanitized result
+
+Use account IDs/views from this output only for sandbox capability testing, for example account-level transaction request type discovery. Production routing must still go through approved Core `payment_rail_capabilities`.
+
 ## Local Secret Import Helper
 
 If your NMB credentials are stored outside Git as key/value text, generate local `.env` lines like this:

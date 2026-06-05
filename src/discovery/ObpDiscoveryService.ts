@@ -10,6 +10,12 @@ type ObpDiscoveryOptions = {
   currency?: string;
 };
 
+type ObpAccountDiscoveryOptions = {
+  bankId: string;
+  scope?: 'latest' | 'private' | 'public' | 'all';
+  accountType?: string;
+};
+
 type ObpFetchResult = {
   path: string;
   ok: boolean;
@@ -37,7 +43,16 @@ const asArray = (value: unknown): unknown[] => {
   if (Array.isArray(value)) return value;
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>;
-    for (const key of ['transaction_request_types', 'transactionRequestTypes', 'dynamic_entities', 'dynamicEntities', 'banks']) {
+    for (const key of [
+      'transaction_request_types',
+      'transactionRequestTypes',
+      'dynamic_entities',
+      'dynamicEntities',
+      'accounts',
+      'bank_accounts',
+      'bankAccounts',
+      'banks',
+    ]) {
       if (Array.isArray(record[key])) return record[key] as unknown[];
     }
   }
@@ -187,6 +202,118 @@ export class ObpDiscoveryService {
     } catch (error: any) {
       return { path, ok: false, status: 0, error: error.message || 'OBP_FETCH_FAILED' };
     }
+  }
+
+  private async post(
+    provider: ProviderDefinition,
+    path: string,
+    authorization: string,
+    body: unknown,
+  ): Promise<ObpFetchResult> {
+    try {
+      const response = await fetch(`${this.baseUrl(provider)}${path}`, {
+        method: 'POST',
+        headers: {
+          Authorization: authorization,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body ?? {}),
+      });
+      const text = await response.text();
+      const data = text ? JSON.parse(text) : {};
+      return {
+        path,
+        ok: response.ok,
+        status: response.status,
+        data,
+        error: response.ok ? undefined : pickString(data, ['message', 'error', 'status']) || response.statusText,
+      };
+    } catch (error: any) {
+      return { path, ok: false, status: 0, error: error.message || 'OBP_POST_FAILED' };
+    }
+  }
+
+  async importSandboxData(providerCode: string, body: unknown) {
+    const provider = this.provider(providerCode);
+    const authorization = await this.authHeader(provider);
+    const result = await this.post(provider, '/obp/v2.1.0/sandbox/data-import', authorization, body);
+
+    return {
+      provider: {
+        code: provider.code,
+        displayName: provider.displayName,
+        baseUrlEnv: provider.baseUrlEnv,
+      },
+      path: result.path,
+      ok: result.ok,
+      status: result.status,
+      error: result.error,
+      data: sanitizeRaw(result.data),
+      note: result.ok
+        ? 'Sandbox data import accepted by OBP provider.'
+        : 'Sandbox data import failed. Confirm CanCreateSandbox entitlement and payload shape.',
+    };
+  }
+
+  async discoverAccounts(providerCode: string, options: ObpAccountDiscoveryOptions) {
+    const provider = this.provider(providerCode);
+    const authorization = await this.authHeader(provider);
+    const bankId = options.bankId.trim();
+    if (!bankId) throw new Error('OBP_BANK_ID_REQUIRED');
+
+    const scope = options.scope || 'all';
+    const accountTypeQuery = options.accountType?.trim()
+      ? `?account_type=${encodeURIComponent(options.accountType.trim())}`
+      : '';
+    const paths = [
+      ...(scope === 'latest' || scope === 'all'
+        ? [`/obp/v6.0.0/banks/${encodeURIComponent(bankId)}/accounts${accountTypeQuery}`]
+        : []),
+      ...(scope === 'private' || scope === 'all'
+        ? [`/obp/v3.0.0/banks/${encodeURIComponent(bankId)}/accounts/private${accountTypeQuery}`]
+        : []),
+      ...(scope === 'public' || scope === 'all'
+        ? [`/obp/v2.0.0/banks/${encodeURIComponent(bankId)}/accounts/public`]
+        : []),
+    ];
+
+    const results = await Promise.all(paths.map((path) => this.get(provider, path, authorization)));
+    const accounts = new Map<string, Record<string, unknown>>();
+
+    for (const result of results) {
+      if (!result.ok) continue;
+      for (const item of asArray(result.data)) {
+        if (!item || typeof item !== 'object') continue;
+        const record = sanitizeRaw(item);
+        const accountId = pickString(record, ['id', 'account_id', 'accountId', 'number', 'label']);
+        if (!accountId) continue;
+        accounts.set(`${result.path}:${accountId}`, {
+          ...record,
+          sourcePath: result.path,
+        });
+      }
+    }
+
+    return {
+      provider: {
+        code: provider.code,
+        displayName: provider.displayName,
+        baseUrlEnv: provider.baseUrlEnv,
+      },
+      bankId,
+      scope,
+      accountType: options.accountType?.trim() || null,
+      accounts: [...accounts.values()],
+      inspected: results.map((result) => ({
+        path: result.path,
+        ok: result.ok,
+        status: result.status,
+        error: result.error,
+        count: asArray(result.data).length,
+      })),
+      note: 'Operator-only sandbox/account discovery. Mobile apps must consume approved Core payment rails, not raw OBP accounts.',
+    };
   }
 
   async discover(providerCode: string, options: ObpDiscoveryOptions = {}) {

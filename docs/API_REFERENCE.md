@@ -75,6 +75,44 @@ Example response item:
 
 Do not expose this endpoint publicly. It uses provider credentials to inspect bank capability metadata and must remain operator/internal only.
 
+## OBP/NMB Sandbox Accounts
+
+```http
+GET /v1/discovery/obp/:providerCode/banks/:bankId/accounts?scope=all&accountType=CURRENT
+x-orbi-pay-operator-key: <PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY>
+```
+
+This operator-only endpoint helps engineers inspect NMB/OBP sandbox accounts after sandbox data has been imported or issued by the bank.
+
+Supported `scope` values:
+
+- `latest`: calls `/obp/v6.0.0/banks/{BANK_ID}/accounts`
+- `private`: calls `/obp/v3.0.0/banks/{BANK_ID}/accounts/private`
+- `public`: calls `/obp/v2.0.0/banks/{BANK_ID}/accounts/public`
+- `all`: inspects all of the above and returns a merged list
+
+Optional `accountType` is forwarded to authenticated account endpoints as `account_type`.
+
+The response includes sanitized account metadata and an `inspected` section showing which OBP endpoints worked. This endpoint is for operator sandbox validation only. Mobile apps must never consume raw OBP account lists directly; they must consume approved ORBI Core payment methods.
+
+## OBP Sandbox Data Import
+
+```http
+POST /v1/discovery/obp/:providerCode/sandbox/data-import
+x-orbi-pay-operator-key: <PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY>
+Content-Type: application/json
+```
+
+Passes a sandbox data import payload to:
+
+```txt
+/obp/v2.1.0/sandbox/data-import
+```
+
+Use this only in sandbox with a user that has the OBP `CanCreateSandbox` entitlement. The payload can create test banks, users, accounts, transactions, branches, and ATMs depending on the OBP sample you provide.
+
+Never enable sandbox data import against production provider profiles.
+
 ## Collections
 
 ```http

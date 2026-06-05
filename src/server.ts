@@ -143,6 +143,42 @@ app.get('/v1/discovery/obp/:providerCode/payment-capabilities', requireOperatorD
   }
 });
 
+app.get('/v1/discovery/obp/:providerCode/banks/:bankId/accounts', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const scopeInput = String(req.query.scope || 'all').trim().toLowerCase();
+    const scope = ['latest', 'private', 'public', 'all'].includes(scopeInput)
+      ? (scopeInput as 'latest' | 'private' | 'public' | 'all')
+      : 'all';
+    const data = await obpDiscoveryService.discoverAccounts(String(req.params.providerCode || ''), {
+      bankId: String(req.params.bankId || ''),
+      scope,
+      accountType: String(req.query.accountType || '').trim() || undefined,
+    });
+    return res.json({ success: true, data });
+  } catch (e: any) {
+    logger.error('obp_account_discovery_failed', {
+      providerCode: req.params.providerCode,
+      bankId: req.params.bankId,
+      error: e.message,
+    });
+    return res.status(502).json({ success: false, error: e.message || 'OBP_ACCOUNT_DISCOVERY_FAILED' });
+  }
+});
+
+app.post('/v1/discovery/obp/:providerCode/sandbox/data-import', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const data = await obpDiscoveryService.importSandboxData(String(req.params.providerCode || ''), req.body);
+    const status = data.ok ? 200 : 502;
+    return res.status(status).json({ success: data.ok, data, error: data.error });
+  } catch (e: any) {
+    logger.error('obp_sandbox_data_import_failed', {
+      providerCode: req.params.providerCode,
+      error: e.message,
+    });
+    return res.status(502).json({ success: false, error: e.message || 'OBP_SANDBOX_DATA_IMPORT_FAILED' });
+  }
+});
+
 const operationHandler = (operation: 'collect' | 'payout' | 'refund') => async (req: express.Request, res: express.Response) => {
   const parsed = PaymentRequestSchema.safeParse(req.body);
   if (!parsed.success) {
