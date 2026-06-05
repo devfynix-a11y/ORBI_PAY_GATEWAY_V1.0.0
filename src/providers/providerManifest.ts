@@ -40,6 +40,8 @@ const ProviderDefinitionSchema = z.object({
   threeDsProfileIdEnv: z.string().optional(),
   directApiKeyEnv: z.string().optional(),
   directApiSecretEnv: z.string().optional(),
+  credentialScheme: z.enum(['BEARER_TOKEN', 'HMAC_SHARED_SECRET', 'OBP_CONSUMER', 'NONE']).optional(),
+  credentialMetadataEnv: z.string().optional(),
   connection: z.object({
     hostEnv: z.string().optional(),
     portEnv: z.string().optional(),

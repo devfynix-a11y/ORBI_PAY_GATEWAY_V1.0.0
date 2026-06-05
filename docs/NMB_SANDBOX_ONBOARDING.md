@@ -39,13 +39,43 @@ provider_metadata.switch_profile_code = nmb-obp-sandbox
 
 ```env
 NMB_OBP_SANDBOX_BASE_URL=https://obp-api-sandbox.nmbbank.co.tz
-NMB_OBP_SANDBOX_CREDENTIAL_TOKEN_REF=env://NMB_OBP_SANDBOX_ACCESS_TOKEN
+NMB_OBP_SANDBOX_CREDENTIAL_TOKEN_REF=env://NMB_OBP_SANDBOX_CONSUMER_KEY
+NMB_OBP_SANDBOX_CREDENTIAL_METADATA={"consumerIdEnv":"NMB_OBP_SANDBOX_CONSUMER_ID","consumerSecretEnv":"NMB_OBP_SANDBOX_CONSUMER_SECRET"}
 NMB_OBP_SANDBOX_WEBHOOK_SECRET_TOKEN_REF=env://NMB_OBP_SANDBOX_WEBHOOK_SECRET
-NMB_OBP_SANDBOX_ACCESS_TOKEN=<sandbox-token-or-obp-credential-wrapper>
+NMB_OBP_SANDBOX_CONSUMER_ID=<consumer_id>
+NMB_OBP_SANDBOX_CONSUMER_KEY=<consumer_key>
+NMB_OBP_SANDBOX_CONSUMER_SECRET=<consumer_secret>
 NMB_OBP_SANDBOX_WEBHOOK_SECRET=<sandbox-webhook-secret-if-issued>
 ```
 
 In production, do not use `env://` token refs. Use a vault/HSM/KMS token reference.
+
+## Local Secret Import Helper
+
+If your NMB credentials are stored outside Git as key/value text, generate local `.env` lines like this:
+
+```powershell
+$source = "D:\FYNIX\ORBI\ORBI CORE\SECREATES\NMB_SANDBOX\NMB_SANDBOX_CREDENTIALS.txt"
+$target = "D:\FYNIX\ORBI\ORBI CORE\ORBI PAY GATEWAY\.env.nmb.sandbox.local"
+$pairs = @{}
+foreach ($line in (Get-Content -LiteralPath $source)) {
+  if ($line -match '^\s*([^:=\s]+)\s*[:=]\s*(.*)$') {
+    $pairs[$matches[1]] = $matches[2]
+  }
+}
+@(
+  "NMB_OBP_SANDBOX_BASE_URL=https://obp-api-sandbox.nmbbank.co.tz"
+  "NMB_OBP_SANDBOX_CREDENTIAL_TOKEN_REF=env://NMB_OBP_SANDBOX_CONSUMER_KEY"
+  "NMB_OBP_SANDBOX_CREDENTIAL_METADATA={""consumerIdEnv"":""NMB_OBP_SANDBOX_CONSUMER_ID"",""consumerSecretEnv"":""NMB_OBP_SANDBOX_CONSUMER_SECRET""}"
+  "NMB_OBP_SANDBOX_WEBHOOK_SECRET_TOKEN_REF=env://NMB_OBP_SANDBOX_WEBHOOK_SECRET"
+  "NMB_OBP_SANDBOX_CONSUMER_ID=$($pairs.consumer_id)"
+  "NMB_OBP_SANDBOX_CONSUMER_KEY=$($pairs.consumer_key)"
+  "NMB_OBP_SANDBOX_CONSUMER_SECRET=$($pairs.consumer_secret)"
+  "NMB_OBP_SANDBOX_WEBHOOK_SECRET="
+) | Set-Content -LiteralPath $target
+```
+
+Never commit `.env.nmb.sandbox.local`.
 
 ## Sandbox Callback URL
 

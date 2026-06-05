@@ -11,6 +11,7 @@ export type PaymentProtocol =
   | 'SFTP_SETTLEMENT_FILE'
   | 'SDK_PROVIDER'
   | 'VPN_PRIVATE_API';
+export type ProviderCredentialScheme = 'BEARER_TOKEN' | 'HMAC_SHARED_SECRET' | 'OBP_CONSUMER' | 'NONE';
 export type StrongCustomerAuthStatus = 'not_required' | 'required' | 'challenged' | 'authenticated' | 'failed';
 
 export type StrongCustomerAuthContext = {
@@ -113,6 +114,8 @@ export type ProviderDefinition = {
   threeDsProfileIdEnv?: string;
   directApiKeyEnv?: string;
   directApiSecretEnv?: string;
+  credentialScheme?: ProviderCredentialScheme;
+  credentialMetadataEnv?: string;
   connection?: {
     hostEnv?: string;
     portEnv?: string;

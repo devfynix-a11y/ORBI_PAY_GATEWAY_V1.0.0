@@ -1,5 +1,25 @@
 import type { PaymentProtocolEngine, ProtocolExecutionInput } from './PaymentProtocolEngine.js';
 import { buildProviderPayload, responseToGatewayPaymentResponse } from './httpMapping.js';
+import { resolveObpConsumerCredential, resolveTokenSecret } from '../security/tokenResolver.js';
+
+const buildCredentialHeaders = (input: ProtocolExecutionInput): Record<string, string> => {
+  if (input.provider.credentialScheme === 'NONE') return {};
+  if (input.provider.credentialScheme === 'OBP_CONSUMER') {
+    const credential = resolveObpConsumerCredential(
+      input.credentialBinding.credentialTokenRef,
+      input.provider.credentialMetadataEnv,
+    );
+    return {
+      'x-obp-consumer-key': credential.consumerKey,
+      'x-obp-consumer-secret': credential.consumerSecret,
+      ...(credential.consumerId ? { 'x-obp-consumer-id': credential.consumerId } : {}),
+    };
+  }
+  if (input.provider.credentialScheme === 'BEARER_TOKEN') {
+    return { authorization: `Bearer ${resolveTokenSecret(input.credentialBinding.credentialTokenRef)}` };
+  }
+  return {};
+};
 
 export class RestJsonEngine implements PaymentProtocolEngine {
   protocol = 'REST_JSON' as const;
@@ -26,6 +46,7 @@ export class RestJsonEngine implements PaymentProtocolEngine {
         headers: {
           accept: 'application/json',
           'content-type': 'application/json',
+          ...buildCredentialHeaders(input),
           ...(input.endpoint.idempotencyHeader ? { [input.endpoint.idempotencyHeader]: input.request.reference } : {}),
         },
         body: ['GET'].includes(input.endpoint.method)
