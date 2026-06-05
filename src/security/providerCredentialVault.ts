@@ -47,11 +47,18 @@ export const assertProviderCredentialBound = (binding: ProviderCredentialBinding
 };
 
 export const rejectUnsafeDirectSecretsInProduction = () => {
-  if (config.env !== 'production' || config.security.credentialMode !== 'tokenized') return;
+  const env = process.env.NODE_ENV || config.env;
+  const credentialMode = process.env.PAYMENT_GATEWAY_CREDENTIAL_MODE || config.security.credentialMode;
+  if (env !== 'production' || credentialMode !== 'tokenized') return;
+
+  const allowedControlPlaneSecrets = new Set([
+    'PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY',
+    'WORKER_SIGNING_SECRET',
+  ]);
 
   const directSecretKeys = Object.keys(process.env)
     .filter((key) => /_(API_KEY|API_SECRET|CLIENT_SECRET|SECRET_KEY)$/.test(key))
-    .filter((key) => !['WORKER_SIGNING_SECRET'].includes(key))
+    .filter((key) => !allowedControlPlaneSecrets.has(key))
     .filter((key) => Boolean(process.env[key]?.trim()));
 
   if (directSecretKeys.length) {
