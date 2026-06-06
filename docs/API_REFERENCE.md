@@ -152,6 +152,24 @@ Content-Type: application/json
 
 This proxies to `/obp/v3.0.0/entitlement-requests`. OBP infers the requesting user from the authenticated DirectLogin token and may create a pending request rather than approving the role immediately.
 
+### Check My Sandbox Entitlement Requests
+
+```http
+GET /v1/sandbox/obp/:providerCode/my/entitlement-requests
+x-orbi-pay-operator-key: <PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY>
+```
+
+Returns pending/current entitlement requests for the authenticated OBP provider user when supported by the bank sandbox. The gateway probes supported OBP versions and returns an `inspected` list.
+
+### Check My Sandbox Entitlements
+
+```http
+GET /v1/sandbox/obp/:providerCode/my/entitlements
+x-orbi-pay-operator-key: <PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY>
+```
+
+Returns active entitlements for the authenticated OBP provider user when supported by the bank sandbox. Use this to confirm whether roles like `CanCreateSandbox` or `CanCreateAccount` are active before running account/data import tools.
+
 ### Create Sandbox Account
 
 ```http

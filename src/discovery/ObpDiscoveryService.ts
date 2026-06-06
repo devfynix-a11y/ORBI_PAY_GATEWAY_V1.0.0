@@ -349,6 +349,105 @@ export class ObpDiscoveryService {
     };
   }
 
+  async listMyEntitlementRequests(providerCode: string) {
+    const provider = this.provider(providerCode);
+    const authorization = await this.authHeader(provider);
+    const paths = [
+      '/obp/v3.0.0/my/entitlement-requests',
+      '/obp/v3.1.0/my/entitlement-requests',
+      '/obp/v4.0.0/my/entitlement-requests',
+      '/obp/v5.0.0/my/entitlement-requests',
+      '/obp/v6.0.0/my/entitlement-requests',
+      '/obp/v3.0.0/entitlement-requests',
+      '/obp/v3.1.0/entitlement-requests',
+    ];
+    const results: ObpFetchResult[] = [];
+    let result: ObpFetchResult | undefined;
+
+    for (const path of paths) {
+      const attempt = await this.get(provider, path, authorization);
+      results.push(attempt);
+      if (attempt.ok || attempt.status !== 404) {
+        result = attempt;
+        break;
+      }
+    }
+
+    result = result || results[results.length - 1];
+
+    return {
+      provider: {
+        code: provider.code,
+        displayName: provider.displayName,
+        baseUrlEnv: provider.baseUrlEnv,
+      },
+      path: result.path,
+      ok: result.ok,
+      status: result.status,
+      error: result.error,
+      requests: asArray(result.data).map(sanitizeRaw),
+      data: sanitizeRaw(result.data),
+      inspected: results.map((attempt) => ({
+        path: attempt.path,
+        ok: attempt.ok,
+        status: attempt.status,
+        error: attempt.error,
+        count: asArray(attempt.data).length,
+      })),
+      note: 'Sandbox operator view of pending/current OBP entitlement requests for the authenticated provider user.',
+    };
+  }
+
+  async listMyEntitlements(providerCode: string) {
+    const provider = this.provider(providerCode);
+    const authorization = await this.authHeader(provider);
+    const paths = [
+      '/obp/v3.0.0/my/entitlements',
+      '/obp/v3.1.0/my/entitlements',
+      '/obp/v4.0.0/my/entitlements',
+      '/obp/v5.0.0/my/entitlements',
+      '/obp/v6.0.0/my/entitlements',
+      '/obp/v4.0.0/users/current/entitlements',
+      '/obp/v5.0.0/users/current/entitlements',
+      '/obp/v6.0.0/users/current/entitlements',
+    ];
+    const results: ObpFetchResult[] = [];
+    let result: ObpFetchResult | undefined;
+
+    for (const path of paths) {
+      const attempt = await this.get(provider, path, authorization);
+      results.push(attempt);
+      if (attempt.ok || attempt.status !== 404) {
+        result = attempt;
+        break;
+      }
+    }
+
+    result = result || results[results.length - 1];
+
+    return {
+      provider: {
+        code: provider.code,
+        displayName: provider.displayName,
+        baseUrlEnv: provider.baseUrlEnv,
+      },
+      path: result.path,
+      ok: result.ok,
+      status: result.status,
+      error: result.error,
+      entitlements: asArray(result.data).map(sanitizeRaw),
+      data: sanitizeRaw(result.data),
+      inspected: results.map((attempt) => ({
+        path: attempt.path,
+        ok: attempt.ok,
+        status: attempt.status,
+        error: attempt.error,
+        count: asArray(attempt.data).length,
+      })),
+      note: 'Sandbox operator view of active OBP entitlements for the authenticated provider user.',
+    };
+  }
+
   async createSandboxAccount(providerCode: string, input: ObpCreateAccountInput) {
     const provider = this.provider(providerCode);
     const authorization = await this.authHeader(provider);

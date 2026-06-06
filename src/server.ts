@@ -247,6 +247,36 @@ obpSandboxRouter.post('/entitlement-requests', async (req, res) => {
   }
 });
 
+obpSandboxRouter.get('/my/entitlement-requests', async (req, res) => {
+  try {
+    const providerCode = String((req.params as any).providerCode || '');
+    const data = await obpDiscoveryService.listMyEntitlementRequests(providerCode);
+    const status = data.ok ? 200 : 502;
+    return res.status(status).json({ success: data.ok, data, error: data.error });
+  } catch (e: any) {
+    logger.error('obp_sandbox_my_entitlement_requests_failed', {
+      providerCode: (req.params as any).providerCode,
+      error: e.message,
+    });
+    return res.status(502).json({ success: false, error: e.message || 'OBP_SANDBOX_MY_ENTITLEMENT_REQUESTS_FAILED' });
+  }
+});
+
+obpSandboxRouter.get('/my/entitlements', async (req, res) => {
+  try {
+    const providerCode = String((req.params as any).providerCode || '');
+    const data = await obpDiscoveryService.listMyEntitlements(providerCode);
+    const status = data.ok ? 200 : 502;
+    return res.status(status).json({ success: data.ok, data, error: data.error });
+  } catch (e: any) {
+    logger.error('obp_sandbox_my_entitlements_failed', {
+      providerCode: (req.params as any).providerCode,
+      error: e.message,
+    });
+    return res.status(502).json({ success: false, error: e.message || 'OBP_SANDBOX_MY_ENTITLEMENTS_FAILED' });
+  }
+});
+
 obpSandboxRouter.put('/banks/:bankId/accounts/:accountId', async (req, res) => {
   try {
     const providerCode = String((req.params as any).providerCode || '');
