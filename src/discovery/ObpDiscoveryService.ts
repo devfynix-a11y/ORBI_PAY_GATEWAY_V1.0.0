@@ -306,11 +306,11 @@ export class ObpDiscoveryService {
       role_name: roleName,
     };
     const paths = [
-      '/obp/v3.0.0/users/current/entitlement-requests',
-      '/obp/v3.1.0/users/current/entitlement-requests',
-      '/obp/v4.0.0/users/current/entitlement-requests',
-      '/obp/v5.0.0/users/current/entitlement-requests',
-      '/obp/v6.0.0/users/current/entitlement-requests',
+      '/obp/v3.0.0/entitlement-requests',
+      '/obp/v3.1.0/entitlement-requests',
+      '/obp/v4.0.0/entitlement-requests',
+      '/obp/v5.0.0/entitlement-requests',
+      '/obp/v6.0.0/entitlement-requests',
     ];
     const results: ObpFetchResult[] = [];
     let result: ObpFetchResult | undefined;

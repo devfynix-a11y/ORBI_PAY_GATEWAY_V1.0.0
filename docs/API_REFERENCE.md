@@ -150,7 +150,7 @@ Content-Type: application/json
 }
 ```
 
-This proxies to `/obp/v3.0.0/users/current/entitlement-requests`. OBP may create a pending request rather than approving the role immediately.
+This proxies to `/obp/v3.0.0/entitlement-requests`. OBP infers the requesting user from the authenticated DirectLogin token and may create a pending request rather than approving the role immediately.
 
 ### Create Sandbox Account
 
