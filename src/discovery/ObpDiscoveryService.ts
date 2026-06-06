@@ -301,10 +301,30 @@ export class ObpDiscoveryService {
     const roleName = input.roleName.trim();
     if (!roleName) throw new Error('OBP_ROLE_NAME_REQUIRED');
 
-    const result = await this.post(provider, '/obp/v3.0.0/users/current/entitlement-requests', authorization, {
+    const body = {
       bank_id: input.bankId?.trim() || '',
       role_name: roleName,
-    });
+    };
+    const paths = [
+      '/obp/v3.0.0/users/current/entitlement-requests',
+      '/obp/v3.1.0/users/current/entitlement-requests',
+      '/obp/v4.0.0/users/current/entitlement-requests',
+      '/obp/v5.0.0/users/current/entitlement-requests',
+      '/obp/v6.0.0/users/current/entitlement-requests',
+    ];
+    const results: ObpFetchResult[] = [];
+    let result: ObpFetchResult | undefined;
+
+    for (const path of paths) {
+      const attempt = await this.post(provider, path, authorization, body);
+      results.push(attempt);
+      if (attempt.ok || attempt.status !== 404) {
+        result = attempt;
+        break;
+      }
+    }
+
+    result = result || results[results.length - 1];
 
     return {
       provider: {
@@ -317,9 +337,15 @@ export class ObpDiscoveryService {
       status: result.status,
       error: result.error,
       data: sanitizeRaw(result.data),
+      inspected: results.map((attempt) => ({
+        path: attempt.path,
+        ok: attempt.ok,
+        status: attempt.status,
+        error: attempt.error,
+      })),
       note: result.ok
         ? 'OBP entitlement request submitted. It may still require approval by the bank/sandbox administrator.'
-        : 'OBP entitlement request failed. Your user may not be allowed to request this role.',
+        : 'OBP entitlement request failed. The provider may not expose self-service entitlement requests, or your user may not be allowed to request this role.',
     };
   }
 
