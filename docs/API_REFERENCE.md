@@ -113,6 +113,72 @@ Use this only in sandbox with a user that has the OBP `CanCreateSandbox` entitle
 
 Never enable sandbox data import against production provider profiles.
 
+## OBP Sandbox Operator Tools
+
+These routes are separated from live payment execution and are disabled by default.
+
+Required env:
+
+```env
+PAYMENT_GATEWAY_OBP_SANDBOX_TOOLS_ENABLED=true
+PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY=<strong-operator-key>
+```
+
+Keep `PAYMENT_GATEWAY_OBP_SANDBOX_TOOLS_ENABLED=false` in production unless you are intentionally operating a sandbox profile from a locked-down operator session.
+
+### List Sandbox Banks
+
+```http
+GET /v1/sandbox/obp/:providerCode/banks
+x-orbi-pay-operator-key: <PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY>
+```
+
+Returns sanitized bank records from `/obp/v4.0.0/banks`. Use these IDs for sandbox account discovery and account creation.
+
+### Request Sandbox Entitlement
+
+```http
+POST /v1/sandbox/obp/:providerCode/entitlement-requests
+x-orbi-pay-operator-key: <PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY>
+Content-Type: application/json
+```
+
+```json
+{
+  "bankId": "",
+  "roleName": "CanCreateSandbox"
+}
+```
+
+This proxies to `/obp/v3.0.0/users/current/entitlement-requests`. OBP may create a pending request rather than approving the role immediately.
+
+### Create Sandbox Account
+
+```http
+PUT /v1/sandbox/obp/:providerCode/banks/:bankId/accounts/:accountId
+x-orbi-pay-operator-key: <PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY>
+Content-Type: application/json
+```
+
+```json
+{
+  "userId": "obp-user-id",
+  "label": "ORBI Test Current Account",
+  "productCode": "CURRENT",
+  "branchId": "BRANCH1",
+  "currency": "TZS",
+  "amount": "0",
+  "accountRoutings": [
+    {
+      "scheme": "OBP",
+      "address": "orbi-test-current-001"
+    }
+  ]
+}
+```
+
+This proxies to `/obp/v5.0.0/banks/{BANK_ID}/accounts/{ACCOUNT_ID}`. It usually requires `CanCreateAccount`. Keep initial balance `0`; test balances should be created through sanctioned sandbox data or transaction flows, not arbitrary hidden credits.
+
 ## Collections
 
 ```http

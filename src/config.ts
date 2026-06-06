@@ -20,6 +20,9 @@ export const config = {
   providerMode: process.env.PAYMENT_GATEWAY_PROVIDER_MODE || 'live',
   providerManifestPath: process.env.PAYMENT_GATEWAY_PROVIDER_MANIFEST_PATH || 'config/providers.json',
   operatorDiscoveryApiKey: process.env.PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY || '',
+  sandboxTools: {
+    enabled: boolFromEnv(process.env.PAYMENT_GATEWAY_OBP_SANDBOX_TOOLS_ENABLED, false),
+  },
   security: {
     credentialMode: (process.env.PAYMENT_GATEWAY_CREDENTIAL_MODE || 'tokenized') as 'tokenized' | 'direct',
     requireStrongCustomerAuth: boolFromEnv(process.env.PAYMENT_GATEWAY_REQUIRE_STRONG_CUSTOMER_AUTH, true),

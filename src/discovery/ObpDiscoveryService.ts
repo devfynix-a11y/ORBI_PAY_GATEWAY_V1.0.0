@@ -16,6 +16,17 @@ type ObpAccountDiscoveryOptions = {
   accountType?: string;
 };
 
+type ObpEntitlementRequestInput = {
+  bankId?: string;
+  roleName: string;
+};
+
+type ObpCreateAccountInput = {
+  bankId: string;
+  accountId: string;
+  body: unknown;
+};
+
 type ObpFetchResult = {
   path: string;
   ok: boolean;
@@ -232,6 +243,116 @@ export class ObpDiscoveryService {
     } catch (error: any) {
       return { path, ok: false, status: 0, error: error.message || 'OBP_POST_FAILED' };
     }
+  }
+
+  private async put(
+    provider: ProviderDefinition,
+    path: string,
+    authorization: string,
+    body: unknown,
+  ): Promise<ObpFetchResult> {
+    try {
+      const response = await fetch(`${this.baseUrl(provider)}${path}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: authorization,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body ?? {}),
+      });
+      const text = await response.text();
+      const data = text ? JSON.parse(text) : {};
+      return {
+        path,
+        ok: response.ok,
+        status: response.status,
+        data,
+        error: response.ok ? undefined : pickString(data, ['message', 'error', 'status']) || response.statusText,
+      };
+    } catch (error: any) {
+      return { path, ok: false, status: 0, error: error.message || 'OBP_PUT_FAILED' };
+    }
+  }
+
+  async listBanks(providerCode: string) {
+    const provider = this.provider(providerCode);
+    const authorization = await this.authHeader(provider);
+    const result = await this.get(provider, '/obp/v4.0.0/banks', authorization);
+
+    return {
+      provider: {
+        code: provider.code,
+        displayName: provider.displayName,
+        baseUrlEnv: provider.baseUrlEnv,
+      },
+      path: result.path,
+      ok: result.ok,
+      status: result.status,
+      error: result.error,
+      banks: asArray(result.data).map(sanitizeRaw),
+      note: 'Sandbox operator bank list. Use bank ids from this response for sandbox account tooling.',
+    };
+  }
+
+  async requestSandboxEntitlement(providerCode: string, input: ObpEntitlementRequestInput) {
+    const provider = this.provider(providerCode);
+    const authorization = await this.authHeader(provider);
+    const roleName = input.roleName.trim();
+    if (!roleName) throw new Error('OBP_ROLE_NAME_REQUIRED');
+
+    const result = await this.post(provider, '/obp/v3.0.0/users/current/entitlement-requests', authorization, {
+      bank_id: input.bankId?.trim() || '',
+      role_name: roleName,
+    });
+
+    return {
+      provider: {
+        code: provider.code,
+        displayName: provider.displayName,
+        baseUrlEnv: provider.baseUrlEnv,
+      },
+      path: result.path,
+      ok: result.ok,
+      status: result.status,
+      error: result.error,
+      data: sanitizeRaw(result.data),
+      note: result.ok
+        ? 'OBP entitlement request submitted. It may still require approval by the bank/sandbox administrator.'
+        : 'OBP entitlement request failed. Your user may not be allowed to request this role.',
+    };
+  }
+
+  async createSandboxAccount(providerCode: string, input: ObpCreateAccountInput) {
+    const provider = this.provider(providerCode);
+    const authorization = await this.authHeader(provider);
+    const bankId = input.bankId.trim();
+    const accountId = input.accountId.trim();
+    if (!bankId) throw new Error('OBP_BANK_ID_REQUIRED');
+    if (!accountId) throw new Error('OBP_ACCOUNT_ID_REQUIRED');
+
+    const result = await this.put(
+      provider,
+      `/obp/v5.0.0/banks/${encodeURIComponent(bankId)}/accounts/${encodeURIComponent(accountId)}`,
+      authorization,
+      input.body,
+    );
+
+    return {
+      provider: {
+        code: provider.code,
+        displayName: provider.displayName,
+        baseUrlEnv: provider.baseUrlEnv,
+      },
+      path: result.path,
+      ok: result.ok,
+      status: result.status,
+      error: result.error,
+      data: sanitizeRaw(result.data),
+      note: result.ok
+        ? 'Sandbox account create request accepted by OBP.'
+        : 'Sandbox account create failed. Confirm CanCreateAccount entitlement, user id, product code, branch id, and bank id.',
+    };
   }
 
   async importSandboxData(providerCode: string, body: unknown) {

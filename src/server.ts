@@ -41,6 +41,26 @@ const PaymentRequestSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+const ObpSandboxEntitlementRequestSchema = z.object({
+  bankId: z.string().trim().optional(),
+  roleName: z.string().trim().min(1),
+});
+
+const ObpSandboxAccountCreateSchema = z.object({
+  accountId: z.string().trim().min(1),
+  userId: z.string().trim().min(1),
+  label: z.string().trim().min(1).default('ORBI Sandbox Account'),
+  productCode: z.string().trim().min(1).default('CURRENT'),
+  branchId: z.string().trim().min(1).default('BRANCH1'),
+  currency: z.string().trim().min(3).max(8).default('TZS'),
+  amount: z.union([z.string(), z.number()]).default('0'),
+  accountRoutings: z.array(z.object({
+    scheme: z.string().trim().min(1),
+    address: z.string().trim().min(1),
+  })).optional(),
+  rawBody: z.record(z.string(), z.unknown()).optional(),
+});
+
 const normalizeHeaders = (headers: Record<string, string | string[] | undefined>): Record<string, string | undefined> =>
   Object.fromEntries(
     Object.entries(headers).map(([key, value]) => [
@@ -123,6 +143,17 @@ const requireOperatorDiscoveryAccess = (req: express.Request, res: express.Respo
   return next();
 };
 
+const requireObpSandboxToolsEnabled = (_req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (!config.sandboxTools.enabled) {
+    return res.status(404).json({
+      success: false,
+      error: 'OBP_SANDBOX_TOOLS_DISABLED',
+      message: 'OBP sandbox operator tools are disabled. Set PAYMENT_GATEWAY_OBP_SANDBOX_TOOLS_ENABLED=true only in sandbox/dev operations.',
+    });
+  }
+  return next();
+};
+
 app.get('/v1/discovery/obp/:providerCode/payment-capabilities', requireOperatorDiscoveryAccess, async (req, res) => {
   try {
     const providerCode = String(req.params.providerCode || '');
@@ -178,6 +209,87 @@ app.post('/v1/discovery/obp/:providerCode/sandbox/data-import', requireOperatorD
     return res.status(502).json({ success: false, error: e.message || 'OBP_SANDBOX_DATA_IMPORT_FAILED' });
   }
 });
+
+const obpSandboxRouter = express.Router({ mergeParams: true });
+obpSandboxRouter.use(requireOperatorDiscoveryAccess, requireObpSandboxToolsEnabled);
+
+obpSandboxRouter.get('/banks', async (req, res) => {
+  try {
+    const providerCode = String((req.params as any).providerCode || '');
+    const data = await obpDiscoveryService.listBanks(providerCode);
+    const status = data.ok ? 200 : 502;
+    return res.status(status).json({ success: data.ok, data, error: data.error });
+  } catch (e: any) {
+    logger.error('obp_sandbox_banks_failed', {
+      providerCode: (req.params as any).providerCode,
+      error: e.message,
+    });
+    return res.status(502).json({ success: false, error: e.message || 'OBP_SANDBOX_BANKS_FAILED' });
+  }
+});
+
+obpSandboxRouter.post('/entitlement-requests', async (req, res) => {
+  try {
+    const providerCode = String((req.params as any).providerCode || '');
+    const payload = ObpSandboxEntitlementRequestSchema.parse(req.body || {});
+    const data = await obpDiscoveryService.requestSandboxEntitlement(providerCode, {
+      bankId: payload.bankId,
+      roleName: payload.roleName,
+    });
+    const status = data.ok ? 200 : 502;
+    return res.status(status).json({ success: data.ok, data, error: data.error });
+  } catch (e: any) {
+    logger.error('obp_sandbox_entitlement_request_failed', {
+      providerCode: (req.params as any).providerCode,
+      error: e.message,
+    });
+    return res.status(502).json({ success: false, error: e.message || 'OBP_SANDBOX_ENTITLEMENT_REQUEST_FAILED' });
+  }
+});
+
+obpSandboxRouter.put('/banks/:bankId/accounts/:accountId', async (req, res) => {
+  try {
+    const providerCode = String((req.params as any).providerCode || '');
+    const payload = ObpSandboxAccountCreateSchema.parse({
+      ...(req.body || {}),
+      accountId: req.params.accountId,
+    });
+    const body = payload.rawBody || {
+      user_id: payload.userId,
+      label: payload.label,
+      product_code: payload.productCode,
+      branch_id: payload.branchId,
+      balance: {
+        currency: payload.currency.toUpperCase(),
+        amount: String(payload.amount),
+      },
+      account_routings: payload.accountRoutings || [
+        {
+          scheme: 'OBP',
+          address: payload.accountId,
+        },
+      ],
+    };
+
+    const data = await obpDiscoveryService.createSandboxAccount(providerCode, {
+      bankId: String(req.params.bankId || ''),
+      accountId: payload.accountId,
+      body,
+    });
+    const status = data.ok ? 200 : 502;
+    return res.status(status).json({ success: data.ok, data, error: data.error });
+  } catch (e: any) {
+    logger.error('obp_sandbox_account_create_failed', {
+      providerCode: (req.params as any).providerCode,
+      bankId: req.params.bankId,
+      accountId: req.params.accountId,
+      error: e.message,
+    });
+    return res.status(502).json({ success: false, error: e.message || 'OBP_SANDBOX_ACCOUNT_CREATE_FAILED' });
+  }
+});
+
+app.use('/v1/sandbox/obp/:providerCode', obpSandboxRouter);
 
 const operationHandler = (operation: 'collect' | 'payout' | 'refund') => async (req: express.Request, res: express.Response) => {
   const parsed = PaymentRequestSchema.safeParse(req.body);
