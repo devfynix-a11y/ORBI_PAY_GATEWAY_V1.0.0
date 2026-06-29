@@ -8,7 +8,21 @@ import { orbiCoreClient } from './core/orbiCoreClient.js';
 import { obpDiscoveryService } from './discovery/ObpDiscoveryService.js';
 import { rejectUnsafeDirectSecretsInProduction } from './security/providerCredentialVault.js';
 import { assertStrongCustomerAuth, redactedScaForCore } from './security/strongCustomerAuth.js';
-import type { GatewayPaymentResponse, NormalizedProviderEvent } from './types.js';
+import { payServiceRegistry } from './services/payServiceRegistry.js';
+import { authenticatePayServiceRequest } from './services/payServiceAuth.js';
+import { paymentIntentStore } from './services/paymentIntentStore.js';
+import { deliverServiceWebhook } from './services/serviceWebhook.js';
+import { verifySignedInternalHeaders } from './security/internalSigner.js';
+import type {
+  GatewayPaymentRequest,
+  GatewayPaymentResponse,
+  NormalizedProviderEvent,
+  PaymentIntent,
+  PayServiceDefinition,
+  PayServiceOperation,
+  ServicePaymentCoreEvent,
+  ServicePaymentRequest,
+} from './types.js';
 
 declare global {
   namespace Express {
@@ -61,6 +75,95 @@ const ObpSandboxAccountCreateSchema = z.object({
   rawBody: z.record(z.string(), z.unknown()).optional(),
 });
 
+const PaymentIntentCreateSchema = z.object({
+  operation: z.enum(['collection', 'payout', 'refund']).default('collection'),
+  reference: z.string().trim().min(1),
+  amount: z.number().positive(),
+  currency: z.string().trim().min(3).max(8),
+  description: z.string().trim().max(500).optional(),
+  confirm: z.boolean().optional(),
+  customer: z.object({
+    type: z.enum(['user', 'guest', 'external_customer']).optional(),
+    name: z.string().trim().optional(),
+    email: z.string().trim().email().optional(),
+    phone: z.string().trim().optional(),
+    userId: z.string().trim().optional(),
+  }).optional(),
+  walletId: z.string().trim().optional(),
+  accountNumber: z.string().trim().optional(),
+  sca: PaymentRequestSchema.shape.sca,
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const PaySafeEscrowCreateSchema = z.object({
+  reference: z.string().trim().min(1),
+  amount: z.number().positive(),
+  currency: z.string().trim().min(3).max(8),
+  description: z.string().trim().max(500).optional(),
+  confirm: z.boolean().optional().default(true),
+  buyer: PaymentIntentCreateSchema.shape.customer,
+  seller: z.object({
+    name: z.string().trim().optional(),
+    email: z.string().trim().email().optional(),
+    phone: z.string().trim().optional(),
+    userId: z.string().trim().optional(),
+    walletId: z.string().trim().optional(),
+  }).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const PaySafeEscrowActionSchema = z.object({
+  reference: z.string().trim().min(1),
+  amount: z.number().nonnegative().optional(),
+  currency: z.string().trim().min(3).max(8).optional(),
+  reason: z.string().trim().max(500).optional(),
+  customer: PaymentIntentCreateSchema.shape.customer,
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const PaySafeBalanceQuerySchema = z.object({
+  userId: z.string().trim().optional(),
+  email: z.string().trim().email().optional(),
+  phone: z.string().trim().optional(),
+  includeHistory: z.coerce.boolean().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).refine((value) => Boolean(value.userId || value.email || value.phone), {
+  message: 'Provide userId, email, or phone.',
+  path: ['userId'],
+});
+
+const MerchantSettlementsQuerySchema = z.object({
+  currency: z.string().trim().min(3).max(8).optional(),
+  status: z.string().trim().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+
+const CoreServicePaymentEventSchema = z.object({
+  intentId: z.string().trim().min(1),
+  serviceCode: z.string().trim().min(1),
+  status: z.enum(['requires_action', 'submitted_to_core', 'processing', 'pending', 'completed', 'failed']),
+  message: z.string().trim().optional(),
+  transactionId: z.string().trim().optional(),
+  challenge: z.object({
+    type: z.enum(['OTP', 'PIN', 'PASSKEY', 'BIOMETRIC', '3DS']),
+    challengeId: z.string().trim().min(1),
+    prompt: z.string().trim().min(1),
+    expiresAt: z.string().trim().optional(),
+    delivery: z.object({
+      channel: z.enum(['sms', 'email', 'push', 'in_app']).optional(),
+      destinationHint: z.string().trim().optional(),
+    }).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  }).optional(),
+  raw: z.record(z.string(), z.unknown()).optional(),
+});
+
+type ServicePaymentIntentPayload = Omit<z.infer<typeof PaymentIntentCreateSchema>, 'operation' | 'amount'> & {
+  operation: PayServiceOperation;
+  amount: number;
+};
+
 const normalizeHeaders = (headers: Record<string, string | string[] | undefined>): Record<string, string | undefined> =>
   Object.fromEntries(
     Object.entries(headers).map(([key, value]) => [
@@ -80,6 +183,115 @@ const eventFromProviderResponse = (response: GatewayPaymentResponse): Normalized
   providerEventId: response.providerReference,
   rawStatus: response.status,
   payload: response.raw || {},
+});
+
+type ProviderExecutableOperation = 'collect' | 'payout' | 'refund';
+
+const methodForOperation = (operation: ProviderExecutableOperation) => {
+  if (operation === 'collect') return 'collect';
+  return operation;
+};
+
+const executeProviderOperation = async (
+  operation: ProviderExecutableOperation,
+  request: GatewayPaymentRequest,
+): Promise<{ response: GatewayPaymentResponse; coreResult: unknown }> => {
+  const adapter = adapterRegistry.get(request.providerCode);
+  assertStrongCustomerAuth(request);
+  const method = methodForOperation(operation);
+  const response = await adapter[method]({
+    ...request,
+    metadata: {
+      ...(request.metadata || {}),
+      direction: operation === 'collect' ? 'collect' : operation,
+      sca: redactedScaForCore(request.sca),
+    },
+  });
+
+  let coreResult: unknown = null;
+  if (shouldNotifyCore(response)) {
+    coreResult = await orbiCoreClient.submitProviderEvent(eventFromProviderResponse(response));
+  }
+
+  return { response, coreResult };
+};
+
+const assertServicePaymentAllowed = (
+  service: PayServiceDefinition,
+  operation: PayServiceOperation,
+  currency: string,
+) => {
+  if (!service.allowedOperations.includes(operation)) {
+    throw new Error('PAY_SERVICE_OPERATION_NOT_ALLOWED');
+  }
+
+  if (!service.allowedCurrencies.includes(currency.toUpperCase())) {
+    throw new Error('PAY_SERVICE_CURRENCY_NOT_ALLOWED');
+  }
+};
+
+const serviceMerchantContext = (service: PayServiceDefinition): Record<string, unknown> => {
+  const profile = service.merchant || {};
+  const readEnv = (envName?: string) => {
+    const key = String(envName || '').trim();
+    return key ? String(process.env[key] || '').trim() : '';
+  };
+  const merchantId = readEnv(profile.merchantIdEnv);
+  return {
+    merchantId: merchantId || undefined,
+    feeProfileCode: profile.feeProfileCode || undefined,
+    feeFlowCode: profile.feeFlowCode || undefined,
+    requireActiveMerchant: profile.requireActiveMerchant !== false,
+  };
+};
+
+const requireServiceMerchantContext = (service: PayServiceDefinition) => {
+  const context = serviceMerchantContext(service);
+  const merchantId = String(context.merchantId || '').trim();
+  if (!merchantId) {
+    throw new Error('PAY_SERVICE_MERCHANT_CONTEXT_REQUIRED');
+  }
+  return {
+    ...context,
+    merchantId,
+  };
+};
+
+const buildCoreServicePaymentRequest = (intent: PaymentIntent): ServicePaymentRequest => ({
+  intentId: intent.id,
+  serviceCode: intent.serviceCode,
+  operation: intent.operation,
+  reference: intent.reference,
+  amount: intent.amount,
+  currency: intent.currency,
+  description: intent.description,
+  customer: intent.customer,
+  walletId: intent.walletId,
+  accountNumber: intent.accountNumber,
+  metadata: intent.metadata,
+  checkoutUrl: intent.checkoutUrl,
+  createdAt: intent.createdAt,
+});
+
+const sanitizePaymentIntent = (intent: PaymentIntent) => ({
+  id: intent.id,
+  serviceCode: intent.serviceCode,
+  operation: intent.operation,
+  providerCode: intent.providerCode,
+  reference: intent.reference,
+  amount: intent.amount,
+  currency: intent.currency,
+  status: intent.status,
+  description: intent.description,
+  customer: intent.customer,
+  checkoutUrl: intent.checkoutUrl,
+  providerReference: intent.providerResponse?.providerReference,
+  providerMessage: intent.providerResponse?.message,
+  coreSubmission: intent.coreSubmission,
+  coreResult: intent.coreResult,
+  webhookDelivery: intent.webhookDelivery,
+  createdAt: intent.createdAt,
+  updatedAt: intent.updatedAt,
 });
 
 const app = express();
@@ -132,6 +344,363 @@ app.get('/v1/providers/:providerCode/health', async (req, res) => {
   }
 });
 
+const requirePayServiceAccess = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  try {
+    const service = authenticatePayServiceRequest(payServiceRegistry.activeServices(), req);
+    res.locals.payService = service;
+    return next();
+  } catch (e: any) {
+    const status = e.message === 'PAY_SERVICE_AUTH_FAILED' ? 403 : 404;
+    return res.status(status).json({ success: false, error: e.message || 'PAY_SERVICE_ACCESS_DENIED' });
+  }
+};
+
+app.get('/v1/service-profile', requirePayServiceAccess, (_req, res) => {
+  const service = res.locals.payService as PayServiceDefinition;
+  res.json({ success: true, data: payServiceRegistry.publicView(service) });
+});
+
+const submitPaymentIntentToCore = async (service: PayServiceDefinition, intent: PaymentIntent) => {
+  const merchantContext = serviceMerchantContext(service);
+  const request = buildCoreServicePaymentRequest({
+    ...intent,
+    metadata: {
+      ...intent.metadata,
+      serviceCode: service.code,
+      paymentIntentId: intent.id,
+      merchantContext,
+      merchantId: merchantContext.merchantId,
+      feeProfileCode: merchantContext.feeProfileCode,
+      feeFlowCode: merchantContext.feeFlowCode,
+      customerEmail: intent.customer?.email,
+      customerUserId: intent.customer?.userId,
+      gatewayRole: 'service-intake',
+    },
+  });
+
+  try {
+    const coreResult = await orbiCoreClient.submitServicePaymentRequest(request);
+    const coreEvent = (coreResult as any)?.data;
+    if (
+      coreEvent &&
+      coreEvent.intentId === intent.id &&
+      coreEvent.serviceCode === service.code &&
+      typeof coreEvent.status === 'string'
+    ) {
+      return {
+        intent: paymentIntentStore.applyCoreEvent(intent, coreEvent),
+        coreResult,
+      };
+    }
+
+    return {
+      intent: paymentIntentStore.markSubmittedToCore(intent, coreResult),
+      coreResult,
+    };
+  } catch (e: any) {
+    const failedIntent = paymentIntentStore.markCoreSubmissionFailed(intent, e.message || 'CORE_SERVICE_PAYMENT_REQUEST_FAILED');
+    throw Object.assign(new Error(e.message || 'CORE_SERVICE_PAYMENT_REQUEST_FAILED'), { intent: failedIntent });
+  }
+};
+
+const createPaymentIntentForService = async (
+  req: express.Request,
+  res: express.Response,
+  payload: ServicePaymentIntentPayload,
+) => {
+  try {
+    const service = res.locals.payService as PayServiceDefinition;
+    const currency = payload.currency.toUpperCase();
+    assertServicePaymentAllowed(service, payload.operation, currency);
+
+    const intent = paymentIntentStore.create({
+      service,
+      operation: payload.operation,
+      reference: payload.reference,
+      amount: payload.amount,
+      currency,
+      description: payload.description,
+      customer: payload.customer,
+      walletId: payload.walletId,
+      accountNumber: payload.accountNumber,
+      metadata: payload.metadata,
+    });
+
+    if (!payload.confirm) {
+      return res.status(201).json({ success: true, data: sanitizePaymentIntent(intent) });
+    }
+
+    const confirmed = await submitPaymentIntentToCore(service, intent);
+    return res.status(201).json({
+      success: true,
+      data: sanitizePaymentIntent(confirmed.intent),
+      core: confirmed.coreResult,
+    });
+  } catch (e: any) {
+    logger.error('payment_intent_create_failed', {
+      serviceCode: (res.locals.payService as PayServiceDefinition | undefined)?.code,
+      error: e.message,
+    });
+    return res.status(502).json({
+      success: false,
+      error: e.message || 'PAYMENT_INTENT_CREATE_FAILED',
+      data: e.intent ? sanitizePaymentIntent(e.intent) : undefined,
+    });
+  }
+};
+
+app.post('/v1/payment-intents', requirePayServiceAccess, async (req, res) => {
+  const parsed = PaymentIntentCreateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, error: 'PAYMENT_INTENT_INVALID', issues: parsed.error.issues });
+  }
+
+  return createPaymentIntentForService(req, res, parsed.data);
+});
+
+app.get('/v1/payment-intents/:intentId', requirePayServiceAccess, (req, res) => {
+  try {
+    const service = res.locals.payService as PayServiceDefinition;
+    const intent = paymentIntentStore.get(service.code, String(req.params.intentId || ''));
+    return res.json({ success: true, data: sanitizePaymentIntent(intent) });
+  } catch (e: any) {
+    return res.status(404).json({ success: false, error: e.message || 'PAYMENT_INTENT_NOT_FOUND' });
+  }
+});
+
+app.post('/v1/payment-intents/:intentId/confirm', requirePayServiceAccess, async (req, res) => {
+  try {
+    const service = res.locals.payService as PayServiceDefinition;
+    const intent = paymentIntentStore.get(service.code, String(req.params.intentId || ''));
+    if (!['requires_confirmation', 'pending', 'failed'].includes(intent.status)) {
+      return res.status(409).json({ success: false, error: 'PAYMENT_INTENT_ALREADY_FINALIZED' });
+    }
+
+    const confirmed = await submitPaymentIntentToCore(service, intent);
+    return res.json({ success: true, data: sanitizePaymentIntent(confirmed.intent), core: confirmed.coreResult });
+  } catch (e: any) {
+    logger.error('payment_intent_confirm_failed', {
+      serviceCode: (res.locals.payService as PayServiceDefinition | undefined)?.code,
+      error: e.message,
+    });
+    return res.status(502).json({
+      success: false,
+      error: e.message || 'PAYMENT_INTENT_CONFIRM_FAILED',
+      data: e.intent ? sanitizePaymentIntent(e.intent) : undefined,
+    });
+  }
+});
+
+app.post('/v1/paysafe/escrows', requirePayServiceAccess, async (req, res) => {
+  const parsed = PaySafeEscrowCreateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, error: 'PAYSAFE_ESCROW_INVALID', issues: parsed.error.issues });
+  }
+
+  const buyerType = String(
+    parsed.data.buyer?.type ||
+      (parsed.data.metadata?.guestCheckout === true ? 'guest' : '') ||
+      '',
+  ).trim();
+  const guestCheckout = buyerType === 'guest' || buyerType === 'external_customer';
+
+  return createPaymentIntentForService(req, res, {
+    operation: 'paysafe',
+    reference: parsed.data.reference,
+    amount: parsed.data.amount,
+    currency: parsed.data.currency,
+    confirm: parsed.data.confirm,
+    description: parsed.data.description || 'ORBI PaySafe escrow hold',
+    customer: parsed.data.buyer,
+    metadata: {
+      ...(parsed.data.metadata || {}),
+      paymentProduct: 'paysafe',
+      paySafeAction: 'create_escrow',
+      customerType: buyerType || (parsed.data.buyer?.userId ? 'user' : undefined),
+      guestCheckout,
+      buyer: parsed.data.buyer || null,
+      seller: parsed.data.seller || null,
+    },
+  });
+});
+
+const paySafeActionHandler = (action: 'release' | 'dispute' | 'refund') => async (req: express.Request, res: express.Response) => {
+  const parsed = PaySafeEscrowActionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, error: 'PAYSAFE_ACTION_INVALID', issues: parsed.error.issues });
+  }
+
+  return createPaymentIntentForService(req, res, {
+    operation: 'paysafe',
+    reference: parsed.data.reference,
+    amount: parsed.data.amount ?? 0,
+    currency: parsed.data.currency || 'TZS',
+    confirm: true,
+    description: parsed.data.reason || `ORBI PaySafe ${action}`,
+    customer: parsed.data.customer,
+    metadata: {
+      ...(parsed.data.metadata || {}),
+      paymentProduct: 'paysafe',
+      paySafeAction: action,
+      escrowId: String(req.params.escrowId || ''),
+      reason: parsed.data.reason || null,
+    },
+  });
+};
+
+app.post('/v1/paysafe/escrows/:escrowId/release', requirePayServiceAccess, paySafeActionHandler('release'));
+app.post('/v1/paysafe/escrows/:escrowId/dispute', requirePayServiceAccess, paySafeActionHandler('dispute'));
+app.post('/v1/paysafe/escrows/:escrowId/refund', requirePayServiceAccess, paySafeActionHandler('refund'));
+
+const queryPaySafeBalancesForService = async (req: express.Request, res: express.Response, input: unknown) => {
+  const parsed = PaySafeBalanceQuerySchema.safeParse(input);
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, error: 'PAYSAFE_BALANCE_QUERY_INVALID', issues: parsed.error.issues });
+  }
+
+  try {
+    const service = res.locals.payService as PayServiceDefinition;
+    const merchantContext = serviceMerchantContext(service);
+    const coreResult = await orbiCoreClient.queryPaySafeBalances({
+      serviceCode: service.code,
+      ...parsed.data,
+      metadata: {
+        ...(parsed.data.metadata || {}),
+        merchantContext,
+        merchantId: merchantContext.merchantId,
+        gatewayRole: 'service-paysafe-balance-read',
+      },
+    });
+    return res.json(coreResult);
+  } catch (e: any) {
+    logger.error('paysafe_balance_query_failed', {
+      serviceCode: (res.locals.payService as PayServiceDefinition | undefined)?.code,
+      error: e.message,
+    });
+    return res.status(502).json({ success: false, error: e.message || 'PAYSAFE_BALANCE_QUERY_FAILED' });
+  }
+};
+
+app.get('/v1/paysafe/users/:userId/balance', requirePayServiceAccess, async (req, res) =>
+  queryPaySafeBalancesForService(req, res, {
+    userId: String(req.params.userId || '').trim(),
+    includeHistory: req.query.includeHistory,
+  }),
+);
+
+app.get('/v1/paysafe/balances', requirePayServiceAccess, async (req, res) =>
+  queryPaySafeBalancesForService(req, res, {
+    userId: req.query.userId,
+    email: req.query.email,
+    phone: req.query.phone,
+    includeHistory: req.query.includeHistory,
+  }),
+);
+
+app.get('/v1/merchant/paysafe/balance', requirePayServiceAccess, async (req, res) => {
+  try {
+    const service = res.locals.payService as PayServiceDefinition;
+    const merchantContext = requireServiceMerchantContext(service);
+    const coreResult = await orbiCoreClient.queryPaySafeBalances({
+      serviceCode: service.code,
+      merchantId: merchantContext.merchantId,
+      includeHistory: req.query.includeHistory === 'true',
+      metadata: {
+        merchantContext,
+        merchantId: merchantContext.merchantId,
+        gatewayRole: 'merchant-paysafe-balance-read',
+      },
+    });
+    return res.json(coreResult);
+  } catch (e: any) {
+    return res.status(e.message === 'PAY_SERVICE_MERCHANT_CONTEXT_REQUIRED' ? 400 : 502).json({
+      success: false,
+      error: e.message || 'MERCHANT_PAYSAFE_BALANCE_FAILED',
+    });
+  }
+});
+
+app.get('/v1/merchant/orders/:orderId/payment-status', requirePayServiceAccess, async (req, res) => {
+  try {
+    const service = res.locals.payService as PayServiceDefinition;
+    const merchantContext = requireServiceMerchantContext(service);
+    const orderId = String(req.params.orderId || '').trim();
+    if (!orderId) return res.status(400).json({ success: false, error: 'ORDER_ID_REQUIRED' });
+    const coreResult = await orbiCoreClient.queryMerchantOrderPaymentStatus({
+      serviceCode: service.code,
+      merchantId: merchantContext.merchantId,
+      orderId,
+      metadata: {
+        merchantContext,
+        gatewayRole: 'merchant-order-payment-status-read',
+      },
+    });
+    return res.json(coreResult);
+  } catch (e: any) {
+    return res.status(e.message === 'PAY_SERVICE_MERCHANT_CONTEXT_REQUIRED' ? 400 : 502).json({
+      success: false,
+      error: e.message || 'MERCHANT_ORDER_PAYMENT_STATUS_FAILED',
+    });
+  }
+});
+
+app.get('/v1/merchant/settlements', requirePayServiceAccess, async (req, res) => {
+  const parsed = MerchantSettlementsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, error: 'MERCHANT_SETTLEMENTS_QUERY_INVALID', issues: parsed.error.issues });
+  }
+
+  try {
+    const service = res.locals.payService as PayServiceDefinition;
+    const merchantContext = requireServiceMerchantContext(service);
+    const coreResult = await orbiCoreClient.queryMerchantSettlements({
+      serviceCode: service.code,
+      merchantId: merchantContext.merchantId,
+      ...parsed.data,
+      metadata: {
+        merchantContext,
+        gatewayRole: 'merchant-settlements-read',
+      },
+    });
+    return res.json(coreResult);
+  } catch (e: any) {
+    return res.status(e.message === 'PAY_SERVICE_MERCHANT_CONTEXT_REQUIRED' ? 400 : 502).json({
+      success: false,
+      error: e.message || 'MERCHANT_SETTLEMENTS_FAILED',
+    });
+  }
+});
+
+app.post('/v1/internal/core/service-payment-events', async (req, res) => {
+  try {
+    verifySignedInternalHeaders({
+      method: req.method,
+      path: req.path,
+      body: req.body,
+      workerId: '',
+      scopes: [],
+      signingSecret: config.worker.signingSecret,
+      headers: req.headers,
+      requiredScope: 'gateway:service-payments:result',
+    });
+
+    const event = CoreServicePaymentEventSchema.parse(req.body) as ServicePaymentCoreEvent;
+    const service = payServiceRegistry.get(event.serviceCode);
+    const intent = paymentIntentStore.get(service.code, event.intentId);
+    const updatedIntent = paymentIntentStore.applyCoreEvent(intent, event);
+    const webhookDelivery = await deliverServiceWebhook(service, updatedIntent);
+    const deliveredIntent = paymentIntentStore.applyWebhookDelivery(updatedIntent, webhookDelivery);
+
+    return res.json({
+      success: true,
+      data: sanitizePaymentIntent(deliveredIntent),
+    });
+  } catch (e: any) {
+    logger.error('core_service_payment_event_failed', { error: e.message });
+    return res.status(403).json({ success: false, error: e.message || 'CORE_SERVICE_PAYMENT_EVENT_FAILED' });
+  }
+});
+
 const requireOperatorDiscoveryAccess = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (!config.operatorDiscoveryApiKey && config.env !== 'production') return next();
 
@@ -142,6 +711,10 @@ const requireOperatorDiscoveryAccess = (req: express.Request, res: express.Respo
 
   return next();
 };
+
+app.get('/v1/services', requireOperatorDiscoveryAccess, (_req, res) => {
+  res.json({ success: true, data: payServiceRegistry.list() });
+});
 
 const requireObpSandboxToolsEnabled = (_req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (!config.sandboxTools.enabled) {
@@ -332,21 +905,7 @@ const operationHandler = (operation: 'collect' | 'payout' | 'refund') => async (
   }
 
   try {
-    const adapter = adapterRegistry.get(parsed.data.providerCode);
-    assertStrongCustomerAuth(parsed.data);
-    const response = await adapter[operation]({
-      ...parsed.data,
-      metadata: {
-        ...(parsed.data.metadata || {}),
-        direction: operation,
-        sca: redactedScaForCore(parsed.data.sca),
-      },
-    });
-
-    let coreResult: unknown = null;
-    if (shouldNotifyCore(response)) {
-      coreResult = await orbiCoreClient.submitProviderEvent(eventFromProviderResponse(response));
-    }
+    const { response, coreResult } = await executeProviderOperation(operation, parsed.data);
 
     return res.json({
       success: true,

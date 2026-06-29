@@ -158,6 +158,181 @@ export type ProviderDefinition = {
   };
 };
 
+export type PayServiceOperation = 'collection' | 'payout' | 'refund' | 'paysafe';
+
+export type PayServiceDefinition = {
+  code: string;
+  displayName: string;
+  status: 'ACTIVE' | 'DISABLED';
+  apiKeyTokenRefEnv: string;
+  webhookSecretTokenRefEnv: string;
+  callbackUrlEnv: string;
+  allowedOperations: PayServiceOperation[];
+  allowedCurrencies: string[];
+  allowedCountries?: string[];
+  merchant?: {
+    merchantIdEnv?: string;
+    feeProfileCode?: string;
+    feeFlowCode?: string;
+    requireActiveMerchant?: boolean;
+  };
+  metadata?: Record<string, unknown>;
+};
+
+export type PaymentIntentStatus =
+  | 'requires_confirmation'
+  | 'requires_action'
+  | 'submitted_to_core'
+  | 'processing'
+  | 'pending'
+  | 'completed'
+  | 'failed';
+
+export type PaymentChallenge = {
+  type: 'OTP' | 'PIN' | 'PASSKEY' | 'BIOMETRIC' | '3DS';
+  challengeId: string;
+  prompt: string;
+  expiresAt?: string;
+  delivery?: {
+    channel?: 'sms' | 'email' | 'push' | 'in_app';
+    destinationHint?: string;
+  };
+  metadata?: Record<string, unknown>;
+};
+
+export type PaymentIntent = {
+  id: string;
+  serviceCode: string;
+  operation: PayServiceOperation;
+  providerCode?: string;
+  reference: string;
+  amount: number;
+  currency: string;
+  status: PaymentIntentStatus;
+  description?: string;
+  customer?: {
+    type?: 'user' | 'guest' | 'external_customer';
+    name?: string;
+    email?: string;
+    phone?: string;
+    userId?: string;
+  };
+  walletId?: string;
+  accountNumber?: string;
+  metadata: Record<string, unknown>;
+  checkoutUrl: string;
+  providerResponse?: GatewayPaymentResponse;
+  coreSubmission?: {
+    submitted: boolean;
+    response?: unknown;
+    error?: string;
+  };
+  coreResult?: {
+    status: PaymentIntentStatus;
+    message?: string;
+    transactionId?: string;
+    challenge?: PaymentChallenge;
+    raw?: Record<string, unknown>;
+  };
+  webhookDelivery?: {
+    attempted: boolean;
+    delivered: boolean;
+    statusCode?: number;
+    error?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ServicePaymentRequest = {
+  intentId: string;
+  serviceCode: string;
+  operation: PayServiceOperation;
+  reference: string;
+  amount: number;
+  currency: string;
+  description?: string;
+  customer?: PaymentIntent['customer'];
+  walletId?: string;
+  accountNumber?: string;
+  metadata: Record<string, unknown>;
+  checkoutUrl: string;
+  createdAt: string;
+};
+
+export type ServicePaymentCoreEvent = {
+  intentId: string;
+  serviceCode: string;
+  status: PaymentIntentStatus;
+  message?: string;
+  transactionId?: string;
+  challenge?: PaymentChallenge;
+  raw?: Record<string, unknown>;
+};
+
+export type ServicePaySafeBalanceRequest = {
+  serviceCode: string;
+  merchantId?: string;
+  userId?: string;
+  email?: string;
+  phone?: string;
+  includeHistory?: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type ServicePaySafeBalanceResponse = {
+  serviceCode: string;
+  user: {
+    id: string;
+    displayName?: string;
+    email?: string;
+    phone?: string;
+    accountStatus?: string;
+  };
+  totals: Array<{
+    currency: string;
+    incomingHeld: number;
+    outgoingHeld: number;
+    incomingDisputed: number;
+    outgoingDisputed: number;
+    releasedIncoming: number;
+    refundedOutgoing: number;
+    totalIncomingProtected: number;
+    totalOutgoingProtected: number;
+  }>;
+  escrows: Array<{
+    escrowId: string;
+    transactionId?: string;
+    direction: 'incoming' | 'outgoing';
+    amount: number;
+    currency: string;
+    status: 'HELD' | 'RELEASED' | 'DISPUTED' | 'REFUNDED' | string;
+    reference?: string;
+    conditions?: Record<string, unknown>;
+    disputeMetadata?: Record<string, unknown>;
+    createdAt?: string;
+    updatedAt?: string;
+    expiresAt?: string;
+  }>;
+};
+
+export type ServiceMerchantOrderPaymentStatusRequest = {
+  serviceCode: string;
+  merchantId: string;
+  orderId: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ServiceMerchantSettlementsRequest = {
+  serviceCode: string;
+  merchantId: string;
+  currency?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+  metadata?: Record<string, unknown>;
+};
+
 export interface PaymentProviderAdapter {
   code: string;
   displayName: string;
