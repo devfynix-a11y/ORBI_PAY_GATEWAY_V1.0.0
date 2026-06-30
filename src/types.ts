@@ -159,6 +159,8 @@ export type ProviderDefinition = {
 };
 
 export type PayServiceOperation = 'collection' | 'payout' | 'refund' | 'paysafe';
+export type PaymentCategory = 'orbi' | 'mobile_money' | 'bank' | 'card';
+export type MerchantPaymentRail = 'orbi_wallet' | 'mno_tz' | 'bank_transfer_tz' | 'card_gateway';
 
 export type PayServiceDefinition = {
   code: string;
@@ -204,6 +206,8 @@ export type PaymentIntent = {
   id: string;
   serviceCode: string;
   operation: PayServiceOperation;
+  paymentCategory?: PaymentCategory;
+  paymentRail?: MerchantPaymentRail;
   providerCode?: string;
   reference: string;
   amount: number;
@@ -248,6 +252,9 @@ export type ServicePaymentRequest = {
   intentId: string;
   serviceCode: string;
   operation: PayServiceOperation;
+  paymentCategory?: PaymentCategory;
+  paymentRail?: MerchantPaymentRail;
+  providerCode?: string;
   reference: string;
   amount: number;
   currency: string;

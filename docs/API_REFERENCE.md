@@ -132,8 +132,12 @@ Content-Type: application/json
   "reference": "SHOP-ORDER-10001",
   "amount": 125000,
   "currency": "TZS",
+  "paymentCategory": "orbi",
+  "paymentRail": "orbi_wallet",
   "description": "ORBI Shop protected checkout",
   "buyer": {
+    "type": "user",
+    "userId": "buyer-orbi-user-id",
     "phone": "+255700000000"
   },
   "seller": {
@@ -145,6 +149,47 @@ Content-Type: application/json
   }
 }
 ```
+
+`operation=paysafe` always means successful funds must become protected PaySafe
+hold/escrow before merchant release or settlement. The merchant UI must collect
+and send a route:
+
+| UI choice | `paymentCategory` | `paymentRail` | Required buyer fields |
+| --- | --- | --- | --- |
+| Pay with ORBI Wallet | `orbi` | `orbi_wallet` | ORBI `userId`, phone, or email for Core lookup |
+| Pay with Mobile Money | `mobile_money` | `mno_tz` | `phone` and `providerCode` |
+| Pay with Bank | `bank` | `bank_transfer_tz` | `accountNumber` and `providerCode` |
+| Pay with Card | `card` | `card_gateway` | card/provider token and `providerCode` |
+
+External PaySafe collection example:
+
+```json
+{
+  "reference": "SHOP-ORDER-10002",
+  "amount": 125000,
+  "currency": "TZS",
+  "paymentCategory": "mobile_money",
+  "paymentRail": "mno_tz",
+  "providerCode": "vodacom_mpesa_tz",
+  "description": "ORBI Shop protected mobile-money checkout",
+  "buyer": {
+    "type": "external_customer",
+    "name": "Guest Buyer",
+    "phone": "+255700000000"
+  },
+  "seller": {
+    "userId": "seller-orbi-user-id"
+  },
+  "metadata": {
+    "orderId": "SHOP-ORDER-10002",
+    "guestCheckout": true
+  }
+}
+```
+
+Route mismatches fail closed. For example, `paymentCategory=bank` with
+`paymentRail=mno_tz` is rejected because the gateway cannot safely infer where
+money should enter before the PaySafe hold.
 
 Release held funds:
 

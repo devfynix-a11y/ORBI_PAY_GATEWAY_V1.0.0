@@ -17,7 +17,9 @@ import type {
   GatewayPaymentRequest,
   GatewayPaymentResponse,
   NormalizedProviderEvent,
+  PaymentCategory,
   PaymentIntent,
+  MerchantPaymentRail,
   PayServiceDefinition,
   PayServiceOperation,
   ServicePaymentCoreEvent,
@@ -75,8 +77,14 @@ const ObpSandboxAccountCreateSchema = z.object({
   rawBody: z.record(z.string(), z.unknown()).optional(),
 });
 
+const PaymentCategorySchema = z.enum(['orbi', 'mobile_money', 'bank', 'card']);
+const PaymentRailSchema = z.enum(['orbi_wallet', 'mno_tz', 'bank_transfer_tz', 'card_gateway']);
+
 const PaymentIntentCreateSchema = z.object({
   operation: z.enum(['collection', 'payout', 'refund']).default('collection'),
+  paymentCategory: PaymentCategorySchema.optional(),
+  paymentRail: PaymentRailSchema.optional(),
+  providerCode: z.string().trim().optional(),
   reference: z.string().trim().min(1),
   amount: z.number().positive(),
   currency: z.string().trim().min(3).max(8),
@@ -99,6 +107,9 @@ const PaySafeEscrowCreateSchema = z.object({
   reference: z.string().trim().min(1),
   amount: z.number().positive(),
   currency: z.string().trim().min(3).max(8),
+  paymentCategory: PaymentCategorySchema.optional(),
+  paymentRail: PaymentRailSchema.optional(),
+  providerCode: z.string().trim().optional(),
   description: z.string().trim().max(500).optional(),
   confirm: z.boolean().optional().default(true),
   buyer: PaymentIntentCreateSchema.shape.customer,
@@ -162,6 +173,13 @@ const CoreServicePaymentEventSchema = z.object({
 type ServicePaymentIntentPayload = Omit<z.infer<typeof PaymentIntentCreateSchema>, 'operation' | 'amount'> & {
   operation: PayServiceOperation;
   amount: number;
+};
+
+type NormalizedPaymentRoute = {
+  paymentCategory: PaymentCategory;
+  paymentRail: MerchantPaymentRail;
+  providerCode?: string;
+  routingContractVersion: 'v1' | 'legacy-defaulted';
 };
 
 const normalizeHeaders = (headers: Record<string, string | string[] | undefined>): Record<string, string | undefined> =>
@@ -230,6 +248,71 @@ const assertServicePaymentAllowed = (
   }
 };
 
+const defaultRailForCategory = (category: PaymentCategory): MerchantPaymentRail => {
+  if (category === 'orbi') return 'orbi_wallet';
+  if (category === 'mobile_money') return 'mno_tz';
+  if (category === 'bank') return 'bank_transfer_tz';
+  return 'card_gateway';
+};
+
+const categoryForRail = (rail: MerchantPaymentRail): PaymentCategory => {
+  if (rail === 'orbi_wallet') return 'orbi';
+  if (rail === 'mno_tz') return 'mobile_money';
+  if (rail === 'bank_transfer_tz') return 'bank';
+  return 'card';
+};
+
+const normalizePaySafePaymentRoute = (payload: ServicePaymentIntentPayload): NormalizedPaymentRoute => {
+  const metadata = payload.metadata || {};
+  const metadataCategory = typeof metadata.paymentCategory === 'string'
+    ? metadata.paymentCategory
+    : typeof metadata.payment_category === 'string'
+      ? metadata.payment_category
+      : '';
+  const metadataRail = typeof metadata.paymentRail === 'string'
+    ? metadata.paymentRail
+    : typeof metadata.payment_rail === 'string'
+      ? metadata.payment_rail
+      : '';
+  const category = (payload.paymentCategory || metadataCategory || '') as PaymentCategory | '';
+  const rail = (payload.paymentRail || metadataRail || '') as MerchantPaymentRail | '';
+  const inferredCategory = rail ? categoryForRail(rail as MerchantPaymentRail) : '';
+  const finalCategory = (category || inferredCategory || 'orbi') as PaymentCategory;
+  const finalRail = (rail || defaultRailForCategory(finalCategory)) as MerchantPaymentRail;
+  const railCategory = categoryForRail(finalRail);
+
+  if (railCategory !== finalCategory) {
+    throw new Error('PAYSAFE_PAYMENT_ROUTE_MISMATCH');
+  }
+
+  const providerCode = String(payload.providerCode || metadata.providerCode || metadata.provider_code || '').trim() || undefined;
+  if (finalCategory !== 'orbi' && !providerCode) {
+    throw new Error('PAYSAFE_EXTERNAL_PROVIDER_CODE_REQUIRED');
+  }
+
+  if (finalCategory === 'mobile_money' && !payload.customer?.phone) {
+    throw new Error('PAYSAFE_MOBILE_MONEY_PHONE_REQUIRED');
+  }
+
+  if (finalCategory === 'bank' && !payload.accountNumber && !payload.customer?.userId) {
+    throw new Error('PAYSAFE_BANK_ACCOUNT_REFERENCE_REQUIRED');
+  }
+
+  return {
+    paymentCategory: finalCategory,
+    paymentRail: finalRail,
+    providerCode,
+    routingContractVersion: category || rail ? 'v1' : 'legacy-defaulted',
+  };
+};
+
+const isMerchantPaymentRequestError = (message: string) => [
+  'PAYSAFE_PAYMENT_ROUTE_MISMATCH',
+  'PAYSAFE_EXTERNAL_PROVIDER_CODE_REQUIRED',
+  'PAYSAFE_MOBILE_MONEY_PHONE_REQUIRED',
+  'PAYSAFE_BANK_ACCOUNT_REFERENCE_REQUIRED',
+].includes(message);
+
 const serviceMerchantContext = (service: PayServiceDefinition): Record<string, unknown> => {
   const profile = service.merchant || {};
   const readEnv = (envName?: string) => {
@@ -261,6 +344,9 @@ const buildCoreServicePaymentRequest = (intent: PaymentIntent): ServicePaymentRe
   intentId: intent.id,
   serviceCode: intent.serviceCode,
   operation: intent.operation,
+  paymentCategory: intent.paymentCategory,
+  paymentRail: intent.paymentRail,
+  providerCode: intent.providerCode,
   reference: intent.reference,
   amount: intent.amount,
   currency: intent.currency,
@@ -277,6 +363,8 @@ const sanitizePaymentIntent = (intent: PaymentIntent) => ({
   id: intent.id,
   serviceCode: intent.serviceCode,
   operation: intent.operation,
+  paymentCategory: intent.paymentCategory,
+  paymentRail: intent.paymentRail,
   providerCode: intent.providerCode,
   reference: intent.reference,
   amount: intent.amount,
@@ -412,10 +500,16 @@ const createPaymentIntentForService = async (
     const service = res.locals.payService as PayServiceDefinition;
     const currency = payload.currency.toUpperCase();
     assertServicePaymentAllowed(service, payload.operation, currency);
+    const paySafeRoute = payload.operation === 'paysafe'
+      ? normalizePaySafePaymentRoute(payload)
+      : null;
 
     const intent = paymentIntentStore.create({
       service,
       operation: payload.operation,
+      paymentCategory: paySafeRoute?.paymentCategory || payload.paymentCategory,
+      paymentRail: paySafeRoute?.paymentRail || payload.paymentRail,
+      providerCode: paySafeRoute?.providerCode || payload.providerCode,
       reference: payload.reference,
       amount: payload.amount,
       currency,
@@ -423,7 +517,16 @@ const createPaymentIntentForService = async (
       customer: payload.customer,
       walletId: payload.walletId,
       accountNumber: payload.accountNumber,
-      metadata: payload.metadata,
+      metadata: {
+        ...(payload.metadata || {}),
+        ...(paySafeRoute ? {
+          paymentCategory: paySafeRoute.paymentCategory,
+          paymentRail: paySafeRoute.paymentRail,
+          providerCode: paySafeRoute.providerCode || null,
+          routingContractVersion: paySafeRoute.routingContractVersion,
+          settlementPolicy: 'paysafe_hold_required',
+        } : {}),
+      },
     });
 
     if (!payload.confirm) {
@@ -441,9 +544,10 @@ const createPaymentIntentForService = async (
       serviceCode: (res.locals.payService as PayServiceDefinition | undefined)?.code,
       error: e.message,
     });
-    return res.status(502).json({
+    const message = e.message || 'PAYMENT_INTENT_CREATE_FAILED';
+    return res.status(isMerchantPaymentRequestError(message) ? 400 : 502).json({
       success: false,
-      error: e.message || 'PAYMENT_INTENT_CREATE_FAILED',
+      error: message,
       data: e.intent ? sanitizePaymentIntent(e.intent) : undefined,
     });
   }
@@ -506,6 +610,9 @@ app.post('/v1/paysafe/escrows', requirePayServiceAccess, async (req, res) => {
 
   return createPaymentIntentForService(req, res, {
     operation: 'paysafe',
+    paymentCategory: parsed.data.paymentCategory,
+    paymentRail: parsed.data.paymentRail,
+    providerCode: parsed.data.providerCode,
     reference: parsed.data.reference,
     amount: parsed.data.amount,
     currency: parsed.data.currency,

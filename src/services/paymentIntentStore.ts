@@ -7,11 +7,15 @@ import type {
   PayServiceDefinition,
   PayServiceOperation,
   ServicePaymentCoreEvent,
+  PaymentCategory,
+  MerchantPaymentRail,
 } from '../types.js';
 
 export type CreatePaymentIntentInput = {
   service: PayServiceDefinition;
   operation: PayServiceOperation;
+  paymentCategory?: PaymentCategory;
+  paymentRail?: MerchantPaymentRail;
   providerCode?: string;
   reference: string;
   amount: number;
@@ -38,6 +42,8 @@ export class PaymentIntentStore {
       id,
       serviceCode: input.service.code,
       operation: input.operation,
+      paymentCategory: input.paymentCategory,
+      paymentRail: input.paymentRail,
       providerCode: input.providerCode,
       reference: input.reference,
       amount: input.amount,
