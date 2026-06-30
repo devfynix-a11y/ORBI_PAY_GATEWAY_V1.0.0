@@ -19,6 +19,7 @@ export const config = {
   publicBaseUrl: process.env.PAYMENT_GATEWAY_PUBLIC_BASE_URL || 'https://pay.orbifinancial.com',
   providerMode: process.env.PAYMENT_GATEWAY_PROVIDER_MODE || 'live',
   providerManifestPath: process.env.PAYMENT_GATEWAY_PROVIDER_MANIFEST_PATH || 'config/providers.json',
+  serviceRegistryPath: process.env.PAYMENT_GATEWAY_SERVICE_REGISTRY_PATH || 'config/services.json',
   operatorDiscoveryApiKey: process.env.PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY || '',
   sandboxTools: {
     enabled: boolFromEnv(process.env.PAYMENT_GATEWAY_OBP_SANDBOX_TOOLS_ENABLED, false),
@@ -29,8 +30,18 @@ export const config = {
   },
   core: {
     baseUrl: process.env.ORBI_CORE_INTERNAL_BASE_URL || 'https://api.orbifinancial.com',
+    allowPrivateHttp:
+      boolFromEnv(process.env.PAYMENT_GATEWAY_ALLOW_PRIVATE_HTTP_CORE, false),
     trustedGatewayEventPath:
       process.env.ORBI_CORE_TRUSTED_GATEWAY_EVENT_PATH || '/api/internal/gateway/provider-events',
+    trustedServicePaymentRequestPath:
+      process.env.ORBI_CORE_TRUSTED_SERVICE_PAYMENT_REQUEST_PATH || '/api/internal/pay-gateway/service-payment-requests',
+    trustedPaySafeBalancePath:
+      process.env.ORBI_CORE_TRUSTED_PAYSAFE_BALANCE_PATH || '/api/internal/pay-gateway/paysafe-balances',
+    trustedMerchantOrderPaymentStatusPath:
+      process.env.ORBI_CORE_TRUSTED_MERCHANT_ORDER_PAYMENT_STATUS_PATH || '/api/internal/pay-gateway/merchant-order-payment-status',
+    trustedMerchantSettlementsPath:
+      process.env.ORBI_CORE_TRUSTED_MERCHANT_SETTLEMENTS_PATH || '/api/internal/pay-gateway/merchant-settlements',
     callbackTimeoutMs: Number(process.env.ORBI_CORE_CALLBACK_TIMEOUT_MS || 7500),
   },
   worker: {
@@ -56,7 +67,11 @@ export const requireGatewayRuntimeSecrets = () => {
     throw new Error('WORKER_SIGNING_SECRET is required for production payment gateway callbacks.');
   }
 
-  if (config.env === 'production' && !config.core.baseUrl.startsWith('https://')) {
+  if (
+    config.env === 'production' &&
+    !config.core.baseUrl.startsWith('https://') &&
+    !config.core.allowPrivateHttp
+  ) {
     throw new Error('ORBI_CORE_INTERNAL_BASE_URL must use https:// in production.');
   }
 

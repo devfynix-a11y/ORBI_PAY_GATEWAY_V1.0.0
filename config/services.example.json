@@ -1,0 +1,25 @@
+{
+  "services": [
+    {
+      "code": "orbi-shop",
+      "displayName": "ORBI Shop",
+      "status": "ACTIVE",
+      "apiKeyTokenRefEnv": "ORBI_SHOP_PAY_API_KEY_TOKEN_REF",
+      "webhookSecretTokenRefEnv": "ORBI_SHOP_PAY_WEBHOOK_SECRET_TOKEN_REF",
+      "callbackUrlEnv": "ORBI_SHOP_PAY_WEBHOOK_URL",
+      "allowedOperations": ["collection", "refund", "paysafe"],
+      "allowedCurrencies": ["TZS"],
+      "allowedCountries": ["TZ"],
+      "merchant": {
+        "merchantIdEnv": "ORBI_SHOP_MERCHANT_ID",
+        "feeProfileCode": "ORBI_SHOP_PAYSAFE",
+        "feeFlowCode": "MERCHANT_PAYMENT",
+        "requireActiveMerchant": true
+      },
+      "metadata": {
+        "product": "orbi-shop",
+        "owner": "orbi-financial"
+      }
+    }
+  ]
+}

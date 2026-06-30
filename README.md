@@ -8,6 +8,7 @@ It is intentionally separate from ORBI Core.
 - ORBI Pay Gateway is the ISO 20022 clearing and provider execution boundary for collections, payouts, refunds, and clearing callbacks.
 - ORBI Pay Gateway never mutates wallet balances directly.
 - ORBI Pay Gateway normalizes provider events and sends signed internal events to ORBI Core.
+- External ORBI products such as ORBI Shop integrate through scoped service registry APIs, payment intents, and signed webhooks.
 
 ## Architecture
 
@@ -43,6 +44,35 @@ Readiness:
 http://127.0.0.1:3100/ready
 ```
 
+Create a trusted service payment intent:
+
+```txt
+POST /v1/payment-intents
+x-orbi-pay-service-key: <ORBI_SHOP_PAY_API_KEY>
+```
+
+The gateway identifies the service from the key, enforces allowed currencies/operations, signs the request to ORBI Core, and returns the Core submission result. ORBI Core remains the routing and ledger authority: it locates the customer, decides OTP/PIN/passkey challenges, and determines whether the movement is internal, external, PaySafe escrow, refund, or provider-bound.
+
+PaySafe service actions use global product routes:
+
+```txt
+POST /v1/paysafe/escrows
+POST /v1/paysafe/escrows/:escrowId/release
+POST /v1/paysafe/escrows/:escrowId/dispute
+POST /v1/paysafe/escrows/:escrowId/refund
+```
+
+Pay Gateway only adapts the request and signs it to Core. Core owns escrow policy, customer authorization, ledger posting, and final settlement.
+
+Core sends service-facing results back to:
+
+```txt
+POST /v1/internal/core/service-payment-events
+x-worker-scopes: gateway:service-payments:result
+```
+
+Pay Gateway then signs the result webhook back to the external service, for example ORBI Shop.
+
 ## Main Commands
 
 ```bash
@@ -64,6 +94,16 @@ npm start
 - [ISO 20022 Clearing Architecture](./docs/ISO20022_CLEARING_ARCHITECTURE.md)
 - [NMB Sandbox Onboarding](./docs/NMB_SANDBOX_ONBOARDING.md)
 - [Core Environment Reference Snapshot](./docs/CORE_ENVIRONMENT_REFERENCE.md)
+
+## Trusted Service Registry
+
+Service integrations are loaded from:
+
+```env
+PAYMENT_GATEWAY_SERVICE_REGISTRY_PATH=config/services.json
+```
+
+Start from `config/services.example.json`. Do not expose service keys to browsers or mobile apps.
 
 ## Production Rule
 

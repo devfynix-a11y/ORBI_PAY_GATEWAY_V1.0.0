@@ -19,6 +19,319 @@ GET /ready
 Returns Core callback target, mTLS mode, provider mode, and provider adapter readiness. Secrets are never returned.
 Provider readiness includes `protocolCapabilities` so operators can see whether a rail is `generic-live`, `certified-live`, or intentionally `fail-closed`.
 
+## Trusted Services
+
+Trusted ORBI products such as ORBI Shop use scoped service credentials instead of provider credentials.
+
+```http
+GET /v1/services
+x-orbi-pay-operator-key: <PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY>
+```
+
+Returns sanitized service registry entries. This is operator-only.
+
+```http
+GET /v1/service-profile
+x-orbi-pay-service-key: <service-api-key>
+```
+
+Returns the authenticated service profile without secrets. The service is identified from the key, not from the URL.
+
+## Payment Intents
+
+Payment intents are the production-style entry point for external ORBI products. A product creates an intent, optionally submits it immediately, and Pay Gateway forwards the signed request to ORBI Core. ORBI Core decides whether the movement is internal, external, escrow, refund, or provider-bound.
+
+```http
+POST /v1/payment-intents
+x-orbi-pay-service-key: <ORBI_SHOP_PAY_API_KEY>
+Content-Type: application/json
+```
+
+```json
+{
+  "operation": "collection",
+  "reference": "SHOP-ORDER-10001",
+  "amount": 125000,
+  "currency": "TZS",
+  "confirm": true,
+  "description": "ORBI Shop escrow checkout",
+  "customer": {
+    "name": "Daniel",
+    "email": "customer@example.com",
+    "phone": "+255700000000",
+    "userId": "orbi-user-id"
+  },
+  "metadata": {
+    "orderId": "SHOP-ORDER-10001",
+    "sellerId": "seller-001"
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "pi_xxx",
+    "serviceCode": "orbi-shop",
+    "operation": "collection",
+    "reference": "SHOP-ORDER-10001",
+    "amount": 125000,
+    "currency": "TZS",
+    "status": "processing",
+    "checkoutUrl": "https://pay.orbifinancial.com/checkout/pi_xxx"
+  }
+}
+```
+
+Confirm an existing intent:
+
+```http
+POST /v1/payment-intents/:intentId/confirm
+x-orbi-pay-service-key: <service-api-key>
+Content-Type: application/json
+```
+
+Read an intent:
+
+```http
+GET /v1/payment-intents/:intentId
+x-orbi-pay-service-key: <service-api-key>
+```
+
+## PaySafe Escrow Product
+
+PaySafe uses global product routes. Pay Gateway does not release, dispute, or refund funds by itself. It packages the request, authenticates the service, and sends a signed request to ORBI Core. Core owns escrow policy, customer authorization, ledger movement, and provider routing.
+
+For marketplace products such as ORBI Shop, the service profile must be linked to an active ORBI merchant. The gateway only sends the merchant identity and fee profile. Core resolves the merchant's PaySafe escrow wallet and settlement wallet from its own merchant wallet registry:
+
+```json
+{
+  "merchant": {
+    "merchantIdEnv": "ORBI_SHOP_MERCHANT_ID",
+    "feeProfileCode": "ORBI_SHOP_PAYSAFE",
+    "feeFlowCode": "MERCHANT_PAYMENT"
+  }
+}
+```
+
+Every PaySafe request is merchant-scoped. Core validates that the merchant is active, resolves an active merchant PaySafe escrow wallet, resolves a settlement wallet when needed, and only then returns a customer challenge or balance projection.
+
+Create an escrow hold:
+
+```http
+POST /v1/paysafe/escrows
+x-orbi-pay-service-key: <service-api-key>
+Content-Type: application/json
+```
+
+```json
+{
+  "reference": "SHOP-ORDER-10001",
+  "amount": 125000,
+  "currency": "TZS",
+  "description": "ORBI Shop protected checkout",
+  "buyer": {
+    "phone": "+255700000000"
+  },
+  "seller": {
+    "userId": "seller-orbi-user-id",
+    "walletId": "seller-wallet-id"
+  },
+  "metadata": {
+    "orderId": "SHOP-ORDER-10001"
+  }
+}
+```
+
+Release held funds:
+
+```http
+POST /v1/paysafe/escrows/:escrowId/release
+x-orbi-pay-service-key: <service-api-key>
+Content-Type: application/json
+```
+
+Dispute an escrow:
+
+```http
+POST /v1/paysafe/escrows/:escrowId/dispute
+x-orbi-pay-service-key: <service-api-key>
+Content-Type: application/json
+```
+
+Refund an escrow:
+
+```http
+POST /v1/paysafe/escrows/:escrowId/refund
+x-orbi-pay-service-key: <service-api-key>
+Content-Type: application/json
+```
+
+Action body:
+
+```json
+{
+  "reference": "SHOP-ORDER-10001",
+  "reason": "Customer confirmed delivery issue",
+  "customer": {
+    "phone": "+255700000000"
+  },
+  "metadata": {
+    "orderId": "SHOP-ORDER-10001"
+  }
+}
+```
+
+For release/refund, `amount` may be supplied for partial settlement. For dispute, amount may be omitted because Core decides whether money should move.
+
+### PaySafe Seller/Customer Balance Read
+
+Trusted services can read a customer's PaySafe holding summary through Pay Gateway. This is designed for seller portals such as ORBI Shop so a seller can see protected incoming payments without opening the ORBI mobile app.
+
+```http
+GET /v1/paysafe/users/:userId/balance
+x-orbi-pay-service-key: <service-api-key>
+```
+
+Alternative lookup:
+
+```http
+GET /v1/paysafe/balances?userId=<orbi-user-id>&includeHistory=true
+GET /v1/paysafe/balances?phone=%2B255700000000
+GET /v1/paysafe/balances?email=seller@example.com
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "serviceCode": "orbi-shop",
+    "user": {
+      "id": "orbi-user-id",
+      "displayName": "Seller Name",
+      "email": "seller@example.com",
+      "phone": "+255700000000",
+      "accountStatus": "active"
+    },
+    "totals": [
+      {
+        "currency": "TZS",
+        "incomingHeld": 125000,
+        "outgoingHeld": 0,
+        "incomingDisputed": 0,
+        "outgoingDisputed": 0,
+        "releasedIncoming": 0,
+        "refundedOutgoing": 0,
+        "totalIncomingProtected": 125000,
+        "totalOutgoingProtected": 0
+      }
+    ],
+    "escrows": [
+      {
+        "escrowId": "escrow-id",
+        "direction": "incoming",
+        "amount": 125000,
+        "currency": "TZS",
+        "status": "HELD",
+        "reference": "SHOP-ORDER-10001"
+      }
+    ]
+  }
+}
+```
+
+By default only active PaySafe states are returned (`HELD`, `DISPUTED`). Use `includeHistory=true` to include released/refunded history for seller reconciliation pages. Results are filtered to the authenticated service's merchant context, so one merchant cannot see another merchant's PaySafe holdings for the same ORBI user.
+
+Merchant-native seller portal endpoints:
+
+```http
+GET /v1/merchant/paysafe/balance
+x-orbi-pay-service-key: <service-api-key>
+```
+
+Returns PaySafe holdings for the authenticated service merchant.
+
+```http
+GET /v1/merchant/orders/:orderId/payment-status
+x-orbi-pay-service-key: <service-api-key>
+```
+
+Returns the escrow/payment state for one merchant order.
+
+```http
+GET /v1/merchant/settlements?currency=TZS&status=completed&limit=50&offset=0
+x-orbi-pay-service-key: <service-api-key>
+```
+
+Returns merchant settlement report projections from Core.
+
+## Service Webhooks
+
+When Core later returns or emits a service-facing payment result, Pay Gateway can post an event to the service callback URL configured in `config/services.json`. Provider execution callbacks still flow provider -> Pay Gateway -> Core.
+
+Core posts service-facing results to Pay Gateway here:
+
+```http
+POST /v1/internal/core/service-payment-events
+content-type: application/json
+x-worker-id: orbi-core
+x-worker-scopes: gateway:service-payments:result
+x-worker-request-id: <uuid>
+x-worker-timestamp: <iso-date>
+x-worker-nonce: <uuid>
+x-worker-signature: <hmac>
+```
+
+Example challenge response:
+
+```json
+{
+  "intentId": "pi_xxx",
+  "serviceCode": "orbi-shop",
+  "status": "requires_action",
+  "message": "Customer authorization is required.",
+  "challenge": {
+    "type": "PIN",
+    "challengeId": "ch_xxx",
+    "prompt": "Enter your ORBI PIN to approve this payment.",
+    "expiresAt": "2026-06-17T10:45:00.000Z",
+    "delivery": {
+      "channel": "in_app",
+      "destinationHint": "ORBI mobile app"
+    }
+  }
+}
+```
+
+ORBI Shop should show a waiting state while ORBI Core locates the customer and decides the challenge. If Core returns `requires_action`, Shop/mobile UI should open the relevant OTP/PIN/passkey confirmation flow. External services must never bypass Pay Gateway or call Core/provider routes directly.
+
+Headers:
+
+```txt
+x-orbi-pay-service-code: orbi-shop
+x-orbi-pay-event-id: <uuid>
+x-orbi-pay-timestamp: <unix-seconds>
+x-orbi-pay-signature: sha256=<hmac>
+```
+
+Signature payload:
+
+```txt
+<timestamp>.<stable-json-body>
+```
+
+The webhook secret is resolved from the service registry `webhookSecretTokenRefEnv`, for example:
+
+```env
+ORBI_SHOP_PAY_WEBHOOK_SECRET_TOKEN_REF=env://ORBI_SHOP_PAY_WEBHOOK_SECRET
+ORBI_SHOP_PAY_WEBHOOK_SECRET=<strong-secret>
+```
+
 ## Provider List
 
 ```http

@@ -2,7 +2,13 @@ import http from 'http';
 import https from 'https';
 import { URL } from 'url';
 import { config } from '../config.js';
-import type { NormalizedProviderEvent } from '../types.js';
+import type {
+  NormalizedProviderEvent,
+  ServiceMerchantOrderPaymentStatusRequest,
+  ServiceMerchantSettlementsRequest,
+  ServicePaymentRequest,
+  ServicePaySafeBalanceRequest,
+} from '../types.js';
 import { buildSignedInternalHeaders } from '../security/internalSigner.js';
 
 const postJsonWithNodeHttp = async (url: URL, headers: Record<string, string>, body: unknown): Promise<unknown> =>
@@ -76,6 +82,66 @@ export class OrbiCoreClient {
     });
 
     return postJsonWithNodeHttp(endpoint, headers, event);
+  }
+
+  async submitServicePaymentRequest(request: ServicePaymentRequest): Promise<unknown> {
+    const endpoint = new URL(config.core.trustedServicePaymentRequestPath, config.core.baseUrl);
+    const headers = buildSignedInternalHeaders({
+      method: 'POST',
+      path: endpoint.pathname,
+      body: request,
+      workerId: config.worker.id,
+      scopes: [...new Set([...config.worker.scopes, 'gateway:service-payments:write'])],
+      signingSecret: config.worker.signingSecret,
+      keyId: config.worker.keyId,
+    });
+
+    return postJsonWithNodeHttp(endpoint, headers, request);
+  }
+
+  async queryPaySafeBalances(request: ServicePaySafeBalanceRequest): Promise<unknown> {
+    const endpoint = new URL(config.core.trustedPaySafeBalancePath, config.core.baseUrl);
+    const headers = buildSignedInternalHeaders({
+      method: 'POST',
+      path: endpoint.pathname,
+      body: request,
+      workerId: config.worker.id,
+      scopes: [...new Set([...config.worker.scopes, 'gateway:paysafe-balances:read'])],
+      signingSecret: config.worker.signingSecret,
+      keyId: config.worker.keyId,
+    });
+
+    return postJsonWithNodeHttp(endpoint, headers, request);
+  }
+
+  async queryMerchantOrderPaymentStatus(request: ServiceMerchantOrderPaymentStatusRequest): Promise<unknown> {
+    const endpoint = new URL(config.core.trustedMerchantOrderPaymentStatusPath, config.core.baseUrl);
+    const headers = buildSignedInternalHeaders({
+      method: 'POST',
+      path: endpoint.pathname,
+      body: request,
+      workerId: config.worker.id,
+      scopes: [...new Set([...config.worker.scopes, 'gateway:merchant-payments:read'])],
+      signingSecret: config.worker.signingSecret,
+      keyId: config.worker.keyId,
+    });
+
+    return postJsonWithNodeHttp(endpoint, headers, request);
+  }
+
+  async queryMerchantSettlements(request: ServiceMerchantSettlementsRequest): Promise<unknown> {
+    const endpoint = new URL(config.core.trustedMerchantSettlementsPath, config.core.baseUrl);
+    const headers = buildSignedInternalHeaders({
+      method: 'POST',
+      path: endpoint.pathname,
+      body: request,
+      workerId: config.worker.id,
+      scopes: [...new Set([...config.worker.scopes, 'gateway:merchant-settlements:read'])],
+      signingSecret: config.worker.signingSecret,
+      keyId: config.worker.keyId,
+    });
+
+    return postJsonWithNodeHttp(endpoint, headers, request);
   }
 }
 
