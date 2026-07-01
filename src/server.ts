@@ -179,7 +179,7 @@ type NormalizedPaymentRoute = {
   paymentCategory: PaymentCategory;
   paymentRail: MerchantPaymentRail;
   providerCode?: string;
-  routingContractVersion: 'v1' | 'legacy-defaulted';
+  routingContractVersion: 'v1';
 };
 
 const normalizeHeaders = (headers: Record<string, string | string[] | undefined>): Record<string, string | undefined> =>
@@ -248,13 +248,6 @@ const assertServicePaymentAllowed = (
   }
 };
 
-const defaultRailForCategory = (category: PaymentCategory): MerchantPaymentRail => {
-  if (category === 'orbi') return 'orbi_wallet';
-  if (category === 'mobile_money') return 'mno_tz';
-  if (category === 'bank') return 'bank_transfer_tz';
-  return 'card_gateway';
-};
-
 const categoryForRail = (rail: MerchantPaymentRail): PaymentCategory => {
   if (rail === 'orbi_wallet') return 'orbi';
   if (rail === 'mno_tz') return 'mobile_money';
@@ -277,8 +270,12 @@ const normalizePaySafePaymentRoute = (payload: ServicePaymentIntentPayload): Nor
   const category = (payload.paymentCategory || metadataCategory || '') as PaymentCategory | '';
   const rail = (payload.paymentRail || metadataRail || '') as MerchantPaymentRail | '';
   const inferredCategory = rail ? categoryForRail(rail as MerchantPaymentRail) : '';
-  const finalCategory = (category || inferredCategory || 'orbi') as PaymentCategory;
-  const finalRail = (rail || defaultRailForCategory(finalCategory)) as MerchantPaymentRail;
+  if (!category || !rail) {
+    throw new Error('PAYSAFE_PAYMENT_ROUTE_REQUIRED');
+  }
+
+  const finalCategory = category as PaymentCategory;
+  const finalRail = rail as MerchantPaymentRail;
   const railCategory = categoryForRail(finalRail);
 
   if (railCategory !== finalCategory) {
@@ -302,12 +299,13 @@ const normalizePaySafePaymentRoute = (payload: ServicePaymentIntentPayload): Nor
     paymentCategory: finalCategory,
     paymentRail: finalRail,
     providerCode,
-    routingContractVersion: category || rail ? 'v1' : 'legacy-defaulted',
+    routingContractVersion: 'v1',
   };
 };
 
 const isMerchantPaymentRequestError = (message: string) => [
   'PAYSAFE_PAYMENT_ROUTE_MISMATCH',
+  'PAYSAFE_PAYMENT_ROUTE_REQUIRED',
   'PAYSAFE_EXTERNAL_PROVIDER_CODE_REQUIRED',
   'PAYSAFE_MOBILE_MONEY_PHONE_REQUIRED',
   'PAYSAFE_BANK_ACCOUNT_REFERENCE_REQUIRED',

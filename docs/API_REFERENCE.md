@@ -151,8 +151,9 @@ Content-Type: application/json
 ```
 
 `operation=paysafe` always means successful funds must become protected PaySafe
-hold/escrow before merchant release or settlement. The merchant UI must collect
-and send a route:
+hold/escrow before merchant release or settlement. Every merchant UI must
+collect and send a route. The gateway rejects PaySafe requests that omit
+`paymentCategory` or `paymentRail`; external rails also require `providerCode`.
 
 | UI choice | `paymentCategory` | `paymentRail` | Required buyer fields |
 | --- | --- | --- | --- |
