@@ -660,6 +660,15 @@ app.post('/v1/challenges/:intentId/respond', async (req, res) => {
   const decision = String(req.body?.decision || '').trim().toLowerCase() === 'reject' ? 'reject' : 'approve';
   const idempotencyKey = `hosted-${intent.id}-${decision}`;
   try {
+    console.info(JSON.stringify({
+      level: 'info',
+      service: 'orbi-payment-gateway',
+      message: 'hosted_challenge_response_started',
+      intentId: intent.id,
+      challengeId: challenge.challengeId,
+      decision,
+      hasReturnUrl: Boolean(intent.returnUrl || serviceReturnUrl({ metadata: intent.metadata })),
+    }));
     const result = await orbiCoreClient.respondToServicePaymentChallenge({
       challengeId: String(challenge.challengeId),
       decision,
@@ -678,6 +687,16 @@ app.post('/v1/challenges/:intentId/respond', async (req, res) => {
       updated,
       updated.status === 'failed' || decision === 'reject' ? 'declined' : 'approved',
     );
+    console.info(JSON.stringify({
+      level: 'info',
+      service: 'orbi-payment-gateway',
+      message: 'hosted_challenge_response_completed',
+      intentId: updated.id,
+      challengeId: challenge.challengeId,
+      decision,
+      status: updated.status,
+      hasReturnUrl: Boolean(returnUrl),
+    }));
     if (returnUrl) {
       return res.redirect(303, returnUrl);
     }
@@ -685,6 +704,16 @@ app.post('/v1/challenges/:intentId/respond', async (req, res) => {
     return res.send(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>ORBI Payment</title><style>body{font-family:system-ui;margin:0;min-height:100vh;display:grid;place-items:center;background:#f8fafc;color:#0f172a}.card{max-width:420px;margin:24px;padding:26px;background:#fff;border-radius:26px;box-shadow:0 20px 50px #0002}.ok{color:#16a34a}.bad{color:#dc2626}</style></head><body><main class="card"><h1 class="${updated.status === 'failed' ? 'bad' : 'ok'}">${updated.status === 'failed' ? 'Payment declined' : 'Payment approved'}</h1><p>${escapeHtml(updated.coreResult?.message || 'You may now return to checkout.')}</p><p><strong>Reference:</strong> ${escapeHtml(updated.reference)}</p></main></body></html>`);
   } catch (e: any) {
     const returnUrl = hostedChallengeReturnUrlForIntent(intent, 'failed');
+    console.warn(JSON.stringify({
+      level: 'warn',
+      service: 'orbi-payment-gateway',
+      message: 'hosted_challenge_response_failed',
+      intentId: intent.id,
+      challengeId: challenge.challengeId,
+      decision,
+      error: e.message || 'Unable to complete challenge.',
+      hasReturnUrl: Boolean(returnUrl),
+    }));
     if (returnUrl) {
       return res.redirect(303, returnUrl);
     }
