@@ -85,6 +85,8 @@ const PaymentIntentCreateSchema = z.object({
   paymentCategory: PaymentCategorySchema.optional(),
   paymentRail: PaymentRailSchema.optional(),
   providerCode: z.string().trim().optional(),
+  idempotencyKey: z.string().trim().min(8).max(160).optional(),
+  idempotency_key: z.string().trim().min(8).max(160).optional(),
   reference: z.string().trim().min(1),
   amount: z.number().positive(),
   currency: z.string().trim().min(3).max(8),
@@ -105,6 +107,8 @@ const PaymentIntentCreateSchema = z.object({
 
 const PaySafeEscrowCreateSchema = z.object({
   reference: z.string().trim().min(1),
+  idempotencyKey: z.string().trim().min(8).max(160).optional(),
+  idempotency_key: z.string().trim().min(8).max(160).optional(),
   amount: z.number().positive(),
   currency: z.string().trim().min(3).max(8),
   paymentCategory: PaymentCategorySchema.optional(),
@@ -125,6 +129,8 @@ const PaySafeEscrowCreateSchema = z.object({
 
 const PaySafeEscrowActionSchema = z.object({
   reference: z.string().trim().min(1),
+  idempotencyKey: z.string().trim().min(8).max(160).optional(),
+  idempotency_key: z.string().trim().min(8).max(160).optional(),
   amount: z.number().nonnegative().optional(),
   currency: z.string().trim().min(3).max(8).optional(),
   reason: z.string().trim().max(500).optional(),
@@ -134,13 +140,19 @@ const PaySafeEscrowActionSchema = z.object({
 
 const PaySafeBalanceQuerySchema = z.object({
   userId: z.string().trim().optional(),
+  customerId: z.string().trim().optional(),
   email: z.string().trim().email().optional(),
   phone: z.string().trim().optional(),
   includeHistory: z.coerce.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
-}).refine((value) => Boolean(value.userId || value.email || value.phone), {
-  message: 'Provide userId, email, or phone.',
+}).refine((value) => Boolean(value.userId || value.customerId || value.email || value.phone), {
+  message: 'Provide userId, customerId, email, or phone.',
   path: ['userId'],
+});
+
+const IdentityResolveSchema = z.object({
+  identifier: z.string().trim().min(3).max(120),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const MerchantSettlementsQuerySchema = z.object({
@@ -192,6 +204,41 @@ const normalizeHeaders = (headers: Record<string, string | string[] | undefined>
 
 const shouldNotifyCore = (response: GatewayPaymentResponse): boolean =>
   ['processing', 'pending', 'completed', 'failed'].includes(response.status);
+
+const sanitizeIdempotencyKey = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length >= 8 && trimmed.length <= 160 ? trimmed : undefined;
+};
+
+const requestIdempotencyKey = (req: express.Request, body: Record<string, unknown> = {}): string | undefined =>
+  sanitizeIdempotencyKey(req.headers['idempotency-key']) ||
+  sanitizeIdempotencyKey(req.headers['x-idempotency-key']) ||
+  sanitizeIdempotencyKey(req.headers['x-orbi-idempotency-key']) ||
+  sanitizeIdempotencyKey(body.idempotencyKey) ||
+  sanitizeIdempotencyKey(body.idempotency_key);
+
+const paymentIntentFingerprint = (payload: ServicePaymentIntentPayload): string =>
+  crypto
+    .createHash('sha256')
+    .update(JSON.stringify({
+      operation: payload.operation,
+      paymentCategory: payload.paymentCategory || null,
+      paymentRail: payload.paymentRail || null,
+      providerCode: payload.providerCode || null,
+      reference: payload.reference,
+      amount: payload.amount,
+      currency: payload.currency.toUpperCase(),
+      walletId: payload.walletId || null,
+      accountNumber: payload.accountNumber || null,
+      customer: {
+        type: payload.customer?.type || null,
+        userId: payload.customer?.userId || null,
+        email: payload.customer?.email || null,
+        phone: payload.customer?.phone || null,
+      },
+    }))
+    .digest('hex');
 
 const eventFromProviderResponse = (response: GatewayPaymentResponse): NormalizedProviderEvent => ({
   providerId: response.providerCode,
@@ -497,6 +544,8 @@ const createPaymentIntentForService = async (
   try {
     const service = res.locals.payService as PayServiceDefinition;
     const currency = payload.currency.toUpperCase();
+    const idempotencyKey = requestIdempotencyKey(req, payload as Record<string, unknown>);
+    const idempotencyFingerprint = idempotencyKey ? paymentIntentFingerprint({ ...payload, currency }) : undefined;
     assertServicePaymentAllowed(service, payload.operation, currency);
     const paySafeRoute = payload.operation === 'paysafe'
       ? normalizePaySafePaymentRoute(payload)
@@ -515,8 +564,11 @@ const createPaymentIntentForService = async (
       customer: payload.customer,
       walletId: payload.walletId,
       accountNumber: payload.accountNumber,
+      idempotencyKey,
+      idempotencyFingerprint,
       metadata: {
         ...(payload.metadata || {}),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
         ...(paySafeRoute ? {
           paymentCategory: paySafeRoute.paymentCategory,
           paymentRail: paySafeRoute.paymentRail,
@@ -611,6 +663,8 @@ app.post('/v1/paysafe/escrows', requirePayServiceAccess, async (req, res) => {
     paymentCategory: parsed.data.paymentCategory,
     paymentRail: parsed.data.paymentRail,
     providerCode: parsed.data.providerCode,
+    idempotencyKey: parsed.data.idempotencyKey || parsed.data.idempotency_key,
+    idempotency_key: parsed.data.idempotency_key || parsed.data.idempotencyKey,
     reference: parsed.data.reference,
     amount: parsed.data.amount,
     currency: parsed.data.currency,
@@ -637,6 +691,8 @@ const paySafeActionHandler = (action: 'release' | 'dispute' | 'refund') => async
 
   return createPaymentIntentForService(req, res, {
     operation: 'paysafe',
+    idempotencyKey: parsed.data.idempotencyKey || parsed.data.idempotency_key,
+    idempotency_key: parsed.data.idempotency_key || parsed.data.idempotencyKey,
     reference: parsed.data.reference,
     amount: parsed.data.amount ?? 0,
     currency: parsed.data.currency || 'TZS',
@@ -696,11 +752,39 @@ app.get('/v1/paysafe/users/:userId/balance', requirePayServiceAccess, async (req
 app.get('/v1/paysafe/balances', requirePayServiceAccess, async (req, res) =>
   queryPaySafeBalancesForService(req, res, {
     userId: req.query.userId,
+    customerId: req.query.customerId,
     email: req.query.email,
     phone: req.query.phone,
     includeHistory: req.query.includeHistory,
   }),
 );
+
+app.post('/v1/identity/resolve', requirePayServiceAccess, async (req, res) => {
+  const parsed = IdentityResolveSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, error: 'IDENTITY_RESOLVE_INVALID', issues: parsed.error.issues });
+  }
+
+  try {
+    const service = res.locals.payService as PayServiceDefinition;
+    const coreResult = await orbiCoreClient.resolveIdentity({
+      serviceCode: service.code,
+      identifier: parsed.data.identifier,
+      metadata: {
+        ...(parsed.data.metadata || {}),
+        gatewayRole: 'service-identity-resolve',
+      },
+    });
+    return res.json(coreResult);
+  } catch (e: any) {
+    logger.error('identity_resolve_failed', {
+      serviceCode: (res.locals.payService as PayServiceDefinition | undefined)?.code,
+      error: e.message,
+    });
+    const message = e.message || 'IDENTITY_RESOLVE_FAILED';
+    return res.status(message === 'IDENTITY_NOT_FOUND' ? 404 : 502).json({ success: false, error: message });
+  }
+});
 
 app.get('/v1/merchant/paysafe/balance', requirePayServiceAccess, async (req, res) => {
   try {

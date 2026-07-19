@@ -281,10 +281,30 @@ export type ServicePaySafeBalanceRequest = {
   serviceCode: string;
   merchantId?: string;
   userId?: string;
+  customerId?: string;
   email?: string;
   phone?: string;
   includeHistory?: boolean;
   metadata?: Record<string, unknown>;
+};
+
+export type ServiceIdentityResolveRequest = {
+  serviceCode: string;
+  identifier: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ServiceIdentityResolveResponse = {
+  success: boolean;
+  data?: {
+    id: string;
+    customerId?: string | null;
+    displayName?: string | null;
+    emailHint?: string | null;
+    phoneHint?: string | null;
+    activeForPayments?: boolean;
+  };
+  error?: string;
 };
 
 export type ServicePaySafeBalanceResponse = {

@@ -6,6 +6,7 @@ import type {
   NormalizedProviderEvent,
   ServiceMerchantOrderPaymentStatusRequest,
   ServiceMerchantSettlementsRequest,
+  ServiceIdentityResolveRequest,
   ServicePaymentRequest,
   ServicePaySafeBalanceRequest,
 } from '../types.js';
@@ -107,6 +108,21 @@ export class OrbiCoreClient {
       body: request,
       workerId: config.worker.id,
       scopes: [...new Set([...config.worker.scopes, 'gateway:paysafe-balances:read'])],
+      signingSecret: config.worker.signingSecret,
+      keyId: config.worker.keyId,
+    });
+
+    return postJsonWithNodeHttp(endpoint, headers, request);
+  }
+
+  async resolveIdentity(request: ServiceIdentityResolveRequest): Promise<unknown> {
+    const endpoint = new URL(config.core.trustedIdentityResolvePath, config.core.baseUrl);
+    const headers = buildSignedInternalHeaders({
+      method: 'POST',
+      path: endpoint.pathname,
+      body: request,
+      workerId: config.worker.id,
+      scopes: [...new Set([...config.worker.scopes, 'gateway:identity:read'])],
       signingSecret: config.worker.signingSecret,
       keyId: config.worker.keyId,
     });

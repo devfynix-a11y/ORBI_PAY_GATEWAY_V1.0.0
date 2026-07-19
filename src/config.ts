@@ -38,6 +38,8 @@ export const config = {
       process.env.ORBI_CORE_TRUSTED_SERVICE_PAYMENT_REQUEST_PATH || '/api/internal/pay-gateway/service-payment-requests',
     trustedPaySafeBalancePath:
       process.env.ORBI_CORE_TRUSTED_PAYSAFE_BALANCE_PATH || '/api/internal/pay-gateway/paysafe-balances',
+    trustedIdentityResolvePath:
+      process.env.ORBI_CORE_TRUSTED_IDENTITY_RESOLVE_PATH || '/api/internal/pay-gateway/identity-resolve',
     trustedMerchantOrderPaymentStatusPath:
       process.env.ORBI_CORE_TRUSTED_MERCHANT_ORDER_PAYMENT_STATUS_PATH || '/api/internal/pay-gateway/merchant-order-payment-status',
     trustedMerchantSettlementsPath:

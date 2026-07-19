@@ -24,14 +24,35 @@ export type CreatePaymentIntentInput = {
   customer?: PaymentIntent['customer'];
   walletId?: string;
   accountNumber?: string;
+  idempotencyKey?: string;
+  idempotencyFingerprint?: string;
   metadata?: Record<string, unknown>;
 };
 
 export class PaymentIntentStore {
   private readonly intents = new Map<string, PaymentIntent>();
   private readonly serviceReferenceIndex = new Map<string, string>();
+  private readonly serviceIdempotencyIndex = new Map<string, string>();
 
   create(input: CreatePaymentIntentInput): PaymentIntent {
+    const idempotencyKey = input.idempotencyKey?.trim();
+    if (idempotencyKey) {
+      const idempotencyIndexKey = `${input.service.code}:${idempotencyKey}`;
+      const existingId = this.serviceIdempotencyIndex.get(idempotencyIndexKey);
+      if (existingId) {
+        const existing = this.get(input.service.code, existingId);
+        const existingFingerprint = String(existing.metadata?.idempotencyFingerprint || '');
+        if (
+          input.idempotencyFingerprint &&
+          existingFingerprint &&
+          input.idempotencyFingerprint !== existingFingerprint
+        ) {
+          throw new Error('PAYMENT_INTENT_IDEMPOTENCY_MISMATCH');
+        }
+        return existing;
+      }
+    }
+
     const referenceKey = `${input.service.code}:${input.reference}`;
     const existingId = this.serviceReferenceIndex.get(referenceKey);
     if (existingId) return this.get(input.service.code, existingId);
@@ -53,13 +74,18 @@ export class PaymentIntentStore {
       customer: input.customer,
       walletId: input.walletId,
       accountNumber: input.accountNumber,
-      metadata: input.metadata || {},
+      metadata: {
+        ...(input.metadata || {}),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
+        ...(input.idempotencyFingerprint ? { idempotencyFingerprint: input.idempotencyFingerprint } : {}),
+      },
       checkoutUrl: `${config.publicBaseUrl.replace(/\/$/, '')}/checkout/${id}`,
       createdAt: now,
       updatedAt: now,
     };
     this.intents.set(id, intent);
     this.serviceReferenceIndex.set(referenceKey, id);
+    if (idempotencyKey) this.serviceIdempotencyIndex.set(`${input.service.code}:${idempotencyKey}`, id);
     return intent;
   }
 
