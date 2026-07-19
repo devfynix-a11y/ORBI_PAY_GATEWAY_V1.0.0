@@ -114,12 +114,12 @@ ORBI_ENABLE_CORE_PROVIDER_GATEWAY_ROUTES=false
 ORBI_ALLOW_STUB_PROVIDER_RECONCILIATION=false
 ```
 
-Gateway-to-Core callbacks must keep HMAC signatures enabled. Add internal mTLS after the HMAC path is stable.
+Gateway-to-Core callbacks must keep HMAC signatures enabled. Keep Pay Gateway on the local self-hosted container network with Core.
 
-Separate-VM callback target:
+Self-hosted callback target:
 
 ```env
-ORBI_CORE_INTERNAL_BASE_URL=https://api.orbifinancial.com
+ORBI_CORE_INTERNAL_BASE_URL=http://core:3000
 ORBI_CORE_TRUSTED_GATEWAY_EVENT_PATH=/api/internal/gateway/provider-events
 ORBI_CORE_CALLBACK_TIMEOUT_MS=7500
 ```
