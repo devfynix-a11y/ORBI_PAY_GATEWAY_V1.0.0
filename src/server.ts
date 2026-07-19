@@ -692,7 +692,9 @@ app.post('/v1/challenges/:intentId/respond', async (req, res) => {
         return paymentIntentStore.applyCoreEvent(intent, event as ServicePaymentCoreEvent);
       })();
       hostedChallengeResponses.set(responseLockKey, responsePromise);
-      responsePromise.finally(() => {
+      responsePromise.then(() => {
+        setTimeout(() => hostedChallengeResponses.delete(responseLockKey), 5000).unref?.();
+      }, () => {
         setTimeout(() => hostedChallengeResponses.delete(responseLockKey), 5000).unref?.();
       });
     } else {
