@@ -1,4 +1,4 @@
-name: Deploy ORBI Pay Gateway To Google VM
+name: Deploy ORBI Pay Gateway To Self Hosted
 
 on:
   push:
@@ -7,50 +7,34 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: orbi-pay-gateway-google-vm
+  group: orbi-pay-gateway-self-hosted
   cancel-in-progress: false
 
 env:
-  APP_DIR: /home/auth_fynix/apps/orbi-pay-gateway
+  APP_ENV_FILE: /etc/orbi/pay-gateway.env
   IMAGE_NAME: orbi-pay-gateway
   CONTAINER_NAME: orbi-pay-gateway
   APP_PORT: "3100"
-  M_TLS_DIR: /opt/orbi/mtls
 
 jobs:
   deploy:
-    name: Build And Deploy On Google VM
+    name: Build And Deploy On Self Hosted Host
     runs-on:
       - self-hosted
-      - linux
-      - google
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate VM private runtime files
+      - name: Validate private runtime file
         shell: bash
         run: |
           set -euo pipefail
 
-          mkdir -p "$APP_DIR"
-
-          if [ ! -f "$APP_DIR/.env" ]; then
-            echo "::error::Missing $APP_DIR/.env. Create it on the VM from the private Pay Gateway variables file before deploying."
+          if [ ! -f "$APP_ENV_FILE" ]; then
+            echo "::error::Missing $APP_ENV_FILE. Create it on the self-hosted runtime before deploying."
             exit 1
           fi
-
-          for file in \
-            "$M_TLS_DIR/orbi-internal-ca.crt" \
-            "$M_TLS_DIR/pay-gateway-client.crt" \
-            "$M_TLS_DIR/pay-gateway-client.key"
-          do
-            if [ ! -f "$file" ]; then
-              echo "::error::Missing mTLS file: $file"
-              exit 1
-            fi
-          done
 
       - name: Build Docker image
         shell: bash
@@ -68,9 +52,8 @@ jobs:
           docker run -d \
             --name "$CONTAINER_NAME" \
             --restart unless-stopped \
-            --env-file "$APP_DIR/.env" \
+            --env-file "$APP_ENV_FILE" \
             -p "$APP_PORT:3100" \
-            -v "$M_TLS_DIR:$M_TLS_DIR:ro" \
             "$IMAGE_NAME:${GITHUB_SHA}"
 
       - name: Smoke test
@@ -88,4 +71,3 @@ jobs:
 
           docker logs --tail=120 "$CONTAINER_NAME" || true
           exit 1
-
