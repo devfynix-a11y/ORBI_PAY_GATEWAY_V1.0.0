@@ -225,6 +225,7 @@ export type PaymentIntent = {
   accountNumber?: string;
   metadata: Record<string, unknown>;
   checkoutUrl: string;
+  returnUrl?: string;
   providerResponse?: GatewayPaymentResponse;
   coreSubmission?: {
     submitted: boolean;
@@ -264,6 +265,7 @@ export type ServicePaymentRequest = {
   accountNumber?: string;
   metadata: Record<string, unknown>;
   checkoutUrl: string;
+  returnUrl?: string;
   createdAt: string;
 };
 

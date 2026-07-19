@@ -101,6 +101,12 @@ const PaymentIntentCreateSchema = z.object({
   }).optional(),
   walletId: z.string().trim().optional(),
   accountNumber: z.string().trim().optional(),
+  returnUrl: z.string().trim().url().optional(),
+  return_url: z.string().trim().url().optional(),
+  callbackUrl: z.string().trim().url().optional(),
+  callback_url: z.string().trim().url().optional(),
+  redirectUrl: z.string().trim().url().optional(),
+  redirect_url: z.string().trim().url().optional(),
   sca: PaymentRequestSchema.shape.sca,
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
@@ -124,6 +130,12 @@ const PaySafeEscrowCreateSchema = z.object({
     userId: z.string().trim().optional(),
     walletId: z.string().trim().optional(),
   }).optional(),
+  returnUrl: z.string().trim().url().optional(),
+  return_url: z.string().trim().url().optional(),
+  callbackUrl: z.string().trim().url().optional(),
+  callback_url: z.string().trim().url().optional(),
+  redirectUrl: z.string().trim().url().optional(),
+  redirect_url: z.string().trim().url().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -217,6 +229,39 @@ const requestIdempotencyKey = (req: express.Request, body: Record<string, unknow
   sanitizeIdempotencyKey(req.headers['x-orbi-idempotency-key']) ||
   sanitizeIdempotencyKey(body.idempotencyKey) ||
   sanitizeIdempotencyKey(body.idempotency_key);
+
+const safeServiceReturnUrl = (value: unknown): string | undefined => {
+  const raw = String(value || '').trim();
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    if (!['https:', 'http:'].includes(url.protocol)) return undefined;
+    if (config.env === 'production' && url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname)) {
+      return undefined;
+    }
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+};
+
+const serviceReturnUrl = (payload: Record<string, unknown>): string | undefined => {
+  const metadata = (payload.metadata && typeof payload.metadata === 'object')
+    ? payload.metadata as Record<string, unknown>
+    : {};
+  return safeServiceReturnUrl(payload.returnUrl) ||
+    safeServiceReturnUrl(payload.return_url) ||
+    safeServiceReturnUrl(payload.callbackUrl) ||
+    safeServiceReturnUrl(payload.callback_url) ||
+    safeServiceReturnUrl(payload.redirectUrl) ||
+    safeServiceReturnUrl(payload.redirect_url) ||
+    safeServiceReturnUrl(metadata.returnUrl) ||
+    safeServiceReturnUrl(metadata.return_url) ||
+    safeServiceReturnUrl(metadata.callbackUrl) ||
+    safeServiceReturnUrl(metadata.callback_url) ||
+    safeServiceReturnUrl(metadata.redirectUrl) ||
+    safeServiceReturnUrl(metadata.redirect_url);
+};
 
 const paymentIntentFingerprint = (payload: ServicePaymentIntentPayload): string =>
   crypto
@@ -401,6 +446,7 @@ const buildCoreServicePaymentRequest = (intent: PaymentIntent): ServicePaymentRe
   accountNumber: intent.accountNumber,
   metadata: intent.metadata,
   checkoutUrl: intent.checkoutUrl,
+  returnUrl: intent.returnUrl,
   createdAt: intent.createdAt,
 });
 
@@ -408,6 +454,25 @@ const hostedChallengeUrlForIntent = (intent: PaymentIntent): string | undefined 
   intent.coreResult?.challenge
     ? `${config.publicBaseUrl.replace(/\/$/, '')}/challenges/${encodeURIComponent(intent.id)}`
     : undefined;
+
+const hostedChallengeReturnUrlForIntent = (
+  intent: PaymentIntent,
+  status: 'approved' | 'declined' | 'failed',
+): string | undefined => {
+  const rawReturnUrl = intent.returnUrl || serviceReturnUrl({ metadata: intent.metadata });
+  if (!rawReturnUrl) return undefined;
+  try {
+    const url = new URL(rawReturnUrl);
+    if (!['http:', 'https:'].includes(url.protocol)) return undefined;
+    url.searchParams.set('orbi_payment_status', status);
+    url.searchParams.set('payment_intent_id', intent.id);
+    url.searchParams.set('order_ref', String(intent.metadata?.orderId || intent.reference || ''));
+    url.searchParams.set('reference', intent.reference);
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+};
 
 const challengeModeForIntent = (intent: PaymentIntent): 'hosted' | 'in_app_required' | undefined => {
   if (!intent.coreResult?.challenge) return undefined;
@@ -609,9 +674,20 @@ app.post('/v1/challenges/:intentId/respond', async (req, res) => {
     });
     const event = (result as any)?.data || result;
     const updated = paymentIntentStore.applyCoreEvent(intent, event as ServicePaymentCoreEvent);
+    const returnUrl = hostedChallengeReturnUrlForIntent(
+      updated,
+      updated.status === 'failed' || decision === 'reject' ? 'declined' : 'approved',
+    );
+    if (returnUrl) {
+      return res.redirect(303, returnUrl);
+    }
     res.setHeader('content-type', 'text/html; charset=utf-8');
     return res.send(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>ORBI Payment</title><style>body{font-family:system-ui;margin:0;min-height:100vh;display:grid;place-items:center;background:#f8fafc;color:#0f172a}.card{max-width:420px;margin:24px;padding:26px;background:#fff;border-radius:26px;box-shadow:0 20px 50px #0002}.ok{color:#16a34a}.bad{color:#dc2626}</style></head><body><main class="card"><h1 class="${updated.status === 'failed' ? 'bad' : 'ok'}">${updated.status === 'failed' ? 'Payment declined' : 'Payment approved'}</h1><p>${escapeHtml(updated.coreResult?.message || 'You may now return to checkout.')}</p><p><strong>Reference:</strong> ${escapeHtml(updated.reference)}</p></main></body></html>`);
   } catch (e: any) {
+    const returnUrl = hostedChallengeReturnUrlForIntent(intent, 'failed');
+    if (returnUrl) {
+      return res.redirect(303, returnUrl);
+    }
     res.setHeader('content-type', 'text/html; charset=utf-8');
     return res.status(400).send(hostedChallengeHtml(intent, e.message || 'Unable to complete challenge.'));
   }
@@ -701,6 +777,7 @@ const createPaymentIntentForService = async (
     const idempotencyKey = requestIdempotencyKey(req, payload as Record<string, unknown>);
     const idempotencyFingerprint = idempotencyKey ? paymentIntentFingerprint({ ...payload, currency }) : undefined;
     assertServicePaymentAllowed(service, payload.operation, currency);
+    const returnUrl = serviceReturnUrl(payload as Record<string, unknown>);
     const paySafeRoute = payload.operation === 'paysafe'
       ? normalizePaySafePaymentRoute(payload)
       : null;
@@ -718,11 +795,13 @@ const createPaymentIntentForService = async (
       customer: payload.customer,
       walletId: payload.walletId,
       accountNumber: payload.accountNumber,
+      returnUrl,
       idempotencyKey,
       idempotencyFingerprint,
       metadata: {
         ...(payload.metadata || {}),
         ...(idempotencyKey ? { idempotencyKey } : {}),
+        ...(returnUrl ? { returnUrl } : {}),
         ...(paySafeRoute ? {
           paymentCategory: paySafeRoute.paymentCategory,
           paymentRail: paySafeRoute.paymentRail,
@@ -825,6 +904,7 @@ app.post('/v1/paysafe/escrows', requirePayServiceAccess, async (req, res) => {
     confirm: parsed.data.confirm,
     description: parsed.data.description || 'ORBI PaySafe escrow hold',
     customer: parsed.data.buyer,
+    returnUrl: parsed.data.returnUrl || parsed.data.return_url || parsed.data.callbackUrl || parsed.data.callback_url || parsed.data.redirectUrl || parsed.data.redirect_url,
     metadata: {
       ...(parsed.data.metadata || {}),
       paymentProduct: 'paysafe',

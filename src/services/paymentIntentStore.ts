@@ -24,6 +24,7 @@ export type CreatePaymentIntentInput = {
   customer?: PaymentIntent['customer'];
   walletId?: string;
   accountNumber?: string;
+  returnUrl?: string;
   idempotencyKey?: string;
   idempotencyFingerprint?: string;
   metadata?: Record<string, unknown>;
@@ -80,6 +81,7 @@ export class PaymentIntentStore {
         ...(input.idempotencyFingerprint ? { idempotencyFingerprint: input.idempotencyFingerprint } : {}),
       },
       checkoutUrl: `${config.publicBaseUrl.replace(/\/$/, '')}/checkout/${id}`,
+      returnUrl: input.returnUrl,
       createdAt: now,
       updatedAt: now,
     };
