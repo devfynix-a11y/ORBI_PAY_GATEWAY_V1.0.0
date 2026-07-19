@@ -491,6 +491,8 @@ const challengeModeForIntent = (intent: PaymentIntent): 'hosted' | 'in_app_requi
   return 'hosted';
 };
 
+const hostedChallengeResponses = new Map<string, Promise<PaymentIntent>>();
+
 const sanitizePaymentIntent = (intent: PaymentIntent) => {
   const challengeMode = challengeModeForIntent(intent);
   const challengeUrl = hostedChallengeUrlForIntent(intent);
@@ -597,6 +599,7 @@ const hostedChallengeHtml = (intent: PaymentIntent, error = '') => {
     input { width:100%; box-sizing:border-box; margin-top:14px; padding:16px; border-radius:16px; border:1px solid #cbd5e1; font-size:22px; text-align:center; letter-spacing:.18em; font-weight:850; }
     .actions { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:18px; }
     button { border:0; border-radius:16px; padding:15px 12px; font-weight:900; font-size:15px; cursor:pointer; }
+    button[disabled] { opacity:.6; cursor:progress; }
     .approve { background:#2563eb; color:#fff; }
     .reject { background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1; }
     .error { background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:14px; padding:10px 12px; margin-top:14px; }
@@ -617,7 +620,7 @@ const hostedChallengeHtml = (intent: PaymentIntent, error = '') => {
     ${expiresAt ? `<p class="note">Expires: ${escapeHtml(expiresAt)}</p>` : ''}
     ${disabled ? '<div class="error">This request requires approval inside your ORBI app because extra security is needed.</div>' : ''}
     ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
-    <form method="post" action="/v1/challenges/${encodeURIComponent(intent.id)}/respond">
+    <form method="post" action="/v1/challenges/${encodeURIComponent(intent.id)}/respond" onsubmit="if(this.dataset.submitted==='1'){return false;}this.dataset.submitted='1';for(const b of this.querySelectorAll('button')){b.disabled=true;b.textContent=b.value==='reject'?'Rejecting...':'Approving...';}return true;">
       <input type="hidden" name="challengeId" value="${escapeHtml(challengeId)}" />
       <input type="hidden" name="otcRequestId" value="${escapeHtml(otcRequestId)}" />
       ${disabled ? '' : '<input name="otcCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" required />'}
@@ -659,6 +662,7 @@ app.post('/v1/challenges/:intentId/respond', async (req, res) => {
   }
   const decision = String(req.body?.decision || '').trim().toLowerCase() === 'reject' ? 'reject' : 'approve';
   const idempotencyKey = `hosted-${intent.id}-${decision}`;
+  const responseLockKey = `${intent.id}:${decision}`;
   try {
     console.info(JSON.stringify({
       level: 'info',
@@ -669,20 +673,39 @@ app.post('/v1/challenges/:intentId/respond', async (req, res) => {
       decision,
       hasReturnUrl: Boolean(intent.returnUrl || serviceReturnUrl({ metadata: intent.metadata })),
     }));
-    const result = await orbiCoreClient.respondToServicePaymentChallenge({
-      challengeId: String(challenge.challengeId),
-      decision,
-      idempotencyKey,
-      otcRequestId: String(req.body?.otcRequestId || challenge.metadata?.otcRequestId || ''),
-      otcCode: String(req.body?.otcCode || req.body?.code || ''),
-      metadata: {
-        hostedChallenge: true,
-        paymentIntentId: intent.id,
-        serviceCode: intent.serviceCode,
-      },
-    });
-    const event = (result as any)?.data || result;
-    const updated = paymentIntentStore.applyCoreEvent(intent, event as ServicePaymentCoreEvent);
+    let responsePromise = hostedChallengeResponses.get(responseLockKey);
+    if (!responsePromise) {
+      responsePromise = (async () => {
+        const result = await orbiCoreClient.respondToServicePaymentChallenge({
+          challengeId: String(challenge.challengeId),
+          decision,
+          idempotencyKey,
+          otcRequestId: String(req.body?.otcRequestId || challenge.metadata?.otcRequestId || ''),
+          otcCode: String(req.body?.otcCode || req.body?.code || ''),
+          metadata: {
+            hostedChallenge: true,
+            paymentIntentId: intent.id,
+            serviceCode: intent.serviceCode,
+          },
+        });
+        const event = (result as any)?.data || result;
+        return paymentIntentStore.applyCoreEvent(intent, event as ServicePaymentCoreEvent);
+      })();
+      hostedChallengeResponses.set(responseLockKey, responsePromise);
+      responsePromise.finally(() => {
+        setTimeout(() => hostedChallengeResponses.delete(responseLockKey), 5000).unref?.();
+      });
+    } else {
+      console.info(JSON.stringify({
+        level: 'info',
+        service: 'orbi-payment-gateway',
+        message: 'hosted_challenge_response_joined_inflight',
+        intentId: intent.id,
+        challengeId: challenge.challengeId,
+        decision,
+      }));
+    }
+    const updated = await responsePromise;
     const returnUrl = hostedChallengeReturnUrlForIntent(
       updated,
       updated.status === 'failed' || decision === 'reject' ? 'declined' : 'approved',
