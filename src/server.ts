@@ -522,7 +522,8 @@ const hostedChallengeHtml = (intent: PaymentIntent, error = '') => {
     :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     body { margin:0; min-height:100vh; display:grid; place-items:center; background:linear-gradient(135deg,#f8fafc,#e0f2fe); color:#0f172a; }
     .card { width:min(92vw,440px); background:#fff; border:1px solid #dbeafe; border-radius:28px; box-shadow:0 24px 60px rgba(15,23,42,.16); padding:26px; }
-    .brand { font-size:34px; font-weight:900; letter-spacing:-.06em; color:#020617; }
+    .brand { display:flex; justify-content:center; margin:-4px 0 10px; }
+    .brand img { width:min(100%,300px); height:auto; object-fit:contain; display:block; }
     .pill { display:inline-flex; padding:8px 12px; border-radius:999px; background:#eff6ff; color:#2563eb; font-weight:800; font-size:13px; margin-top:10px; }
     h1 { font-size:24px; margin:22px 0 8px; }
     p { color:#475569; line-height:1.5; }
@@ -539,7 +540,9 @@ const hostedChallengeHtml = (intent: PaymentIntent, error = '') => {
 </head>
 <body>
   <main class="card">
-    <div class="brand">Orbi</div>
+    <div class="brand">
+      <img src="https://media-stock.orbifinancial.com/OrbiPaysafe%20Logo.png" alt="ORBI PaySafe Escrow Services" />
+    </div>
     <span class="pill">Secure hosted challenge</span>
     <h1>Approve ORBI payment</h1>
     <p>${escapeHtml(prompt)}</p>
