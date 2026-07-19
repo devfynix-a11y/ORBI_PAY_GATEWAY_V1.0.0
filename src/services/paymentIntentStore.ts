@@ -95,6 +95,12 @@ export class PaymentIntentStore {
     return intent;
   }
 
+  getById(intentId: string): PaymentIntent {
+    const intent = this.intents.get(intentId);
+    if (!intent) throw new Error('PAYMENT_INTENT_NOT_FOUND');
+    return intent;
+  }
+
   markProcessing(intent: PaymentIntent): PaymentIntent {
     return this.update(intent, { status: 'processing' });
   }

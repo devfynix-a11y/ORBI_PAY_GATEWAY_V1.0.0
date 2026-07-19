@@ -7,6 +7,7 @@ import type {
   ServiceMerchantOrderPaymentStatusRequest,
   ServiceMerchantSettlementsRequest,
   ServiceIdentityResolveRequest,
+  ServicePaymentChallengeResponseRequest,
   ServicePaymentRequest,
   ServicePaySafeBalanceRequest,
 } from '../types.js';
@@ -98,6 +99,28 @@ export class OrbiCoreClient {
     });
 
     return postJsonWithNodeHttp(endpoint, headers, request);
+  }
+
+  async respondToServicePaymentChallenge(request: ServicePaymentChallengeResponseRequest): Promise<unknown> {
+    const endpoint = new URL(
+      `${config.core.trustedServicePaymentChallengeRespondPath}/${encodeURIComponent(request.challengeId)}/respond`,
+      config.core.baseUrl,
+    );
+    const headers = buildSignedInternalHeaders({
+      method: 'POST',
+      path: endpoint.pathname,
+      body: request,
+      workerId: config.worker.id,
+      scopes: [...new Set([...config.worker.scopes, 'gateway:service-payments:write', 'gateway:service-payments:result'])],
+      signingSecret: config.worker.signingSecret,
+      keyId: config.worker.keyId,
+    });
+
+    return postJsonWithNodeHttp(endpoint, {
+      ...headers,
+      'idempotency-key': request.idempotencyKey,
+      'x-idempotency-key': request.idempotencyKey,
+    }, request);
   }
 
   async queryPaySafeBalances(request: ServicePaySafeBalanceRequest): Promise<unknown> {

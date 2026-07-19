@@ -404,28 +404,56 @@ const buildCoreServicePaymentRequest = (intent: PaymentIntent): ServicePaymentRe
   createdAt: intent.createdAt,
 });
 
-const sanitizePaymentIntent = (intent: PaymentIntent) => ({
-  id: intent.id,
-  serviceCode: intent.serviceCode,
-  operation: intent.operation,
-  paymentCategory: intent.paymentCategory,
-  paymentRail: intent.paymentRail,
-  providerCode: intent.providerCode,
-  reference: intent.reference,
-  amount: intent.amount,
-  currency: intent.currency,
-  status: intent.status,
-  description: intent.description,
-  customer: intent.customer,
-  checkoutUrl: intent.checkoutUrl,
-  providerReference: intent.providerResponse?.providerReference,
-  providerMessage: intent.providerResponse?.message,
-  coreSubmission: intent.coreSubmission,
-  coreResult: intent.coreResult,
-  webhookDelivery: intent.webhookDelivery,
-  createdAt: intent.createdAt,
-  updatedAt: intent.updatedAt,
-});
+const hostedChallengeUrlForIntent = (intent: PaymentIntent): string | undefined =>
+  intent.coreResult?.challenge
+    ? `${config.publicBaseUrl.replace(/\/$/, '')}/challenges/${encodeURIComponent(intent.id)}`
+    : undefined;
+
+const challengeModeForIntent = (intent: PaymentIntent): 'hosted' | 'in_app_required' | undefined => {
+  if (!intent.coreResult?.challenge) return undefined;
+  const metadata = intent.coreResult.challenge.metadata || {};
+  const explicit = String(metadata.challengeMode || metadata.challenge_mode || '').trim().toLowerCase();
+  if (explicit === 'in_app_required') return 'in_app_required';
+  if (explicit === 'hosted') return 'hosted';
+  const risk = String(
+    metadata.riskDecision ||
+      metadata.risk_decision ||
+      metadata.riskLevel ||
+      metadata.risk_level ||
+      '',
+  ).trim().toUpperCase();
+  if (['HIGH', 'CRITICAL', 'BLOCK', 'STEP_UP_APP'].includes(risk)) return 'in_app_required';
+  return 'hosted';
+};
+
+const sanitizePaymentIntent = (intent: PaymentIntent) => {
+  const challengeMode = challengeModeForIntent(intent);
+  const challengeUrl = hostedChallengeUrlForIntent(intent);
+  return {
+    id: intent.id,
+    serviceCode: intent.serviceCode,
+    operation: intent.operation,
+    paymentCategory: intent.paymentCategory,
+    paymentRail: intent.paymentRail,
+    providerCode: intent.providerCode,
+    reference: intent.reference,
+    amount: intent.amount,
+    currency: intent.currency,
+    status: intent.status,
+    description: intent.description,
+    customer: intent.customer,
+    checkoutUrl: intent.checkoutUrl,
+    challengeMode,
+    challengeUrl: challengeMode === 'hosted' ? challengeUrl : undefined,
+    providerReference: intent.providerResponse?.providerReference,
+    providerMessage: intent.providerResponse?.message,
+    coreSubmission: intent.coreSubmission,
+    coreResult: intent.coreResult,
+    webhookDelivery: intent.webhookDelivery,
+    createdAt: intent.createdAt,
+    updatedAt: intent.updatedAt,
+  };
+};
 
 const app = express();
 app.use(express.json({
@@ -434,6 +462,7 @@ app.use(express.json({
     (req as express.Request).rawBody = Buffer.from(buf);
   },
 }));
+app.use(express.urlencoded({ extended: false, limit: '32kb' }));
 
 app.use((req, res, next) => {
   const requestId = req.get('x-request-id') || crypto.randomUUID();
@@ -461,6 +490,128 @@ app.get('/ready', async (_req, res) => {
       providers,
     },
   });
+});
+
+const escapeHtml = (value: unknown): string =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const hostedChallengeHtml = (intent: PaymentIntent, error = '') => {
+  const challenge = intent.coreResult?.challenge;
+  const metadata = challenge?.metadata || {};
+  const merchantName = String(metadata.merchantName || metadata.serviceName || intent.serviceCode || 'ORBI service');
+  const amount = `${intent.currency.toUpperCase()} ${Number(intent.amount || 0).toLocaleString('en-US')}`;
+  const reference = String(metadata.reference || intent.reference || '');
+  const prompt = String(challenge?.prompt || `Approve ${amount} for ${merchantName}.`);
+  const expiresAt = challenge?.expiresAt ? new Date(challenge.expiresAt).toLocaleString() : '';
+  const otcRequestId = String(metadata.otcRequestId || metadata.otc_request_id || '');
+  const challengeId = String(challenge?.challengeId || '');
+  const mode = challengeModeForIntent(intent);
+  const disabled = mode === 'in_app_required';
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ORBI Payment Challenge</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; background:linear-gradient(135deg,#f8fafc,#e0f2fe); color:#0f172a; }
+    .card { width:min(92vw,440px); background:#fff; border:1px solid #dbeafe; border-radius:28px; box-shadow:0 24px 60px rgba(15,23,42,.16); padding:26px; }
+    .brand { font-size:34px; font-weight:900; letter-spacing:-.06em; color:#020617; }
+    .pill { display:inline-flex; padding:8px 12px; border-radius:999px; background:#eff6ff; color:#2563eb; font-weight:800; font-size:13px; margin-top:10px; }
+    h1 { font-size:24px; margin:22px 0 8px; }
+    p { color:#475569; line-height:1.5; }
+    .amount { font-size:38px; font-weight:950; letter-spacing:-.05em; margin:18px 0 4px; }
+    .ref { background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px; padding:12px; font-weight:750; overflow-wrap:anywhere; }
+    input { width:100%; box-sizing:border-box; margin-top:14px; padding:16px; border-radius:16px; border:1px solid #cbd5e1; font-size:22px; text-align:center; letter-spacing:.18em; font-weight:850; }
+    .actions { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:18px; }
+    button { border:0; border-radius:16px; padding:15px 12px; font-weight:900; font-size:15px; cursor:pointer; }
+    .approve { background:#2563eb; color:#fff; }
+    .reject { background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1; }
+    .error { background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:14px; padding:10px 12px; margin-top:14px; }
+    .note { font-size:12px; color:#64748b; margin-top:14px; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">Orbi</div>
+    <span class="pill">Secure hosted challenge</span>
+    <h1>Approve ORBI payment</h1>
+    <p>${escapeHtml(prompt)}</p>
+    <div class="amount">${escapeHtml(amount)}</div>
+    <p>Merchant: <strong>${escapeHtml(merchantName)}</strong></p>
+    ${reference ? `<div class="ref">Ref: ${escapeHtml(reference)}</div>` : ''}
+    ${expiresAt ? `<p class="note">Expires: ${escapeHtml(expiresAt)}</p>` : ''}
+    ${disabled ? '<div class="error">This request requires approval inside your ORBI app because extra security is needed.</div>' : ''}
+    ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
+    <form method="post" action="/v1/challenges/${encodeURIComponent(intent.id)}/respond">
+      <input type="hidden" name="challengeId" value="${escapeHtml(challengeId)}" />
+      <input type="hidden" name="otcRequestId" value="${escapeHtml(otcRequestId)}" />
+      ${disabled ? '' : '<input name="otcCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" required />'}
+      <div class="actions">
+        <button class="approve" name="decision" value="approve" ${disabled ? 'disabled' : ''}>Approve</button>
+        <button class="reject" name="decision" value="reject" ${disabled ? 'disabled' : ''}>Reject</button>
+      </div>
+    </form>
+    <p class="note">Never share this code with anyone. ORBI verifies this request directly with Core.</p>
+  </main>
+</body>
+</html>`;
+};
+
+app.get('/challenges/:intentId', (req, res) => {
+  try {
+    const intent = paymentIntentStore.getById(String(req.params.intentId || ''));
+    if (!intent.coreResult?.challenge) {
+      return res.status(404).send('Payment challenge not found.');
+    }
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    return res.send(hostedChallengeHtml(intent));
+  } catch (e: any) {
+    return res.status(404).send(escapeHtml(e.message || 'Payment challenge not found.'));
+  }
+});
+
+app.post('/v1/challenges/:intentId/respond', async (req, res) => {
+  let intent: PaymentIntent;
+  try {
+    intent = paymentIntentStore.getById(String(req.params.intentId || ''));
+  } catch (e: any) {
+    return res.status(404).send(escapeHtml(e.message || 'Payment challenge not found.'));
+  }
+  const challenge = intent.coreResult?.challenge;
+  if (!challenge) return res.status(404).send('Payment challenge not found.');
+  if (challengeModeForIntent(intent) === 'in_app_required') {
+    return res.status(403).send(hostedChallengeHtml(intent, 'This request must be approved inside your ORBI app.'));
+  }
+  const decision = String(req.body?.decision || '').trim().toLowerCase() === 'reject' ? 'reject' : 'approve';
+  const idempotencyKey = `hosted-${intent.id}-${decision}`;
+  try {
+    const result = await orbiCoreClient.respondToServicePaymentChallenge({
+      challengeId: String(challenge.challengeId),
+      decision,
+      idempotencyKey,
+      otcRequestId: String(req.body?.otcRequestId || challenge.metadata?.otcRequestId || ''),
+      otcCode: String(req.body?.otcCode || req.body?.code || ''),
+      metadata: {
+        hostedChallenge: true,
+        paymentIntentId: intent.id,
+        serviceCode: intent.serviceCode,
+      },
+    });
+    const event = (result as any)?.data || result;
+    const updated = paymentIntentStore.applyCoreEvent(intent, event as ServicePaymentCoreEvent);
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    return res.send(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>ORBI Payment</title><style>body{font-family:system-ui;margin:0;min-height:100vh;display:grid;place-items:center;background:#f8fafc;color:#0f172a}.card{max-width:420px;margin:24px;padding:26px;background:#fff;border-radius:26px;box-shadow:0 20px 50px #0002}.ok{color:#16a34a}.bad{color:#dc2626}</style></head><body><main class="card"><h1 class="${updated.status === 'failed' ? 'bad' : 'ok'}">${updated.status === 'failed' ? 'Payment declined' : 'Payment approved'}</h1><p>${escapeHtml(updated.coreResult?.message || 'You may now return to checkout.')}</p><p><strong>Reference:</strong> ${escapeHtml(updated.reference)}</p></main></body></html>`);
+  } catch (e: any) {
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    return res.status(400).send(hostedChallengeHtml(intent, e.message || 'Unable to complete challenge.'));
+  }
 });
 
 app.get('/v1/providers', async (_req, res) => {

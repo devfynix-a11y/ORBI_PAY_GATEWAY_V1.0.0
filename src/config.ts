@@ -36,6 +36,9 @@ export const config = {
       process.env.ORBI_CORE_TRUSTED_GATEWAY_EVENT_PATH || '/api/internal/gateway/provider-events',
     trustedServicePaymentRequestPath:
       process.env.ORBI_CORE_TRUSTED_SERVICE_PAYMENT_REQUEST_PATH || '/api/internal/pay-gateway/service-payment-requests',
+    trustedServicePaymentChallengeRespondPath:
+      process.env.ORBI_CORE_TRUSTED_SERVICE_PAYMENT_CHALLENGE_RESPOND_PATH ||
+      '/api/internal/pay-gateway/service-payment-challenges',
     trustedPaySafeBalancePath:
       process.env.ORBI_CORE_TRUSTED_PAYSAFE_BALANCE_PATH || '/api/internal/pay-gateway/paysafe-balances',
     trustedIdentityResolvePath:

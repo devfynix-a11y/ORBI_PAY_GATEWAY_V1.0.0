@@ -267,6 +267,15 @@ export type ServicePaymentRequest = {
   createdAt: string;
 };
 
+export type ServicePaymentChallengeResponseRequest = {
+  challengeId: string;
+  decision: 'approve' | 'reject';
+  idempotencyKey: string;
+  otcRequestId?: string;
+  otcCode?: string;
+  metadata?: Record<string, unknown>;
+};
+
 export type ServicePaymentCoreEvent = {
   intentId: string;
   serviceCode: string;
