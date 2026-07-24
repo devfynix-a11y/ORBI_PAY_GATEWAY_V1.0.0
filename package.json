@@ -9,17 +9,27 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "dev": "tsx src/server.ts",
+    "secrets:migrate-service-registry": "tsx src/tools/migrateServiceRegistrySecrets.ts",
     "test": "tsx --test --test-force-exit tests/**/*.test.ts",
-    "check": "npm run build && npm test"
+    "check": "npm run build && npm test",
+    "openapi:check": "tsx --test --test-force-exit tests/openApiSpec.test.ts",
+    "sdk:node:build": "npm --prefix sdk/node run build",
+    "sdk:node:test": "npm --prefix sdk/node test",
+    "sdk:node:check": "npm --prefix sdk/node run check",
+    "example:merchant-checkout:check": "npm --prefix examples/merchant-checkout run check",
+    "example:seller-linking:check": "npm --prefix examples/seller-linking run check",
+    "example:saccos-member-payments:check": "npm --prefix examples/saccos-member-payments run check"
   },
   "dependencies": {
     "dotenv": "^16.6.1",
     "express": "^5.2.1",
+    "pg": "^8.22.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^22.19.15",
+    "@types/pg": "^8.20.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   },

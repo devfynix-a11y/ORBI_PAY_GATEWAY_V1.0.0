@@ -1,0 +1,413 @@
+{
+  "info": {
+    "name": "ORBI Pay Gateway",
+    "_postman_id": "6cbf6d8d-0f6d-4f3a-8e9b-orbi-pay-gateway",
+    "description": "SDK-first ORBI Pay Gateway bootstrap collection for sandbox checkout, hosted challenge, consent receipts, and webhook replay.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      { "key": "key", "value": "x-orbi-pay-service-key", "type": "string" },
+      { "key": "value", "value": "{{service_key}}", "type": "string" },
+      { "key": "in", "value": "header", "type": "string" }
+    ]
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://pay.orbifinancial.com" },
+    { "key": "service_key", "value": "orbi_sandbox_replace_me" },
+    { "key": "operator_key", "value": "orbi_operator_replace_me" },
+    { "key": "intent_id", "value": "pi_replace_me" },
+    { "key": "escrow_id", "value": "esc_replace_me" },
+    { "key": "consent_id", "value": "consent_replace_me" },
+    { "key": "delivery_id", "value": "whdel_replace_me" },
+    { "key": "request_id", "value": "req-{{$timestamp}}" },
+    { "key": "idempotency_key", "value": "sandbox-{{$timestamp}}" }
+  ],
+  "item": [
+    {
+      "name": "Runtime",
+      "item": [
+        {
+          "name": "Resolve Identity",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-request-id", "value": "{{request_id}}" }
+            ],
+            "url": "{{base_url}}/v1/identity/resolve",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"+255700000000\",\n  \"metadata\": {\n    \"source\": \"postman_sandbox\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Link Payment Profile",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "payment-profile:postman:seller-001" },
+              { "key": "x-request-id", "value": "{{request_id}}" }
+            ],
+            "url": "{{base_url}}/v1/payment-profiles",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"OB26-9885-6029\",\n  \"externalCustomerId\": \"postman-seller-001\",\n  \"scopes\": [\"payment_profile:read\", \"payments:create\", \"escrow:create\"],\n  \"consent\": {\n    \"consent_captured\": true,\n    \"consent_text_version\": \"orbi-payment-profile-v1\",\n    \"expires_at\": \"2027-07-23T00:00:00.000Z\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Checkout Payment Intent",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{idempotency_key}}" },
+              { "key": "x-request-id", "value": "{{request_id}}" }
+            ],
+            "url": "{{base_url}}/v1/payment-intents",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference\": \"ORDER-POSTMAN-10001\",\n  \"amount\": 125000,\n  \"currency\": \"TZS\",\n  \"confirm\": true,\n  \"paymentCategory\": \"orbi\",\n  \"paymentRail\": \"orbi_wallet\",\n  \"customer\": {\n    \"phone\": \"+255700000000\"\n  },\n  \"returnUrl\": \"https://merchant.example.com/orbi/return\",\n  \"metadata\": {\n    \"consentScopes\": [\"payments:create\"],\n    \"consentPurpose\": \"Allow protected checkout payment.\",\n    \"consentTextVersion\": \"orbi-hosted-challenge-consent-v1\",\n    \"consentExpiresAt\": \"2027-07-23T00:00:00.000Z\",\n    \"locale\": \"sw\",\n    \"timezone\": \"Africa/Dar_es_Salaam\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Read Payment Intent",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-request-id", "value": "{{request_id}}" }],
+            "url": "{{base_url}}/v1/payment-intents/{{intent_id}}"
+          }
+        },
+        {
+          "name": "Confirm Payment Intent",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "payment-intent-confirm:{{intent_id}}" },
+              { "key": "x-request-id", "value": "{{request_id}}" }
+            ],
+            "url": "{{base_url}}/v1/payment-intents/{{intent_id}}/confirm",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metadata\": {\n    \"confirmSource\": \"postman_sandbox\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Create PaySafe Escrow",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "paysafe-create:postman:ORDER-10001" },
+              { "key": "x-request-id", "value": "{{request_id}}" }
+            ],
+            "url": "{{base_url}}/v1/paysafe/escrows",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference\": \"ORDER-POSTMAN-10001\",\n  \"amount\": 125000,\n  \"currency\": \"TZS\",\n  \"paymentCategory\": \"orbi\",\n  \"paymentRail\": \"orbi_wallet\",\n  \"buyer\": {\n    \"phone\": \"+255700000000\"\n  },\n  \"seller\": {\n    \"userId\": \"seller-orbi-user-id\"\n  },\n  \"returnUrl\": \"https://merchant.example.com/orbi/return\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Hosted Challenge",
+      "item": [
+        {
+          "name": "Open Hosted Challenge",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/challenges/{{intent_id}}"
+          }
+        },
+        {
+          "name": "Submit Hosted Challenge Approval",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }],
+            "url": "{{base_url}}/v1/challenges/{{intent_id}}/respond",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "challengeId", "value": "pay_ch_replace_me", "type": "text" },
+                { "key": "decision", "value": "approve", "type": "text" },
+                { "key": "otp", "value": "123456", "type": "text" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Submit Hosted Challenge Rejection",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }],
+            "url": "{{base_url}}/v1/challenges/{{intent_id}}/respond",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "challengeId", "value": "pay_ch_replace_me", "type": "text" },
+                { "key": "decision", "value": "reject", "type": "text" },
+                { "key": "reason", "value": "customer_declined", "type": "text" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "PaySafe Actions",
+      "item": [
+        {
+          "name": "Release Escrow",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "paysafe-release:{{escrow_id}}" }
+            ],
+            "url": "{{base_url}}/v1/paysafe/escrows/{{escrow_id}}/release",
+            "body": { "mode": "raw", "raw": "{\n  \"reference\": \"ORDER-POSTMAN-10001\",\n  \"reason\": \"Customer confirmed delivery.\"\n}" }
+          }
+        },
+        {
+          "name": "Refund Escrow",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "paysafe-refund:{{escrow_id}}" }
+            ],
+            "url": "{{base_url}}/v1/paysafe/escrows/{{escrow_id}}/refund",
+            "body": { "mode": "raw", "raw": "{\n  \"reference\": \"ORDER-POSTMAN-10001\",\n  \"reason\": \"Order cancelled before delivery.\"\n}" }
+          }
+        },
+        {
+          "name": "Dispute Escrow",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "paysafe-dispute:{{escrow_id}}" }
+            ],
+            "url": "{{base_url}}/v1/paysafe/escrows/{{escrow_id}}/dispute",
+            "body": { "mode": "raw", "raw": "{\n  \"reference\": \"ORDER-POSTMAN-10001\",\n  \"reason\": \"Customer raised a delivery dispute.\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Developer Control Plane",
+      "auth": {
+        "type": "apikey",
+        "apikey": [
+          { "key": "key", "value": "x-orbi-pay-operator-key", "type": "string" },
+          { "key": "value", "value": "{{operator_key}}", "type": "string" },
+          { "key": "in", "value": "header", "type": "string" }
+        ]
+      },
+      "item": [
+        {
+          "name": "List Consent Receipts",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/consent-receipts?serviceCode=orbi-shop&status=active"
+          }
+        },
+        {
+          "name": "Read Consent Receipt",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/consent-receipts/{{consent_id}}"
+          }
+        },
+        {
+          "name": "Revoke Consent Receipt",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/v1/developer/consent-receipts/{{consent_id}}/revoke",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"revokedBy\": \"user_001\",\n  \"reason\": \"Customer revoked merchant access.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "List Webhook Deliveries",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/webhook-deliveries?serviceCode=orbi-shop&status=failed"
+          }
+        },
+        {
+          "name": "Replay Webhook Delivery",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "x-request-id", "value": "manual-replay-{{delivery_id}}" }],
+            "url": "{{base_url}}/v1/developer/webhook-deliveries/{{delivery_id}}/replay"
+          }
+        },
+        {
+          "name": "Integration Health",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/integration-health?serviceCode=orbi-shop"
+          }
+        },
+        {
+          "name": "Docs Catalog",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/docs-catalog"
+          }
+        },
+        {
+          "name": "Environment Profiles",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/environment-profiles"
+          }
+        },
+        {
+          "name": "Live Environment Profile",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/environment-profiles/live"
+          }
+        },
+        {
+          "name": "Sandbox Simulator Flow",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/sandbox-simulator"
+          }
+        },
+        {
+          "name": "Sandbox Simulator State",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/sandbox-simulator/state"
+          }
+        },
+        {
+          "name": "Reset Sandbox Simulator",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/developer/sandbox-simulator/reset"
+          }
+        },
+        {
+          "name": "Sandbox Accounts",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/sandbox-simulator/accounts"
+          }
+        },
+        {
+          "name": "Sandbox Transfer",
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromAccountId\": \"sbx_buyer_daniel\",\n  \"toAccountId\": \"sbx_seller_catherine\",\n  \"amount\": 25000,\n  \"currency\": \"TZS\",\n  \"reference\": \"SBX-ORDER-1\",\n  \"description\": \"Sandbox order payment\"\n}"
+            },
+            "url": "{{base_url}}/v1/developer/sandbox-simulator/transfers"
+          }
+        },
+        {
+          "name": "Sandbox Transfer Webhook Event",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/developer/sandbox-simulator/transfers/{{sandbox_transfer_id}}/webhook-event"
+          }
+        },
+        {
+          "name": "GraphQL Schema Preview",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/graphql/schema"
+          }
+        },
+        {
+          "name": "GraphQL Migration Plan",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/graphql/migration-plan"
+          }
+        },
+        {
+          "name": "SDK Catalog",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/sdk-catalog"
+          }
+        },
+        {
+          "name": "Consent Scope Catalog",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/consent-scopes"
+          }
+        },
+        {
+          "name": "Consent Status Check",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/developer/consent-status?serviceCode=orbi-shop&subjectId=user_001&scopes=payments:create&environment=live&renewalWindowDays=30"
+          }
+        }
+      ]
+    }
+    ,
+    {
+      "name": "Consent Center",
+      "item": [
+        {
+          "name": "List Connected Consents",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-orbi-subject-id", "value": "user_001" },
+              { "key": "x-orbi-subject-type", "value": "user" }
+            ],
+            "url": "{{base_url}}/v1/consents?status=active&locale=sw"
+          }
+        },
+        {
+          "name": "Read Connected Consent",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-orbi-subject-id", "value": "user_001" },
+              { "key": "x-orbi-subject-type", "value": "user" }
+            ],
+            "url": "{{base_url}}/v1/consents/{{consent_id}}?locale=sw"
+          }
+        },
+        {
+          "name": "Revoke Connected Consent",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-orbi-subject-id", "value": "user_001" },
+              { "key": "x-orbi-subject-type", "value": "user" }
+            ],
+            "url": "{{base_url}}/v1/consents/{{consent_id}}/revoke",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Customer revoked connected service access.\"\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

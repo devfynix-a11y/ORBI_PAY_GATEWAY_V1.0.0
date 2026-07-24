@@ -25,9 +25,27 @@ git push -u origin main
 Configure these in the deployment platform, not Git:
 
 - `WORKER_SIGNING_SECRET`
+- `DATABASE_URL`
+- `ORBI_SECRET_ENCRYPTION_KEY`
 - `PAYMENT_GATEWAY_PROVIDER_MANIFEST_PATH` or `PAYMENT_GATEWAY_PROVIDER_MANIFEST_JSON`
 - provider token reference env vars declared by the manifest
 - mTLS private key paths/certificates where applicable
+
+## Secret Vault Bootstrap
+
+Developer Portal services use PostgreSQL as the official control-plane store.
+API keys are stored as fingerprints only. Webhook signing secrets are stored as
+encrypted vault material using `ORBI_SECRET_ENCRYPTION_KEY` so outbound webhooks
+can still be signed after restart or restore.
+
+To import service-registry credentials from the server environment:
+
+```bash
+npm run secrets:migrate-service-registry
+```
+
+The command must run with `DATABASE_URL`, `ORBI_SECRET_ENCRYPTION_KEY`, and the
+service registry env vars loaded. It must not print or persist raw API keys.
 
 ## Release Rule
 

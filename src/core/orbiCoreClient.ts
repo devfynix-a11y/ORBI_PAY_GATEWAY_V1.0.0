@@ -4,11 +4,14 @@ import { URL } from 'url';
 import { config } from '../config.js';
 import type {
   NormalizedProviderEvent,
+  ServiceBusinessRegistrationRequest,
   ServiceMerchantOrderPaymentStatusRequest,
   ServiceMerchantSettlementsRequest,
   ServiceIdentityResolveRequest,
+  ServicePaymentProfileRequest,
   ServicePaymentChallengeResponseRequest,
   ServicePaymentRequest,
+  ServicePaySafeActionRequest,
   ServicePaySafeBalanceRequest,
 } from '../types.js';
 import { buildSignedInternalHeaders } from '../security/internalSigner.js';
@@ -138,6 +141,25 @@ export class OrbiCoreClient {
     return postJsonWithNodeHttp(endpoint, headers, request);
   }
 
+  async submitPaySafeAction(request: ServicePaySafeActionRequest): Promise<unknown> {
+    const endpoint = new URL(config.core.trustedPaySafeActionPath, config.core.baseUrl);
+    const headers = buildSignedInternalHeaders({
+      method: 'POST',
+      path: endpoint.pathname,
+      body: request,
+      workerId: config.worker.id,
+      scopes: [...new Set([...config.worker.scopes, 'gateway:service-payments:write', 'gateway:service-payments:result'])],
+      signingSecret: config.worker.signingSecret,
+      keyId: config.worker.keyId,
+    });
+
+    return postJsonWithNodeHttp(endpoint, {
+      ...headers,
+      'idempotency-key': request.idempotencyKey,
+      'x-idempotency-key': request.idempotencyKey,
+    }, request);
+  }
+
   async resolveIdentity(request: ServiceIdentityResolveRequest): Promise<unknown> {
     const endpoint = new URL(config.core.trustedIdentityResolvePath, config.core.baseUrl);
     const headers = buildSignedInternalHeaders({
@@ -151,6 +173,42 @@ export class OrbiCoreClient {
     });
 
     return postJsonWithNodeHttp(endpoint, headers, request);
+  }
+
+  async submitBusinessRegistration(request: ServiceBusinessRegistrationRequest): Promise<unknown> {
+    const endpoint = new URL(config.core.trustedBusinessRegistrationPath, config.core.baseUrl);
+    const headers = buildSignedInternalHeaders({
+      method: 'POST',
+      path: endpoint.pathname,
+      body: request,
+      workerId: config.worker.id,
+      scopes: [...new Set([...config.worker.scopes, 'gateway:business-registration:write'])],
+      signingSecret: config.worker.signingSecret,
+      keyId: config.worker.keyId,
+    });
+
+    return postJsonWithNodeHttp(endpoint, headers, request);
+  }
+
+  async createPaymentProfile(request: ServicePaymentProfileRequest): Promise<unknown> {
+    const endpoint = new URL(config.core.trustedPaymentProfilePath, config.core.baseUrl);
+    const headers = buildSignedInternalHeaders({
+      method: 'POST',
+      path: endpoint.pathname,
+      body: request,
+      workerId: config.worker.id,
+      scopes: [...new Set([...config.worker.scopes, 'gateway:payment-profiles:write'])],
+      signingSecret: config.worker.signingSecret,
+      keyId: config.worker.keyId,
+    });
+
+    return postJsonWithNodeHttp(endpoint, {
+      ...headers,
+      ...(request.idempotencyKey ? {
+        'idempotency-key': request.idempotencyKey,
+        'x-idempotency-key': request.idempotencyKey,
+      } : {}),
+    }, request);
   }
 
   async queryMerchantOrderPaymentStatus(request: ServiceMerchantOrderPaymentStatusRequest): Promise<unknown> {

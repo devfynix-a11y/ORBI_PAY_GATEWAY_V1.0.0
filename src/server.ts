@@ -9,10 +9,59 @@ import { obpDiscoveryService } from './discovery/ObpDiscoveryService.js';
 import { rejectUnsafeDirectSecretsInProduction } from './security/providerCredentialVault.js';
 import { assertStrongCustomerAuth, redactedScaForCore } from './security/strongCustomerAuth.js';
 import { payServiceRegistry } from './services/payServiceRegistry.js';
-import { authenticatePayServiceRequest } from './services/payServiceAuth.js';
+import {
+  authenticatePayServiceCredential,
+  developerEnvironmentForRuntime,
+  extractServiceApiKey,
+  type AuthenticatedPayService,
+  type RuntimeEnvironment,
+} from './services/payServiceAuth.js';
 import { paymentIntentStore } from './services/paymentIntentStore.js';
-import { deliverServiceWebhook } from './services/serviceWebhook.js';
+import {
+  buildServiceWebhookPayload,
+  deliverServiceWebhook,
+  deliverServiceWebhookPayload,
+} from './services/serviceWebhook.js';
+import { webhookDeliveryStore } from './services/webhookDeliveryStore.js';
 import { verifySignedInternalHeaders } from './security/internalSigner.js';
+import {
+  buildApiErrorBody,
+  errorCodeFromException,
+  httpStatusForGatewayError,
+  publicPaymentIntentStatus,
+} from './contracts/platformContract.js';
+import { graphqlGatewaySchema, graphqlMigrationPlan } from './contracts/graphqlContract.js';
+import {
+  ConsentReceiptCreateSchema,
+  ConsentRevocationSchema,
+} from './contracts/consentCenterContract.js';
+import {
+  DeveloperAllowlistUpdateSchema,
+  DeveloperApiKeyRotationDecisionSchema,
+  DeveloperApiKeyRotationRequestSchema,
+  DeveloperSecretIssueRequestSchema,
+  DeveloperScopeDecisionSchema,
+  DeveloperScopeRequestSchema,
+  DeveloperServiceApplicationSchema,
+  DeveloperWebhookSecretRotationRequestSchema,
+} from './contracts/developerPortalContract.js';
+import { consentReceiptStore } from './services/consentReceiptStore.js';
+import { developerPortalStore } from './services/developerPortalStore.js';
+import { ServiceConsentGuard, subjectIdForConsent } from './services/serviceConsentGuard.js';
+import { buildDeveloperHealthSummary } from './services/developerHealthService.js';
+import {
+  developerDocsCatalog,
+  developerSandboxToolsCatalog,
+  developerSdkCatalog,
+} from './services/developerResourceCatalog.js';
+import {
+  developerEnvironmentProfile,
+  developerEnvironmentProfiles,
+  developerEnvironmentSeparationMatrix,
+} from './services/developerEnvironmentCatalog.js';
+import { consentScopeCatalog, consentScopeSummary, type ConsentLocale } from './services/consentScopeCatalog.js';
+import { createConsentReceiptFromHostedChallenge } from './services/hostedChallengeConsent.js';
+import { sandboxSimulatorStore } from './services/sandboxSimulatorStore.js';
 import type {
   GatewayPaymentRequest,
   GatewayPaymentResponse,
@@ -167,11 +216,75 @@ const IdentityResolveSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+const BusinessRegistrationSchema = z.object({
+  userId: z.string().trim().optional(),
+  email: z.string().trim().email().optional(),
+  phone: z.string().trim().min(1).max(40).optional(),
+  requestedRole: z.string().trim().min(1).max(40).optional(),
+  requested_role: z.string().trim().min(1).max(40).optional(),
+  businessName: z.string().trim().min(1).max(160).optional(),
+  business_name: z.string().trim().min(1).max(160).optional(),
+  externalBusinessId: z.string().trim().max(160).optional(),
+  external_business_id: z.string().trim().max(160).optional(),
+  note: z.string().trim().max(1000).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).refine((value) => Boolean(value.userId || value.email || value.phone), {
+  message: 'Provide userId, email, or phone.',
+  path: ['userId'],
+});
+
+const PaymentProfileCreateSchema = z.object({
+  userId: z.string().trim().optional(),
+  customerId: z.string().trim().optional(),
+  email: z.string().trim().email().optional(),
+  phone: z.string().trim().min(1).max(40).optional(),
+  externalCustomerId: z.string().trim().min(1).max(160).optional(),
+  external_customer_id: z.string().trim().min(1).max(160).optional(),
+  scopes: z.array(z.string().trim().min(1).max(80)).min(1).max(20).default([
+    'payment_profile:read',
+    'payments:create',
+  ]),
+  consent: z.record(z.string(), z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  expiresAt: z.string().datetime().optional(),
+  expires_at: z.string().datetime().optional(),
+  idempotencyKey: z.string().trim().min(8).max(160).optional(),
+  idempotency_key: z.string().trim().min(8).max(160).optional(),
+}).refine((value) => Boolean(value.userId || value.customerId || value.email || value.phone), {
+  message: 'Provide userId, customerId, email, or phone.',
+  path: ['userId'],
+});
+
 const MerchantSettlementsQuerySchema = z.object({
   currency: z.string().trim().min(3).max(8).optional(),
   status: z.string().trim().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
   offset: z.coerce.number().int().min(0).optional(),
+});
+
+const ConsentStatusQuerySchema = z.object({
+  serviceCode: z.string().trim().min(1),
+  subjectId: z.string().trim().min(1),
+  scopes: z.union([
+    z.string().trim().min(1),
+    z.array(z.string().trim().min(1)),
+  ]),
+  environment: z.enum(['sandbox', 'live']).optional(),
+  renewalWindowDays: z.coerce.number().int().min(0).max(365).optional(),
+});
+
+const ConnectedConsentsQuerySchema = z.object({
+  status: z.enum(['active', 'revoked', 'expired']).optional(),
+  locale: z.enum(['en', 'sw']).optional(),
+});
+
+const SandboxTransferSchema = z.object({
+  fromAccountId: z.string().trim().min(1),
+  toAccountId: z.string().trim().min(1),
+  amount: z.number().positive(),
+  currency: z.string().trim().min(3).max(8),
+  reference: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(500).optional(),
 });
 
 const CoreServicePaymentEventSchema = z.object({
@@ -217,6 +330,112 @@ const normalizeHeaders = (headers: Record<string, string | string[] | undefined>
 const shouldNotifyCore = (response: GatewayPaymentResponse): boolean =>
   ['processing', 'pending', 'completed', 'failed'].includes(response.status);
 
+const requestIdFromResponse = (res: express.Response): string | undefined => {
+  const value = res.getHeader('x-request-id');
+  return typeof value === 'string' ? value : undefined;
+};
+
+const apiErrorBody = (
+  res: express.Response,
+  error: string,
+  options: {
+    message?: string;
+    details?: unknown[];
+    data?: unknown;
+  } = {},
+) => buildApiErrorBody(error, {
+  ...options,
+  requestId: requestIdFromResponse(res),
+});
+
+const sendApiError = (
+  res: express.Response,
+  status: number,
+  error: string,
+  options: Parameters<typeof apiErrorBody>[2] = {},
+) => res.status(status).json(apiErrorBody(res, error, options));
+
+const sendValidationError = (
+  res: express.Response,
+  error: string,
+  issues: z.ZodIssue[],
+) => sendApiError(res, 400, error, {
+  message: 'Request validation failed.',
+  details: issues,
+});
+
+const trustedSubjectContext = (req: express.Request) => {
+  const subjectId = String(
+    req.get('x-orbi-subject-id') ||
+    req.get('x-orbi-user-id') ||
+    req.get('x-orbi-business-id') ||
+    '',
+  ).trim();
+  const subjectTypeRaw = String(req.get('x-orbi-subject-type') || 'user').trim().toLowerCase();
+  const subjectType = subjectTypeRaw === 'business' ? 'business' : 'user';
+  return subjectId ? { subjectId, subjectType } : null;
+};
+
+const requireConsentSubjectAccess = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const context = trustedSubjectContext(req);
+  if (!context) {
+    return sendApiError(res, 401, 'CONSENT_SUBJECT_SESSION_REQUIRED', {
+      message: 'Authenticated ORBI subject context is required.',
+    });
+  }
+  res.locals.consentSubject = context;
+  return next();
+};
+
+const presentConsentReceipt = (receipt: ReturnType<typeof consentReceiptStore.get>, locale: ConsentLocale = 'en') => ({
+  ...receipt,
+  scopeSummary: consentScopeSummary(receipt.scopes, locale),
+});
+
+const deliverConsentRevocationWebhook = (receipt: ReturnType<typeof consentReceiptStore.revoke>) => {
+  const service = payServiceRegistry.get(receipt.serviceCode);
+  deliverServiceWebhookPayload(service, {
+    eventId: crypto.randomUUID(),
+    eventType: 'consent.revoked',
+    serviceCode: receipt.serviceCode,
+    consent: {
+      consentId: receipt.consentId,
+      serviceCode: receipt.serviceCode,
+      environment: receipt.environment,
+      subjectType: receipt.subjectType,
+      subjectId: receipt.subjectId,
+      externalSubjectId: receipt.externalSubjectId,
+      scopes: receipt.scopes,
+      purpose: receipt.purpose,
+      status: receipt.status,
+      expiresAt: receipt.expiresAt,
+      revokedAt: receipt.revokedAt,
+      revokedBy: receipt.revokedBy,
+      revocationReason: receipt.revocationReason,
+    },
+  }).then((delivery) => {
+    if (!delivery.attempted) return;
+    webhookDeliveryStore.record({
+      eventId: delivery.eventId || crypto.randomUUID(),
+      serviceCode: receipt.serviceCode,
+      resourceId: receipt.consentId,
+      eventType: delivery.eventType || 'consent.revoked',
+      payload: delivery.payload,
+      callbackUrl: delivery.callbackUrl,
+      status: delivery.delivered ? 'delivered' : 'failed',
+      attempt: 1,
+      statusCode: delivery.statusCode,
+      error: delivery.error,
+    });
+  }).catch((error) => {
+    logger.error('consent_revocation_webhook_failed', {
+      serviceCode: receipt.serviceCode,
+      consentId: receipt.consentId,
+      error: error.message,
+    });
+  });
+};
+
 const sanitizeIdempotencyKey = (value: unknown): string | undefined => {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
@@ -229,6 +448,85 @@ const requestIdempotencyKey = (req: express.Request, body: Record<string, unknow
   sanitizeIdempotencyKey(req.headers['x-orbi-idempotency-key']) ||
   sanitizeIdempotencyKey(body.idempotencyKey) ||
   sanitizeIdempotencyKey(body.idempotency_key);
+
+const requestRuntimeEnvironment = (req: express.Request): RuntimeEnvironment | undefined => {
+  const raw = String(
+    req.headers['x-orbi-environment'] ||
+    req.headers['x-orbi-pay-environment'] ||
+    req.headers['x-orbi-mode'] ||
+    '',
+  ).trim().toLowerCase();
+  if (!raw) return undefined;
+  if (raw === 'demo' || raw === 'sandbox') return 'demo';
+  if (raw === 'production' || raw === 'live') return 'production';
+  throw new Error('PAY_GATEWAY_ENVIRONMENT_INVALID');
+};
+
+const requireRuntimeEnvironment = (req: express.Request): RuntimeEnvironment => {
+  const environment = requestRuntimeEnvironment(req);
+  if (!environment) throw new Error('PAY_GATEWAY_ENVIRONMENT_REQUIRED');
+  return environment;
+};
+
+const assertServiceCredentialEnvironment = (
+  credential: AuthenticatedPayService['credential'] | undefined,
+  runtimeEnvironment: RuntimeEnvironment,
+) => {
+  const expected = developerEnvironmentForRuntime(runtimeEnvironment);
+  if (!credential?.environment) throw new Error('PAY_GATEWAY_CREDENTIAL_ENVIRONMENT_UNBOUND');
+  if (credential.environment !== expected) throw new Error('PAY_GATEWAY_ENVIRONMENT_KEY_MISMATCH');
+};
+
+const timingSafeEqualHex = (left: string, right: string): boolean => {
+  if (!/^[a-f0-9]+$/i.test(left) || !/^[a-f0-9]+$/i.test(right)) return false;
+  const leftBuffer = Buffer.from(left, 'hex');
+  const rightBuffer = Buffer.from(right, 'hex');
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+};
+
+const assertFinancialRequestSignature = (req: express.Request) => {
+  const signatureHeader = String(req.headers['x-orbi-signature'] || '').trim();
+  const timestampHeader = String(req.headers['x-orbi-timestamp'] || '').trim();
+  const nonceHeader = String(req.headers['x-orbi-nonce'] || '').trim();
+  if (!signatureHeader) throw new Error('PAY_GATEWAY_SIGNATURE_REQUIRED');
+  if (!timestampHeader) throw new Error('PAY_GATEWAY_SIGNATURE_TIMESTAMP_REQUIRED');
+  if (!nonceHeader || nonceHeader.length < 12 || nonceHeader.length > 120) {
+    throw new Error('PAY_GATEWAY_SIGNATURE_NONCE_REQUIRED');
+  }
+  const timestamp = Number(timestampHeader);
+  if (!Number.isFinite(timestamp)) throw new Error('PAY_GATEWAY_SIGNATURE_TIMESTAMP_INVALID');
+  if (Math.abs(Math.floor(Date.now() / 1000) - timestamp) > 300) {
+    throw new Error('PAY_GATEWAY_SIGNATURE_TIMESTAMP_STALE');
+  }
+  const secret = extractServiceApiKey(req);
+  if (!secret) throw new Error('PAY_GATEWAY_SIGNATURE_SECRET_MISSING');
+  const signature = signatureHeader.replace(/^sha256=/i, '').trim();
+  if (!/^[a-f0-9]{64}$/i.test(signature)) throw new Error('PAY_GATEWAY_SIGNATURE_INVALID');
+  const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body || {});
+  const bodyHash = crypto.createHash('sha256').update(rawBody).digest('hex');
+  const canonical = [
+    timestampHeader,
+    nonceHeader,
+    req.method.toUpperCase(),
+    req.originalUrl,
+    bodyHash,
+  ].join('.');
+  const expected = crypto.createHmac('sha256', secret).update(canonical).digest('hex');
+  if (!timingSafeEqualHex(signature, expected)) throw new Error('PAY_GATEWAY_SIGNATURE_INVALID');
+};
+
+const assertFinancialRuntimeRequest = (
+  req: express.Request,
+  res: express.Response,
+  payload: Record<string, unknown> = {},
+) => {
+  const environment = requireRuntimeEnvironment(req);
+  const credential = res.locals.payServiceCredential as AuthenticatedPayService['credential'] | undefined;
+  assertServiceCredentialEnvironment(credential, environment);
+  if (!requestIdempotencyKey(req, payload)) throw new Error('PAY_GATEWAY_IDEMPOTENCY_KEY_REQUIRED');
+  assertFinancialRequestSignature(req);
+  return environment;
+};
 
 const safeServiceReturnUrl = (value: unknown): string | undefined => {
   const raw = String(value || '').trim();
@@ -261,6 +559,35 @@ const serviceReturnUrl = (payload: Record<string, unknown>): string | undefined 
     safeServiceReturnUrl(metadata.callback_url) ||
     safeServiceReturnUrl(metadata.redirectUrl) ||
     safeServiceReturnUrl(metadata.redirect_url);
+};
+
+const callbackUrlFromPayload = (payload: Record<string, unknown>): string | undefined => {
+  const metadata = (payload.metadata && typeof payload.metadata === 'object')
+    ? payload.metadata as Record<string, unknown>
+    : {};
+  return safeServiceReturnUrl(payload.callbackUrl) ||
+    safeServiceReturnUrl(payload.callback_url) ||
+    safeServiceReturnUrl(payload.webhookUrl) ||
+    safeServiceReturnUrl(payload.webhook_url) ||
+    safeServiceReturnUrl(metadata.callbackUrl) ||
+    safeServiceReturnUrl(metadata.callback_url) ||
+    safeServiceReturnUrl(metadata.webhookUrl) ||
+    safeServiceReturnUrl(metadata.webhook_url);
+};
+
+const assertDeveloperPortalUrlAllowlists = (
+  service: PayServiceDefinition,
+  payload: Record<string, unknown>,
+  returnUrl: string | undefined,
+) => {
+  if (returnUrl && !developerPortalStore.isReturnUrlAllowed(service.code, returnUrl)) {
+    throw new Error('DEVELOPER_REDIRECT_URL_NOT_ALLOWED');
+  }
+
+  const callbackUrl = callbackUrlFromPayload(payload);
+  if (callbackUrl && !developerPortalStore.isWebhookUrlAllowed(service.code, callbackUrl)) {
+    throw new Error('DEVELOPER_WEBHOOK_URL_NOT_ALLOWED');
+  }
 };
 
 const paymentIntentFingerprint = (payload: ServicePaymentIntentPayload): string =>
@@ -339,6 +666,8 @@ const assertServicePaymentAllowed = (
     throw new Error('PAY_SERVICE_CURRENCY_NOT_ALLOWED');
   }
 };
+
+const serviceConsentGuard = new ServiceConsentGuard(developerPortalStore, consentReceiptStore);
 
 const categoryForRail = (rail: MerchantPaymentRail): PaymentCategory => {
   if (rail === 'orbi_wallet') return 'orbi';
@@ -506,7 +835,7 @@ const sanitizePaymentIntent = (intent: PaymentIntent) => {
     reference: intent.reference,
     amount: intent.amount,
     currency: intent.currency,
-    status: intent.status,
+    status: publicPaymentIntentStatus(intent.status),
     description: intent.description,
     customer: intent.customer,
     checkoutUrl: intent.checkoutUrl,
@@ -708,6 +1037,9 @@ app.post('/v1/challenges/:intentId/respond', async (req, res) => {
       }));
     }
     const updated = await responsePromise;
+    const consentReceipt = decision === 'approve' && updated.status !== 'failed'
+      ? createConsentReceiptFromHostedChallenge(consentReceiptStore, updated)
+      : null;
     const returnUrl = hostedChallengeReturnUrlForIntent(
       updated,
       updated.status === 'failed' || decision === 'reject' ? 'declined' : 'approved',
@@ -720,6 +1052,7 @@ app.post('/v1/challenges/:intentId/respond', async (req, res) => {
       challengeId: challenge.challengeId,
       decision,
       status: updated.status,
+      consentId: consentReceipt?.consentId,
       hasReturnUrl: Boolean(returnUrl),
     }));
     if (returnUrl) {
@@ -757,18 +1090,20 @@ app.get('/v1/providers/:providerCode/health', async (req, res) => {
     const result = await adapterRegistry.get(req.params.providerCode).health();
     res.json({ success: true, data: result });
   } catch (e: any) {
-    res.status(404).json({ success: false, error: e.message });
+    sendApiError(res, 404, errorCodeFromException(e, 'PAYMENT_PROVIDER_NOT_FOUND'));
   }
 });
 
 const requirePayServiceAccess = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
-    const service = authenticatePayServiceRequest(payServiceRegistry.activeServices(), req);
-    res.locals.payService = service;
+    const authenticated = authenticatePayServiceCredential(payServiceRegistry.activeServices(), req);
+    res.locals.payService = authenticated.service;
+    res.locals.payServiceCredential = authenticated.credential;
     return next();
   } catch (e: any) {
-    const status = e.message === 'PAY_SERVICE_AUTH_FAILED' ? 403 : 404;
-    return res.status(status).json({ success: false, error: e.message || 'PAY_SERVICE_ACCESS_DENIED' });
+    const error = errorCodeFromException(e, 'PAY_SERVICE_ACCESS_DENIED');
+    const status = error === 'PAY_SERVICE_AUTH_FAILED' ? 403 : 404;
+    return sendApiError(res, status, error);
   }
 };
 
@@ -828,10 +1163,12 @@ const createPaymentIntentForService = async (
   try {
     const service = res.locals.payService as PayServiceDefinition;
     const currency = payload.currency.toUpperCase();
+    const gatewayEnvironment = assertFinancialRuntimeRequest(req, res, payload as Record<string, unknown>);
     const idempotencyKey = requestIdempotencyKey(req, payload as Record<string, unknown>);
     const idempotencyFingerprint = idempotencyKey ? paymentIntentFingerprint({ ...payload, currency }) : undefined;
     assertServicePaymentAllowed(service, payload.operation, currency);
     const returnUrl = serviceReturnUrl(payload as Record<string, unknown>);
+    assertDeveloperPortalUrlAllowlists(service, payload as Record<string, unknown>, returnUrl);
     const paySafeRoute = payload.operation === 'paysafe'
       ? normalizePaySafePaymentRoute(payload)
       : null;
@@ -854,6 +1191,7 @@ const createPaymentIntentForService = async (
       idempotencyFingerprint,
       metadata: {
         ...(payload.metadata || {}),
+        ...(gatewayEnvironment ? { gatewayEnvironment } : {}),
         ...(idempotencyKey ? { idempotencyKey } : {}),
         ...(returnUrl ? { returnUrl } : {}),
         ...(paySafeRoute ? {
@@ -881,10 +1219,8 @@ const createPaymentIntentForService = async (
       serviceCode: (res.locals.payService as PayServiceDefinition | undefined)?.code,
       error: e.message,
     });
-    const message = e.message || 'PAYMENT_INTENT_CREATE_FAILED';
-    return res.status(isMerchantPaymentRequestError(message) ? 400 : 502).json({
-      success: false,
-      error: message,
+    const error = errorCodeFromException(e, 'PAYMENT_INTENT_CREATE_FAILED');
+    return sendApiError(res, isMerchantPaymentRequestError(error) ? 400 : httpStatusForGatewayError(error), error, {
       data: e.intent ? sanitizePaymentIntent(e.intent) : undefined,
     });
   }
@@ -893,7 +1229,7 @@ const createPaymentIntentForService = async (
 app.post('/v1/payment-intents', requirePayServiceAccess, async (req, res) => {
   const parsed = PaymentIntentCreateSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ success: false, error: 'PAYMENT_INTENT_INVALID', issues: parsed.error.issues });
+    return sendValidationError(res, 'PAYMENT_INTENT_INVALID', parsed.error.issues);
   }
 
   return createPaymentIntentForService(req, res, parsed.data);
@@ -905,16 +1241,17 @@ app.get('/v1/payment-intents/:intentId', requirePayServiceAccess, (req, res) => 
     const intent = paymentIntentStore.get(service.code, String(req.params.intentId || ''));
     return res.json({ success: true, data: sanitizePaymentIntent(intent) });
   } catch (e: any) {
-    return res.status(404).json({ success: false, error: e.message || 'PAYMENT_INTENT_NOT_FOUND' });
+    return sendApiError(res, 404, errorCodeFromException(e, 'PAYMENT_INTENT_NOT_FOUND'));
   }
 });
 
 app.post('/v1/payment-intents/:intentId/confirm', requirePayServiceAccess, async (req, res) => {
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    assertFinancialRuntimeRequest(req, res, req.body as Record<string, unknown>);
     const intent = paymentIntentStore.get(service.code, String(req.params.intentId || ''));
     if (!['requires_confirmation', 'pending', 'failed'].includes(intent.status)) {
-      return res.status(409).json({ success: false, error: 'PAYMENT_INTENT_ALREADY_FINALIZED' });
+      return sendApiError(res, 409, 'PAYMENT_INTENT_ALREADY_FINALIZED');
     }
 
     const confirmed = await submitPaymentIntentToCore(service, intent);
@@ -924,9 +1261,8 @@ app.post('/v1/payment-intents/:intentId/confirm', requirePayServiceAccess, async
       serviceCode: (res.locals.payService as PayServiceDefinition | undefined)?.code,
       error: e.message,
     });
-    return res.status(502).json({
-      success: false,
-      error: e.message || 'PAYMENT_INTENT_CONFIRM_FAILED',
+    const error = errorCodeFromException(e, 'PAYMENT_INTENT_CONFIRM_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error, {
       data: e.intent ? sanitizePaymentIntent(e.intent) : undefined,
     });
   }
@@ -935,7 +1271,7 @@ app.post('/v1/payment-intents/:intentId/confirm', requirePayServiceAccess, async
 app.post('/v1/paysafe/escrows', requirePayServiceAccess, async (req, res) => {
   const parsed = PaySafeEscrowCreateSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ success: false, error: 'PAYSAFE_ESCROW_INVALID', issues: parsed.error.issues });
+    return sendValidationError(res, 'PAYSAFE_ESCROW_INVALID', parsed.error.issues);
   }
 
   const buyerType = String(
@@ -974,7 +1310,7 @@ app.post('/v1/paysafe/escrows', requirePayServiceAccess, async (req, res) => {
 const paySafeActionHandler = (action: 'release' | 'dispute' | 'refund') => async (req: express.Request, res: express.Response) => {
   const parsed = PaySafeEscrowActionSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ success: false, error: 'PAYSAFE_ACTION_INVALID', issues: parsed.error.issues });
+    return sendValidationError(res, 'PAYSAFE_ACTION_INVALID', parsed.error.issues);
   }
 
   return createPaymentIntentForService(req, res, {
@@ -1004,11 +1340,16 @@ app.post('/v1/paysafe/escrows/:escrowId/refund', requirePayServiceAccess, paySaf
 const queryPaySafeBalancesForService = async (req: express.Request, res: express.Response, input: unknown) => {
   const parsed = PaySafeBalanceQuerySchema.safeParse(input);
   if (!parsed.success) {
-    return res.status(400).json({ success: false, error: 'PAYSAFE_BALANCE_QUERY_INVALID', issues: parsed.error.issues });
+    return sendValidationError(res, 'PAYSAFE_BALANCE_QUERY_INVALID', parsed.error.issues);
   }
 
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    const subjectId = subjectIdForConsent(parsed.data);
+    serviceConsentGuard.assertScopedConsent(service, 'balance:read', {
+      subjectId,
+      environment: 'live',
+    });
     const merchantContext = serviceMerchantContext(service);
     const coreResult = await orbiCoreClient.queryPaySafeBalances({
       serviceCode: service.code,
@@ -1026,7 +1367,8 @@ const queryPaySafeBalancesForService = async (req: express.Request, res: express
       serviceCode: (res.locals.payService as PayServiceDefinition | undefined)?.code,
       error: e.message,
     });
-    return res.status(502).json({ success: false, error: e.message || 'PAYSAFE_BALANCE_QUERY_FAILED' });
+    const error = errorCodeFromException(e, 'PAYSAFE_BALANCE_QUERY_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 };
 
@@ -1050,11 +1392,12 @@ app.get('/v1/paysafe/balances', requirePayServiceAccess, async (req, res) =>
 app.post('/v1/identity/resolve', requirePayServiceAccess, async (req, res) => {
   const parsed = IdentityResolveSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ success: false, error: 'IDENTITY_RESOLVE_INVALID', issues: parsed.error.issues });
+    return sendValidationError(res, 'IDENTITY_RESOLVE_INVALID', parsed.error.issues);
   }
 
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    serviceConsentGuard.assertServiceScopeGranted(service, 'identity:resolve');
     const coreResult = await orbiCoreClient.resolveIdentity({
       serviceCode: service.code,
       identifier: parsed.data.identifier,
@@ -1069,8 +1412,90 @@ app.post('/v1/identity/resolve', requirePayServiceAccess, async (req, res) => {
       serviceCode: (res.locals.payService as PayServiceDefinition | undefined)?.code,
       error: e.message,
     });
-    const message = e.message || 'IDENTITY_RESOLVE_FAILED';
-    return res.status(message === 'IDENTITY_NOT_FOUND' ? 404 : 502).json({ success: false, error: message });
+    const error = errorCodeFromException(e, 'IDENTITY_RESOLVE_FAILED');
+    return sendApiError(res, error === 'IDENTITY_NOT_FOUND' ? 404 : httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/business/registrations', requirePayServiceAccess, async (req, res) => {
+  const parsed = BusinessRegistrationSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return sendValidationError(res, 'BUSINESS_REGISTRATION_INVALID', parsed.error.issues);
+  }
+
+  try {
+    const service = res.locals.payService as PayServiceDefinition;
+    const body = parsed.data;
+    const coreResult = await orbiCoreClient.submitBusinessRegistration({
+      serviceCode: service.code,
+      userId: body.userId,
+      email: body.email,
+      phone: body.phone,
+      requestedRole: body.requestedRole || body.requested_role || 'MERCHANT',
+      businessName: body.businessName || body.business_name,
+      externalBusinessId: body.externalBusinessId || body.external_business_id,
+      note: body.note,
+      metadata: {
+        ...(body.metadata || {}),
+        gatewayRole: 'service-business-registration',
+        gatewayServiceName: service.displayName,
+        gatewayServiceCode: service.code,
+      },
+    });
+    return res.json(coreResult);
+  } catch (e: any) {
+    logger.error('business_registration_failed', {
+      serviceCode: (res.locals.payService as PayServiceDefinition | undefined)?.code,
+      error: e.message,
+    });
+    const error = errorCodeFromException(e, 'BUSINESS_REGISTRATION_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/payment-profiles', requirePayServiceAccess, async (req, res) => {
+  const parsed = PaymentProfileCreateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return sendValidationError(res, 'PAYMENT_PROFILE_INVALID', parsed.error.issues);
+  }
+
+  try {
+    const service = res.locals.payService as PayServiceDefinition;
+    const body = parsed.data;
+    serviceConsentGuard.assertServiceScopeGranted(service, 'payment_profile:create');
+    const subjectId = subjectIdForConsent(body);
+    serviceConsentGuard.assertActiveConsent(service, {
+      subjectId,
+      scopes: body.scopes,
+      environment: 'live',
+    });
+    const idempotencyKey = requestIdempotencyKey(req, body as Record<string, unknown>);
+    const coreResult = await orbiCoreClient.createPaymentProfile({
+      serviceCode: service.code,
+      userId: body.userId,
+      customerId: body.customerId,
+      email: body.email,
+      phone: body.phone,
+      externalCustomerId: body.externalCustomerId || body.external_customer_id,
+      scopes: body.scopes,
+      consent: body.consent || {},
+      expiresAt: body.expiresAt || body.expires_at,
+      idempotencyKey,
+      metadata: {
+        ...(body.metadata || {}),
+        gatewayRole: 'service-payment-profile',
+        gatewayServiceName: service.displayName,
+        gatewayServiceCode: service.code,
+      },
+    });
+    return res.json(coreResult);
+  } catch (e: any) {
+    logger.error('payment_profile_failed', {
+      serviceCode: (res.locals.payService as PayServiceDefinition | undefined)?.code,
+      error: e.message,
+    });
+    const error = errorCodeFromException(e, 'PAYMENT_PROFILE_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 });
 
@@ -1090,10 +1515,8 @@ app.get('/v1/merchant/paysafe/balance', requirePayServiceAccess, async (req, res
     });
     return res.json(coreResult);
   } catch (e: any) {
-    return res.status(e.message === 'PAY_SERVICE_MERCHANT_CONTEXT_REQUIRED' ? 400 : 502).json({
-      success: false,
-      error: e.message || 'MERCHANT_PAYSAFE_BALANCE_FAILED',
-    });
+    const error = errorCodeFromException(e, 'MERCHANT_PAYSAFE_BALANCE_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 });
 
@@ -1102,7 +1525,7 @@ app.get('/v1/merchant/orders/:orderId/payment-status', requirePayServiceAccess, 
     const service = res.locals.payService as PayServiceDefinition;
     const merchantContext = requireServiceMerchantContext(service);
     const orderId = String(req.params.orderId || '').trim();
-    if (!orderId) return res.status(400).json({ success: false, error: 'ORDER_ID_REQUIRED' });
+    if (!orderId) return sendApiError(res, 400, 'ORDER_ID_REQUIRED');
     const coreResult = await orbiCoreClient.queryMerchantOrderPaymentStatus({
       serviceCode: service.code,
       merchantId: merchantContext.merchantId,
@@ -1114,17 +1537,15 @@ app.get('/v1/merchant/orders/:orderId/payment-status', requirePayServiceAccess, 
     });
     return res.json(coreResult);
   } catch (e: any) {
-    return res.status(e.message === 'PAY_SERVICE_MERCHANT_CONTEXT_REQUIRED' ? 400 : 502).json({
-      success: false,
-      error: e.message || 'MERCHANT_ORDER_PAYMENT_STATUS_FAILED',
-    });
+    const error = errorCodeFromException(e, 'MERCHANT_ORDER_PAYMENT_STATUS_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 });
 
 app.get('/v1/merchant/settlements', requirePayServiceAccess, async (req, res) => {
   const parsed = MerchantSettlementsQuerySchema.safeParse(req.query);
   if (!parsed.success) {
-    return res.status(400).json({ success: false, error: 'MERCHANT_SETTLEMENTS_QUERY_INVALID', issues: parsed.error.issues });
+    return sendValidationError(res, 'MERCHANT_SETTLEMENTS_QUERY_INVALID', parsed.error.issues);
   }
 
   try {
@@ -1141,10 +1562,8 @@ app.get('/v1/merchant/settlements', requirePayServiceAccess, async (req, res) =>
     });
     return res.json(coreResult);
   } catch (e: any) {
-    return res.status(e.message === 'PAY_SERVICE_MERCHANT_CONTEXT_REQUIRED' ? 400 : 502).json({
-      success: false,
-      error: e.message || 'MERCHANT_SETTLEMENTS_FAILED',
-    });
+    const error = errorCodeFromException(e, 'MERCHANT_SETTLEMENTS_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 });
 
@@ -1166,6 +1585,20 @@ app.post('/v1/internal/core/service-payment-events', async (req, res) => {
     const intent = paymentIntentStore.get(service.code, event.intentId);
     const updatedIntent = paymentIntentStore.applyCoreEvent(intent, event);
     const webhookDelivery = await deliverServiceWebhook(service, updatedIntent);
+    if (webhookDelivery.attempted) {
+      webhookDeliveryStore.record({
+        eventId: webhookDelivery.eventId || crypto.randomUUID(),
+        serviceCode: service.code,
+        intentId: updatedIntent.id,
+        eventType: webhookDelivery.eventType || 'payment_intent.updated',
+        payload: webhookDelivery.payload,
+        callbackUrl: webhookDelivery.callbackUrl,
+        status: webhookDelivery.delivered ? 'delivered' : 'failed',
+        attempt: 1,
+        statusCode: webhookDelivery.statusCode,
+        error: webhookDelivery.error,
+      });
+    }
     const deliveredIntent = paymentIntentStore.applyWebhookDelivery(updatedIntent, webhookDelivery);
 
     return res.json({
@@ -1174,7 +1607,8 @@ app.post('/v1/internal/core/service-payment-events', async (req, res) => {
     });
   } catch (e: any) {
     logger.error('core_service_payment_event_failed', { error: e.message });
-    return res.status(403).json({ success: false, error: e.message || 'CORE_SERVICE_PAYMENT_EVENT_FAILED' });
+    const error = errorCodeFromException(e, 'CORE_SERVICE_PAYMENT_EVENT_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error, 403), error);
   }
 });
 
@@ -1183,21 +1617,494 @@ const requireOperatorDiscoveryAccess = (req: express.Request, res: express.Respo
 
   const provided = req.get('x-orbi-pay-operator-key') || req.get('x-api-key') || '';
   if (!config.operatorDiscoveryApiKey || provided !== config.operatorDiscoveryApiKey) {
-    return res.status(403).json({ success: false, error: 'PAY_GATEWAY_DISCOVERY_ACCESS_DENIED' });
+    return sendApiError(res, 403, 'PAY_GATEWAY_DISCOVERY_ACCESS_DENIED');
   }
 
   return next();
 };
 
+app.get('/v1/consents', requireConsentSubjectAccess, (req, res) => {
+  try {
+    const query = ConnectedConsentsQuerySchema.parse(req.query);
+    const subject = res.locals.consentSubject as { subjectId: string; subjectType: 'user' | 'business' };
+    const locale = query.locale || 'en';
+    const receipts = consentReceiptStore
+      .list({ subjectId: subject.subjectId, status: query.status })
+      .filter((receipt) => receipt.subjectType === subject.subjectType)
+      .map((receipt) => presentConsentReceipt(receipt, locale));
+    return res.json({ success: true, data: receipts });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'CONNECTED_CONSENTS_QUERY_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'CONNECTED_CONSENTS_QUERY_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.get('/v1/consents/:consentId', requireConsentSubjectAccess, (req, res) => {
+  try {
+    const query = ConnectedConsentsQuerySchema.pick({ locale: true }).parse(req.query);
+    const subject = res.locals.consentSubject as { subjectId: string; subjectType: 'user' | 'business' };
+    const receipt = consentReceiptStore.get(String(req.params.consentId || ''));
+    if (receipt.subjectId !== subject.subjectId || receipt.subjectType !== subject.subjectType) {
+      return sendApiError(res, 404, 'CONSENT_RECEIPT_NOT_FOUND');
+    }
+    return res.json({ success: true, data: presentConsentReceipt(receipt, query.locale || 'en') });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'CONNECTED_CONSENT_QUERY_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'CONSENT_RECEIPT_NOT_FOUND');
+    return sendApiError(res, httpStatusForGatewayError(error, 404), error);
+  }
+});
+
+app.post('/v1/consents/:consentId/revoke', requireConsentSubjectAccess, (req, res) => {
+  try {
+    const subject = res.locals.consentSubject as { subjectId: string; subjectType: 'user' | 'business' };
+    const existing = consentReceiptStore.get(String(req.params.consentId || ''));
+    if (existing.subjectId !== subject.subjectId || existing.subjectType !== subject.subjectType) {
+      return sendApiError(res, 404, 'CONSENT_RECEIPT_NOT_FOUND');
+    }
+    const payload = ConsentRevocationSchema.parse({
+      ...(req.body || {}),
+      revokedBy: subject.subjectId,
+      reason: String(req.body?.reason || 'Subject revoked connected service consent.'),
+    });
+    const receipt = consentReceiptStore.revoke(existing.consentId, payload);
+    deliverConsentRevocationWebhook(receipt);
+    return res.json({ success: true, data: presentConsentReceipt(receipt, existing.context.locale || 'en') });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'CONNECTED_CONSENT_REVOCATION_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'CONNECTED_CONSENT_REVOCATION_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
 app.get('/v1/services', requireOperatorDiscoveryAccess, (_req, res) => {
   res.json({ success: true, data: payServiceRegistry.list() });
 });
 
+const DeveloperServiceApproveSchema = z.object({
+  serviceCode: z.string().trim().min(2).max(80).optional(),
+  initialStatus: z.enum(['draft', 'active']).optional(),
+});
+
+app.post('/v1/developer/service-applications', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperServiceApplicationSchema.parse(req.body || {});
+    const application = await developerPortalStore.submitApplication(payload);
+    return res.status(201).json({ success: true, data: application });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_SERVICE_APPLICATION_INVALID', e.issues);
+    return sendApiError(res, httpStatusForGatewayError(errorCodeFromException(e, 'DEVELOPER_SERVICE_APPLICATION_FAILED')), errorCodeFromException(e, 'DEVELOPER_SERVICE_APPLICATION_FAILED'));
+  }
+});
+
+app.get('/v1/developer/service-applications', requireOperatorDiscoveryAccess, (req, res) => {
+  const status = String(req.query.status || '').trim() || undefined;
+  return res.json({ success: true, data: developerPortalStore.listApplications(status) });
+});
+
+app.post('/v1/developer/service-applications/:applicationId/approve', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperServiceApproveSchema.parse(req.body || {});
+    const service = await developerPortalStore.approveApplication(String(req.params.applicationId || ''), payload);
+    return res.json({ success: true, data: service });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_SERVICE_APPROVAL_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_SERVICE_APPROVAL_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.get('/v1/developer/services', requireOperatorDiscoveryAccess, (_req, res) => {
+  return res.json({ success: true, data: developerPortalStore.listServices() });
+});
+
+app.get('/v1/developer/services/:serviceCode', requireOperatorDiscoveryAccess, (req, res) => {
+  try {
+    return res.json({ success: true, data: developerPortalStore.getService(String(req.params.serviceCode || '')) });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'DEVELOPER_SERVICE_NOT_FOUND');
+    return sendApiError(res, httpStatusForGatewayError(error, 404), error);
+  }
+});
+
+app.post('/v1/developer/services/:serviceCode/scope-requests', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperScopeRequestSchema.parse(req.body || {});
+    const record = await developerPortalStore.submitScopeRequest(String(req.params.serviceCode || ''), payload);
+    return res.status(201).json({ success: true, data: record });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_SCOPE_REQUEST_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_SCOPE_REQUEST_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/scope-requests/:requestId/decision', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperScopeDecisionSchema.parse(req.body || {});
+    const result = await developerPortalStore.decideScopeRequest(String(req.params.requestId || ''), payload);
+    return res.json({ success: true, data: result });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_SCOPE_DECISION_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_SCOPE_DECISION_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/services/:serviceCode/allowlists', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperAllowlistUpdateSchema.parse(req.body || {});
+    const result = await developerPortalStore.applyAllowlistUpdate(String(req.params.serviceCode || ''), payload);
+    return res.json({ success: true, data: result });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_ALLOWLIST_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_ALLOWLIST_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/services/:serviceCode/api-key-rotations', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperApiKeyRotationRequestSchema.parse(req.body || {});
+    const record = await developerPortalStore.requestApiKeyRotation(String(req.params.serviceCode || ''), payload);
+    return res.status(202).json({ success: true, data: record });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_API_KEY_ROTATION_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_API_KEY_ROTATION_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/services/:serviceCode/api-keys/issue', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperSecretIssueRequestSchema.parse(req.body || {});
+    const result = await developerPortalStore.issueApiKey(String(req.params.serviceCode || ''), payload);
+    return res.status(201).json({ success: true, data: result });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_API_KEY_ISSUE_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_API_KEY_ISSUE_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/api-key-rotations/:rotationId/decision', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperApiKeyRotationDecisionSchema.parse(req.body || {});
+    const result = await developerPortalStore.decideApiKeyRotation(String(req.params.rotationId || ''), payload);
+    return res.json({ success: true, data: result });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_API_KEY_ROTATION_DECISION_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_API_KEY_ROTATION_DECISION_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/services/:serviceCode/webhook-secret-rotations', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperWebhookSecretRotationRequestSchema.parse(req.body || {});
+    const record = await developerPortalStore.requestWebhookSecretRotation(String(req.params.serviceCode || ''), payload);
+    return res.status(202).json({ success: true, data: record });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_WEBHOOK_SECRET_ROTATION_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_WEBHOOK_SECRET_ROTATION_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/webhook-secret-rotations/:rotationId/decision', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperApiKeyRotationDecisionSchema.parse(req.body || {});
+    const result = await developerPortalStore.decideWebhookSecretRotation(String(req.params.rotationId || ''), payload);
+    return res.json({ success: true, data: result });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_WEBHOOK_SECRET_ROTATION_DECISION_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_WEBHOOK_SECRET_ROTATION_DECISION_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/services/:serviceCode/webhook-secrets/issue', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperSecretIssueRequestSchema.parse(req.body || {});
+    const result = await developerPortalStore.issueWebhookSecret(String(req.params.serviceCode || ''), payload);
+    return res.status(201).json({ success: true, data: result });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_WEBHOOK_SECRET_ISSUE_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_WEBHOOK_SECRET_ISSUE_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.get('/v1/developer/events', requireOperatorDiscoveryAccess, (req, res) => {
+  const serviceCode = String(req.query.serviceCode || '').trim() || undefined;
+  return res.json({ success: true, data: developerPortalStore.listEvents(serviceCode) });
+});
+
+app.post('/v1/developer/consent-receipts', requireOperatorDiscoveryAccess, (req, res) => {
+  try {
+    const payload = ConsentReceiptCreateSchema.parse(req.body || {});
+    const receipt = consentReceiptStore.create(payload);
+    return res.status(201).json({ success: true, data: receipt });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'CONSENT_RECEIPT_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'CONSENT_RECEIPT_CREATE_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.get('/v1/developer/consent-receipts', requireOperatorDiscoveryAccess, (req, res) => {
+  const serviceCode = String(req.query.serviceCode || '').trim() || undefined;
+  const subjectId = String(req.query.subjectId || '').trim() || undefined;
+  const status = String(req.query.status || '').trim() || undefined;
+  return res.json({
+    success: true,
+    data: consentReceiptStore.list({ serviceCode, subjectId, status }),
+  });
+});
+
+app.get('/v1/developer/consent-receipts/:consentId', requireOperatorDiscoveryAccess, (req, res) => {
+  try {
+    return res.json({
+      success: true,
+      data: consentReceiptStore.get(String(req.params.consentId || '')),
+    });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'CONSENT_RECEIPT_NOT_FOUND');
+    return sendApiError(res, httpStatusForGatewayError(error, 404), error);
+  }
+});
+
+app.post('/v1/developer/consent-receipts/:consentId/revoke', requireOperatorDiscoveryAccess, (req, res) => {
+  try {
+    const payload = ConsentRevocationSchema.parse(req.body || {});
+    const receipt = consentReceiptStore.revoke(String(req.params.consentId || ''), payload);
+    deliverConsentRevocationWebhook(receipt);
+    return res.json({ success: true, data: receipt });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'CONSENT_REVOCATION_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'CONSENT_REVOCATION_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.get('/v1/developer/integration-health', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const serviceCode = String(req.query.serviceCode || '').trim() || undefined;
+    const data = await buildDeveloperHealthSummary(serviceCode);
+    return res.json({ success: true, data });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'DEVELOPER_INTEGRATION_HEALTH_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.get('/v1/developer/docs-catalog', requireOperatorDiscoveryAccess, (_req, res) => {
+  return res.json({ success: true, data: developerDocsCatalog() });
+});
+
+app.get('/v1/developer/sandbox-tools', requireOperatorDiscoveryAccess, (_req, res) => {
+  return res.json({ success: true, data: developerSandboxToolsCatalog() });
+});
+
+app.get('/v1/developer/environment-profiles', requireOperatorDiscoveryAccess, (_req, res) => {
+  return res.json({
+    success: true,
+    data: {
+      profiles: developerEnvironmentProfiles(),
+      separation: developerEnvironmentSeparationMatrix(),
+    },
+  });
+});
+
+app.get('/v1/developer/environment-profiles/:environment', requireOperatorDiscoveryAccess, (req, res) => {
+  try {
+    return res.json({
+      success: true,
+      data: developerEnvironmentProfile(String(req.params.environment || '') as any),
+    });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'DEVELOPER_ENVIRONMENT_NOT_FOUND');
+    return sendApiError(res, httpStatusForGatewayError(error, 404), error);
+  }
+});
+
+app.get('/v1/developer/sandbox-simulator', requireOperatorDiscoveryAccess, (_req, res) => {
+  return res.json({
+    success: true,
+    data: {
+      environment: 'sandbox',
+      title: 'Sandbox Simulator Flow',
+      warning: 'This flow is for simulated integration only. It must not create live ledger movement.',
+      steps: [
+        {
+          order: 1,
+          name: 'Create sandbox payment intent',
+          endpoint: 'POST /v1/payment-intents',
+          keyType: 'orbi_sandbox_* service key',
+          idempotencyRequired: true,
+        },
+        {
+          order: 2,
+          name: 'Open hosted challenge',
+          endpoint: 'challengeUrl from payment intent response',
+          result: 'approve or decline using test identity/challenge data',
+        },
+        {
+          order: 3,
+          name: 'Receive signed webhook',
+          eventTypes: ['payment_intent.updated', 'consent.revoked'],
+          verification: 'verifyAndParseOrbiWebhook() then handleOrbiWebhookEvent()',
+        },
+        {
+          order: 4,
+          name: 'Reconcile intent state',
+          endpoint: 'GET /v1/payment-intents/:intentId',
+          truthRule: 'Webhook plus intent read is payment truth; return URL is UX only.',
+        },
+        {
+          order: 5,
+          name: 'Replay failed webhook',
+          endpoint: 'POST /v1/developer/webhook-deliveries/:deliveryId/replay',
+          sdkMethod: 'replayWebhookDelivery() or replayFailedWebhookDeliveries()',
+        },
+      ],
+      livePromotionChecklist: [
+        'Service is approved for live environment.',
+        'Live scopes are approved.',
+        'Live redirect and webhook URLs are allowlisted.',
+        'Live API key and webhook secret are issued and stored server-side.',
+        'Merchant webhook receiver verifies signatures and dedupes eventId.',
+        'Every financial request uses stable idempotency keys.',
+      ],
+    },
+  });
+});
+
+app.get('/v1/developer/sandbox-simulator/state', requireOperatorDiscoveryAccess, (_req, res) => {
+  return res.json({ success: true, data: sandboxSimulatorStore.snapshot() });
+});
+
+app.post('/v1/developer/sandbox-simulator/reset', requireOperatorDiscoveryAccess, (_req, res) => {
+  return res.json({ success: true, data: sandboxSimulatorStore.reset() });
+});
+
+app.get('/v1/developer/sandbox-simulator/accounts', requireOperatorDiscoveryAccess, (_req, res) => {
+  return res.json({ success: true, data: sandboxSimulatorStore.listAccounts() });
+});
+
+app.post('/v1/developer/sandbox-simulator/transfers', requireOperatorDiscoveryAccess, (req, res) => {
+  try {
+    const payload = SandboxTransferSchema.parse(req.body || {});
+    return res.status(201).json({ success: true, data: sandboxSimulatorStore.createTransfer(payload) });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'SANDBOX_TRANSFER_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'SANDBOX_TRANSFER_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/sandbox-simulator/transfers/:transferId/webhook-event', requireOperatorDiscoveryAccess, (req, res) => {
+  try {
+    return res.json({
+      success: true,
+      data: sandboxSimulatorStore.buildWebhookEvent(String(req.params.transferId || '')),
+    });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'SANDBOX_WEBHOOK_EVENT_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.get('/v1/developer/graphql/schema', requireOperatorDiscoveryAccess, (_req, res) => {
+  return res.type('text/plain').send(graphqlGatewaySchema);
+});
+
+app.get('/v1/developer/graphql/migration-plan', requireOperatorDiscoveryAccess, (_req, res) => {
+  return res.json({ success: true, data: graphqlMigrationPlan() });
+});
+
+app.get('/v1/developer/sdk-catalog', requireOperatorDiscoveryAccess, (_req, res) => {
+  return res.json({ success: true, data: developerSdkCatalog() });
+});
+
+app.get('/v1/developer/consent-scopes', requireOperatorDiscoveryAccess, (_req, res) => {
+  return res.json({ success: true, data: consentScopeCatalog() });
+});
+
+app.get('/v1/developer/consent-status', requireOperatorDiscoveryAccess, (req, res) => {
+  try {
+    const query = ConsentStatusQuerySchema.parse(req.query);
+    const scopes = Array.isArray(query.scopes)
+      ? query.scopes
+      : query.scopes.split(',').map((scope) => scope.trim()).filter(Boolean);
+    return res.json({
+      success: true,
+      data: consentReceiptStore.evaluateConsent({
+        serviceCode: query.serviceCode,
+        subjectId: query.subjectId,
+        scopes,
+        environment: query.environment,
+        renewalWindowDays: query.renewalWindowDays,
+      }),
+    });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'CONSENT_STATUS_QUERY_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'CONSENT_STATUS_QUERY_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.get('/v1/developer/webhook-deliveries', requireOperatorDiscoveryAccess, (req, res) => {
+  const serviceCode = String(req.query.serviceCode || '').trim() || undefined;
+  const intentId = String(req.query.intentId || '').trim() || undefined;
+  const status = String(req.query.status || '').trim() || undefined;
+  return res.json({
+    success: true,
+    data: webhookDeliveryStore.list({ serviceCode, intentId, status }),
+  });
+});
+
+app.post('/v1/developer/webhook-deliveries/:deliveryId/replay', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const replay = webhookDeliveryStore.nextReplayAttempt(String(req.params.deliveryId || ''));
+    const service = payServiceRegistry.get(replay.original.serviceCode);
+    const payload = replay.original.payload || (
+      replay.original.intentId
+        ? buildServiceWebhookPayload(paymentIntentStore.get(service.code, replay.original.intentId))
+        : null
+    );
+    if (!payload) return sendApiError(res, 409, 'WEBHOOK_DELIVERY_REPLAY_PAYLOAD_MISSING');
+    const delivery = await deliverServiceWebhookPayload(service, {
+      ...payload,
+      eventId: crypto.randomUUID(),
+      replayOf: replay.original.eventId,
+      replayAttempt: replay.attempt,
+    } as any);
+    const record = webhookDeliveryStore.record({
+      eventId: delivery.eventId || crypto.randomUUID(),
+      serviceCode: service.code,
+      intentId: replay.original.intentId,
+      resourceId: replay.original.resourceId,
+      eventType: delivery.eventType || replay.original.eventType,
+      payload: delivery.payload,
+      callbackUrl: delivery.callbackUrl,
+      status: delivery.delivered ? 'delivered' : 'failed',
+      attempt: replay.attempt,
+      statusCode: delivery.statusCode,
+      error: delivery.error,
+      replayOf: replay.original.deliveryId,
+    });
+    return res.status(delivery.delivered ? 200 : 502).json({ success: delivery.delivered, data: record });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'WEBHOOK_DELIVERY_REPLAY_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
 const requireObpSandboxToolsEnabled = (_req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (!config.sandboxTools.enabled) {
-    return res.status(404).json({
-      success: false,
-      error: 'OBP_SANDBOX_TOOLS_DISABLED',
+    return sendApiError(res, 404, 'OBP_SANDBOX_TOOLS_DISABLED', {
       message: 'OBP sandbox operator tools are disabled. Set PAYMENT_GATEWAY_OBP_SANDBOX_TOOLS_ENABLED=true only in sandbox/dev operations.',
     });
   }
@@ -1220,7 +2127,8 @@ app.get('/v1/discovery/obp/:providerCode/payment-capabilities', requireOperatorD
       providerCode: req.params.providerCode,
       error: e.message,
     });
-    return res.status(502).json({ success: false, error: e.message || 'OBP_PAYMENT_CAPABILITY_DISCOVERY_FAILED' });
+    const error = errorCodeFromException(e, 'OBP_PAYMENT_CAPABILITY_DISCOVERY_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 });
 
@@ -1242,7 +2150,8 @@ app.get('/v1/discovery/obp/:providerCode/banks/:bankId/accounts', requireOperato
       bankId: req.params.bankId,
       error: e.message,
     });
-    return res.status(502).json({ success: false, error: e.message || 'OBP_ACCOUNT_DISCOVERY_FAILED' });
+    const error = errorCodeFromException(e, 'OBP_ACCOUNT_DISCOVERY_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 });
 
@@ -1374,14 +2283,11 @@ app.use('/v1/sandbox/obp/:providerCode', obpSandboxRouter);
 const operationHandler = (operation: 'collect' | 'payout' | 'refund') => async (req: express.Request, res: express.Response) => {
   const parsed = PaymentRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({
-      success: false,
-      error: 'PAYMENT_REQUEST_INVALID',
-      issues: parsed.error.issues,
-    });
+    return sendValidationError(res, 'PAYMENT_REQUEST_INVALID', parsed.error.issues);
   }
 
   try {
+    assertFinancialRuntimeRequest(req, res, parsed.data as Record<string, unknown>);
     const { response, coreResult } = await executeProviderOperation(operation, parsed.data);
 
     return res.json({
@@ -1391,13 +2297,14 @@ const operationHandler = (operation: 'collect' | 'payout' | 'refund') => async (
     });
   } catch (e: any) {
     logger.error('payment_operation_failed', { operation, error: e.message });
-    return res.status(502).json({ success: false, error: e.message || 'PAYMENT_OPERATION_FAILED' });
+    const error = errorCodeFromException(e, 'PAYMENT_OPERATION_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 };
 
-app.post('/v1/collections', operationHandler('collect'));
-app.post('/v1/payouts', operationHandler('payout'));
-app.post('/v1/refunds', operationHandler('refund'));
+app.post('/v1/collections', requirePayServiceAccess, operationHandler('collect'));
+app.post('/v1/payouts', requirePayServiceAccess, operationHandler('payout'));
+app.post('/v1/refunds', requirePayServiceAccess, operationHandler('refund'));
 
 app.post('/v1/webhooks/:providerCode', async (req, res) => {
   try {
@@ -1412,18 +2319,29 @@ app.post('/v1/webhooks/:providerCode', async (req, res) => {
     return res.json({ success: true, data: event, core: coreResult });
   } catch (e: any) {
     logger.error('provider_webhook_failed', { providerCode: req.params.providerCode, error: e.message });
-    return res.status(502).json({ success: false, error: e.message || 'PROVIDER_WEBHOOK_FAILED' });
+    const error = errorCodeFromException(e, 'PROVIDER_WEBHOOK_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 });
 
-requireGatewayRuntimeSecrets();
-rejectUnsafeDirectSecretsInProduction();
+const start = async () => {
+  requireGatewayRuntimeSecrets();
+  rejectUnsafeDirectSecretsInProduction();
+  await developerPortalStore.initialize();
 
-app.listen(config.port, () => {
-  logger.info('payment_gateway_started', {
-    port: config.port,
-    publicBaseUrl: config.publicBaseUrl,
-    coreTarget: config.core.baseUrl,
-    mtlsEnabled: config.mtls.enabled,
+  app.listen(config.port, () => {
+    logger.info('payment_gateway_started', {
+      port: config.port,
+      publicBaseUrl: config.publicBaseUrl,
+      coreTarget: config.core.baseUrl,
+      mtlsEnabled: config.mtls.enabled,
+    });
   });
+};
+
+start().catch((error) => {
+  logger.error('payment_gateway_start_failed', {
+    error: error instanceof Error ? error.message : String(error),
+  });
+  process.exit(1);
 });

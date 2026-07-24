@@ -1,0 +1,1329 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ORBI Pay Gateway API",
+    "version": "1.0.0",
+    "summary": "Stable public and developer-control contracts for ORBI Pay Gateway.",
+    "description": "Use the ORBI SDK where available. Raw HTTP is supported for certified server-to-server integrations only."
+  },
+  "servers": [
+    {
+      "url": "https://sandbox-pay.orbifinancial.com",
+      "description": "Sandbox"
+    },
+    {
+      "url": "https://pay.orbifinancial.com",
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:8080",
+      "description": "Self-hosted local development"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Runtime",
+      "description": "Merchant, marketplace, SACCOS, organization, and BaaS runtime operations."
+    },
+    {
+      "name": "Hosted Challenge",
+      "description": "Customer-facing secure authorization screens."
+    },
+    {
+      "name": "Developer Control Plane",
+      "description": "Operator/developer portal APIs for consent, webhooks, health, docs, and SDK metadata."
+    }
+  ],
+  "security": [
+    {
+      "ServiceKey": []
+    }
+  ],
+  "paths": {
+    "/v1/payment-intents": {
+      "post": {
+        "tags": ["Runtime"],
+        "summary": "Create a payment intent",
+        "operationId": "createPaymentIntent",
+        "security": [{ "ServiceKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RuntimeEnvironment" },
+          { "$ref": "#/components/parameters/IdempotencyKey" },
+          { "$ref": "#/components/parameters/OrbiSignature" },
+          { "$ref": "#/components/parameters/OrbiTimestamp" },
+          { "$ref": "#/components/parameters/OrbiNonce" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PaymentIntentCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "$ref": "#/components/responses/PaymentIntentSuccess" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/payment-intents/{intentId}": {
+      "get": {
+        "tags": ["Runtime"],
+        "summary": "Read a payment intent",
+        "operationId": "getPaymentIntent",
+        "security": [{ "ServiceKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IntentId" }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/PaymentIntentSuccess" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/payment-intents/{intentId}/confirm": {
+      "post": {
+        "tags": ["Runtime"],
+        "summary": "Confirm a payment intent",
+        "operationId": "confirmPaymentIntent",
+        "security": [{ "ServiceKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/IntentId" },
+          { "$ref": "#/components/parameters/RuntimeEnvironment" },
+          { "$ref": "#/components/parameters/IdempotencyKey" },
+          { "$ref": "#/components/parameters/OrbiSignature" },
+          { "$ref": "#/components/parameters/OrbiTimestamp" },
+          { "$ref": "#/components/parameters/OrbiNonce" }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "additionalProperties": true }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/PaymentIntentSuccess" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/challenges/{intentId}": {
+      "get": {
+        "tags": ["Hosted Challenge"],
+        "summary": "Open hosted challenge UI",
+        "operationId": "openHostedChallenge",
+        "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/IntentId" }],
+        "responses": {
+          "200": {
+            "description": "HTML hosted challenge page."
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/challenges/{intentId}/respond": {
+      "post": {
+        "tags": ["Hosted Challenge"],
+        "summary": "Submit hosted challenge decision",
+        "operationId": "respondToHostedChallenge",
+        "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/IntentId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": { "$ref": "#/components/schemas/HostedChallengeResponseRequest" }
+            }
+          }
+        },
+        "responses": {
+          "303": {
+            "description": "Redirects to the merchant return/cancel URL when available."
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/paysafe/escrows": {
+      "post": {
+        "tags": ["Runtime"],
+        "summary": "Create a PaySafe escrow payment intent",
+        "operationId": "createPaySafeEscrow",
+        "security": [{ "ServiceKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RuntimeEnvironment" },
+          { "$ref": "#/components/parameters/IdempotencyKey" },
+          { "$ref": "#/components/parameters/OrbiSignature" },
+          { "$ref": "#/components/parameters/OrbiTimestamp" },
+          { "$ref": "#/components/parameters/OrbiNonce" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PaySafeEscrowCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "$ref": "#/components/responses/PaymentIntentSuccess" },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/paysafe/escrows/{escrowId}/release": {
+      "post": { "$ref": "#/components/pathItems/PaySafeActionPost" }
+    },
+    "/v1/paysafe/escrows/{escrowId}/refund": {
+      "post": { "$ref": "#/components/pathItems/PaySafeActionPost" }
+    },
+    "/v1/paysafe/escrows/{escrowId}/dispute": {
+      "post": { "$ref": "#/components/pathItems/PaySafeActionPost" }
+    },
+    "/v1/identity/resolve": {
+      "post": {
+        "tags": ["Runtime"],
+        "summary": "Resolve an ORBI identity",
+        "operationId": "resolveIdentity",
+        "security": [{ "ServiceKey": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/IdentityResolveRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/business/registrations": {
+      "post": {
+        "tags": ["Runtime"],
+        "summary": "Create or request an ORBI business registration",
+        "operationId": "createBusinessRegistration",
+        "security": [{ "ServiceKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BusinessRegistrationRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/payment-profiles": {
+      "post": {
+        "tags": ["Runtime"],
+        "summary": "Link a payment profile",
+        "operationId": "createPaymentProfile",
+        "security": [{ "ServiceKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PaymentProfileCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/PaymentProfileSuccess" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/consents": {
+      "get": {
+        "tags": ["Consent Center"],
+        "summary": "List connected service consents for authenticated subject",
+        "operationId": "listConnectedConsents",
+        "security": [{ "SubjectContext": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/ConnectedConsentStatusQuery" },
+          { "$ref": "#/components/parameters/LocaleQuery" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connected consent list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiSuccess" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": { "$ref": "#/components/schemas/ConnectedConsent" }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/consents/{consentId}": {
+      "get": {
+        "tags": ["Consent Center"],
+        "summary": "Read connected service consent for authenticated subject",
+        "operationId": "getConnectedConsent",
+        "security": [{ "SubjectContext": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/ConsentId" },
+          { "$ref": "#/components/parameters/LocaleQuery" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connected consent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiSuccess" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": { "$ref": "#/components/schemas/ConnectedConsent" }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/consents/{consentId}/revoke": {
+      "post": {
+        "tags": ["Consent Center"],
+        "summary": "Revoke connected service consent for authenticated subject",
+        "operationId": "revokeConnectedConsent",
+        "security": [{ "SubjectContext": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/ConsentId" }],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": { "type": "string" },
+                  "metadata": { "type": "object", "additionalProperties": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Revoked connected consent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiSuccess" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": { "$ref": "#/components/schemas/ConnectedConsent" }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/developer/consent-receipts": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "List consent receipts",
+        "operationId": "listConsentReceipts",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/ServiceCodeQuery" },
+          { "$ref": "#/components/parameters/SubjectIdQuery" },
+          { "$ref": "#/components/parameters/ConsentStatusQuery" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consent receipt list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiSuccess" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": { "$ref": "#/components/schemas/ConsentReceipt" }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Create consent receipt",
+        "operationId": "createConsentReceipt",
+        "security": [{ "OperatorKey": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ConsentReceiptCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "$ref": "#/components/responses/ConsentReceiptSuccess" },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/developer/consent-receipts/{consentId}": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Read consent receipt",
+        "operationId": "getConsentReceipt",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/ConsentId" }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/ConsentReceiptSuccess" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/developer/consent-receipts/{consentId}/revoke": {
+      "post": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Revoke consent receipt",
+        "operationId": "revokeConsentReceipt",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/ConsentId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ConsentRevocationRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/ConsentReceiptSuccess" },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/developer/webhook-deliveries": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "List webhook deliveries",
+        "operationId": "listWebhookDeliveries",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/ServiceCodeQuery" },
+          {
+            "name": "intentId",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": { "enum": ["pending", "delivered", "failed"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhook delivery list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiSuccess" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": { "$ref": "#/components/schemas/WebhookDeliveryRecord" }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/developer/webhook-deliveries/{deliveryId}/replay": {
+      "post": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Replay a webhook delivery",
+        "operationId": "replayWebhookDelivery",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/DeliveryId" },
+          { "$ref": "#/components/parameters/RequestId" }
+        ],
+        "responses": {
+          "200": { "$ref": "#/components/responses/WebhookDeliverySuccess" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/developer/integration-health": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Read integration health",
+        "operationId": "getIntegrationHealth",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/ServiceCodeQuery" }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" }
+        }
+      }
+    },
+    "/v1/developer/docs-catalog": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Read developer docs catalog",
+        "operationId": "getDocsCatalog",
+        "security": [{ "OperatorKey": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" }
+        }
+      }
+    },
+    "/v1/developer/environment-profiles": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Read sandbox/live environment profiles",
+        "operationId": "getDeveloperEnvironmentProfiles",
+        "security": [{ "OperatorKey": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" }
+        }
+      }
+    },
+    "/v1/developer/environment-profiles/{environment}": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Read one sandbox/live environment profile",
+        "operationId": "getDeveloperEnvironmentProfile",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/DeveloperEnvironmentPath" }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/developer/sandbox-simulator": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Read sandbox simulator flow",
+        "operationId": "getSandboxSimulatorFlow",
+        "security": [{ "OperatorKey": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" }
+        }
+      }
+    },
+    "/v1/developer/sandbox-simulator/state": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Read sandbox simulator state",
+        "operationId": "getSandboxSimulatorState",
+        "security": [{ "OperatorKey": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" }
+        }
+      }
+    },
+    "/v1/developer/sandbox-simulator/reset": {
+      "post": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Reset sandbox simulator state",
+        "operationId": "resetSandboxSimulator",
+        "security": [{ "OperatorKey": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" }
+        }
+      }
+    },
+    "/v1/developer/sandbox-simulator/accounts": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "List sandbox simulator accounts",
+        "operationId": "listSandboxSimulatorAccounts",
+        "security": [{ "OperatorKey": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" }
+        }
+      }
+    },
+    "/v1/developer/sandbox-simulator/transfers": {
+      "post": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Create sandbox simulator transfer",
+        "operationId": "createSandboxSimulatorTransfer",
+        "security": [{ "OperatorKey": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["fromAccountId", "toAccountId", "amount", "currency", "reference"],
+                "properties": {
+                  "fromAccountId": { "type": "string" },
+                  "toAccountId": { "type": "string" },
+                  "amount": { "type": "number", "exclusiveMinimum": 0 },
+                  "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+                  "reference": { "type": "string" },
+                  "description": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "$ref": "#/components/responses/GenericSuccess" },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/developer/sandbox-simulator/transfers/{transferId}/webhook-event": {
+      "post": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Build sandbox transfer webhook event",
+        "operationId": "buildSandboxTransferWebhookEvent",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/TransferId" }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/developer/graphql/schema": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Read GraphQL schema preview",
+        "operationId": "getGraphqlSchemaPreview",
+        "security": [{ "OperatorKey": [] }],
+        "responses": {
+          "200": {
+            "description": "GraphQL SDL schema preview.",
+            "content": {
+              "text/plain": {
+                "schema": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/developer/graphql/migration-plan": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Read GraphQL migration plan",
+        "operationId": "getGraphqlMigrationPlan",
+        "security": [{ "OperatorKey": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" }
+        }
+      }
+    },
+    "/v1/developer/sdk-catalog": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Read SDK catalog",
+        "operationId": "getSdkCatalog",
+        "security": [{ "OperatorKey": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" }
+        }
+      }
+    },
+    "/v1/developer/consent-scopes": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Read localized consent scope catalog",
+        "operationId": "getConsentScopeCatalog",
+        "security": [{ "OperatorKey": [] }],
+        "responses": {
+          "200": {
+            "description": "Consent scope catalog.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiSuccess" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": { "$ref": "#/components/schemas/ConsentScopeCatalogEntry" }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/developer/consent-status": {
+      "get": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Check consent renewal status",
+        "operationId": "getConsentStatus",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/ServiceCodeQuery" },
+          { "$ref": "#/components/parameters/SubjectIdQuery" },
+          {
+            "name": "scopes",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Comma-separated scopes, for example payments:create,balance:read."
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": { "enum": ["sandbox", "live"] }
+          },
+          {
+            "name": "renewalWindowDays",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 0, "maximum": 365 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consent status result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiSuccess" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": { "$ref": "#/components/schemas/ConsentStatusResult" }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ServiceKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-orbi-pay-service-key"
+      },
+      "OperatorKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-orbi-pay-operator-key"
+      },
+      "SubjectContext": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-orbi-subject-id",
+        "description": "Trusted ORBI front door injects x-orbi-subject-id and x-orbi-subject-type after authenticating the user or business session."
+      }
+    },
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": { "type": "string", "minLength": 8, "maxLength": 160 }
+      },
+      "RuntimeEnvironment": {
+        "name": "x-orbi-environment",
+        "in": "header",
+        "required": true,
+        "description": "Runtime trust zone for financial requests. Demo accepts sandbox keys. Production accepts live keys.",
+        "schema": { "enum": ["demo", "production"] }
+      },
+      "OrbiSignature": {
+        "name": "x-orbi-signature",
+        "in": "header",
+        "required": true,
+        "description": "HMAC SHA-256 signature over timestamp.nonce.method.path.bodySha256, formatted as sha256=<hex>.",
+        "schema": { "type": "string", "pattern": "^sha256=[a-fA-F0-9]{64}$" }
+      },
+      "OrbiTimestamp": {
+        "name": "x-orbi-timestamp",
+        "in": "header",
+        "required": true,
+        "description": "Unix timestamp in seconds. Requests outside the replay tolerance are rejected.",
+        "schema": { "type": "string" }
+      },
+      "OrbiNonce": {
+        "name": "x-orbi-nonce",
+        "in": "header",
+        "required": true,
+        "description": "Unique nonce for replay protection.",
+        "schema": { "type": "string", "minLength": 12, "maxLength": 120 }
+      },
+      "RequestId": {
+        "name": "x-request-id",
+        "in": "header",
+        "required": false,
+        "schema": { "type": "string", "minLength": 1 }
+      },
+      "IntentId": {
+        "name": "intentId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "minLength": 1 }
+      },
+      "EscrowId": {
+        "name": "escrowId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "minLength": 1 }
+      },
+      "ConsentId": {
+        "name": "consentId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "minLength": 1 }
+      },
+      "DeliveryId": {
+        "name": "deliveryId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "minLength": 1 }
+      },
+      "TransferId": {
+        "name": "transferId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "minLength": 1 }
+      },
+      "DeveloperEnvironmentPath": {
+        "name": "environment",
+        "in": "path",
+        "required": true,
+        "schema": { "enum": ["sandbox", "live"] }
+      },
+      "ServiceCodeQuery": {
+        "name": "serviceCode",
+        "in": "query",
+        "required": false,
+        "schema": { "type": "string", "minLength": 1 }
+      },
+      "SubjectIdQuery": {
+        "name": "subjectId",
+        "in": "query",
+        "required": false,
+        "schema": { "type": "string", "minLength": 1 }
+      },
+      "ConsentStatusQuery": {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": { "enum": ["active", "revoked", "expired"] }
+      },
+      "ConnectedConsentStatusQuery": {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": { "enum": ["active", "revoked", "expired"] }
+      },
+      "LocaleQuery": {
+        "name": "locale",
+        "in": "query",
+        "required": false,
+        "schema": { "enum": ["en", "sw"] }
+      }
+    },
+    "pathItems": {
+      "PaySafeActionPost": {
+        "tags": ["Runtime"],
+        "summary": "Submit a PaySafe action",
+        "security": [{ "ServiceKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/EscrowId" },
+          { "$ref": "#/components/parameters/RuntimeEnvironment" },
+          { "$ref": "#/components/parameters/IdempotencyKey" },
+          { "$ref": "#/components/parameters/OrbiSignature" },
+          { "$ref": "#/components/parameters/OrbiTimestamp" },
+          { "$ref": "#/components/parameters/OrbiNonce" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PaySafeActionRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "responses": {
+      "PaymentIntentSuccess": {
+        "description": "Payment intent response.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ApiSuccess" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/PaymentIntent" }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "PaymentProfileSuccess": {
+        "description": "Payment profile response.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ApiSuccess" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/PaymentProfile" }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "ConsentReceiptSuccess": {
+        "description": "Consent receipt response.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ApiSuccess" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/ConsentReceipt" }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "WebhookDeliverySuccess": {
+        "description": "Webhook delivery response.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ApiSuccess" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/WebhookDeliveryRecord" }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "GenericSuccess": {
+        "description": "Generic success response.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ApiSuccess" }
+          }
+        }
+      },
+      "Error": {
+        "description": "Stable ORBI error response.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ApiError" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ApiSuccess": {
+        "type": "object",
+        "required": ["success", "data"],
+        "properties": {
+          "success": { "const": true },
+          "data": true
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "required": ["success", "error", "message", "details"],
+        "properties": {
+          "success": { "const": false },
+          "error": { "type": "string" },
+          "message": { "type": "string" },
+          "details": { "type": "array", "items": true },
+          "requestId": { "type": "string" },
+          "data": true
+        }
+      },
+      "PaymentCustomer": {
+        "type": "object",
+        "properties": {
+          "type": { "enum": ["user", "guest", "external_customer"] },
+          "name": { "type": "string" },
+          "email": { "type": "string" },
+          "phone": { "type": "string" },
+          "userId": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "PaymentIntentCreateRequest": {
+        "type": "object",
+        "required": ["reference", "amount", "currency"],
+        "properties": {
+          "operation": { "enum": ["collection", "payout", "refund"] },
+          "paymentCategory": { "enum": ["orbi", "mobile_money", "bank", "card"] },
+          "paymentRail": { "enum": ["orbi_wallet", "mno_tz", "bank_transfer_tz", "card_gateway"] },
+          "providerCode": { "type": "string" },
+          "reference": { "type": "string", "minLength": 1 },
+          "amount": { "type": "number", "exclusiveMinimum": 0 },
+          "currency": { "type": "string", "minLength": 3, "maxLength": 8 },
+          "description": { "type": "string" },
+          "confirm": { "type": "boolean" },
+          "customer": { "$ref": "#/components/schemas/PaymentCustomer" },
+          "walletId": { "type": "string" },
+          "accountNumber": { "type": "string" },
+          "returnUrl": { "type": "string", "format": "uri" },
+          "callbackUrl": { "type": "string", "format": "uri" },
+          "redirectUrl": { "type": "string", "format": "uri" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "PaymentIntent": {
+        "type": "object",
+        "required": ["id", "serviceCode", "operation", "reference", "amount", "currency", "status", "checkoutUrl", "createdAt", "updatedAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "serviceCode": { "type": "string" },
+          "operation": { "enum": ["collection", "payout", "refund", "paysafe"] },
+          "paymentCategory": { "enum": ["orbi", "mobile_money", "bank", "card"] },
+          "paymentRail": { "enum": ["orbi_wallet", "mno_tz", "bank_transfer_tz", "card_gateway"] },
+          "providerCode": { "type": "string" },
+          "reference": { "type": "string" },
+          "amount": { "type": "number" },
+          "currency": { "type": "string" },
+          "status": { "enum": ["created", "processing", "requires_action", "completed", "failed", "cancelled"] },
+          "description": { "type": "string" },
+          "customer": { "$ref": "#/components/schemas/PaymentCustomer" },
+          "checkoutUrl": { "type": "string" },
+          "challengeMode": { "enum": ["hosted", "in_app_required"] },
+          "challengeUrl": { "type": "string", "format": "uri" },
+          "providerReference": { "type": "string" },
+          "providerMessage": { "type": "string" },
+          "createdAt": { "type": "string" },
+          "updatedAt": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "PaySafeEscrowCreateRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/PaymentIntentCreateRequest" },
+          {
+            "type": "object",
+            "properties": {
+              "buyer": { "$ref": "#/components/schemas/PaymentCustomer" },
+              "seller": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "email": { "type": "string" },
+                  "phone": { "type": "string" },
+                  "userId": { "type": "string" },
+                  "walletId": { "type": "string" }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        ]
+      },
+      "PaySafeActionRequest": {
+        "type": "object",
+        "required": ["reference"],
+        "properties": {
+          "reference": { "type": "string" },
+          "amount": { "type": "number" },
+          "currency": { "type": "string" },
+          "reason": { "type": "string" },
+          "customer": { "$ref": "#/components/schemas/PaymentCustomer" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "IdentityResolveRequest": {
+        "type": "object",
+        "required": ["identifier"],
+        "properties": {
+          "identifier": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "BusinessRegistrationRequest": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "string" },
+          "email": { "type": "string" },
+          "phone": { "type": "string" },
+          "requestedRole": { "type": "string" },
+          "businessName": { "type": "string" },
+          "externalBusinessId": { "type": "string" },
+          "note": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "PaymentProfileCreateRequest": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "string" },
+          "customerId": { "type": "string" },
+          "email": { "type": "string" },
+          "phone": { "type": "string" },
+          "externalCustomerId": { "type": "string" },
+          "scopes": { "type": "array", "items": { "type": "string" } },
+          "consent": { "type": "object", "additionalProperties": true },
+          "metadata": { "type": "object", "additionalProperties": true },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "PaymentProfile": {
+        "type": "object",
+        "required": ["paymentProfileId"],
+        "properties": {
+          "paymentProfileId": { "type": "string" },
+          "serviceCode": { "type": "string" },
+          "externalCustomerId": { "type": "string" },
+          "customerId": { "type": "string" },
+          "status": { "enum": ["pending", "active", "suspended", "revoked"] },
+          "scopes": { "type": "array", "items": { "type": "string" } },
+          "consentExpiresAt": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "HostedChallengeResponseRequest": {
+        "type": "object",
+        "required": ["challengeId", "decision"],
+        "properties": {
+          "challengeId": { "type": "string" },
+          "decision": { "enum": ["approve", "reject"] },
+          "otp": { "type": "string" },
+          "pin": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      },
+      "ConsentReceiptCreateRequest": {
+        "type": "object",
+        "required": ["serviceCode", "environment", "subjectType", "subjectId", "scopes", "purpose", "expiresAt", "context", "evidence"],
+        "properties": {
+          "serviceCode": { "type": "string" },
+          "environment": { "enum": ["sandbox", "live"] },
+          "subjectType": { "enum": ["user", "business"] },
+          "subjectId": { "type": "string" },
+          "externalSubjectId": { "type": "string" },
+          "scopes": { "type": "array", "items": { "type": "string" } },
+          "purpose": { "type": "string" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "context": { "type": "object", "additionalProperties": true },
+          "evidence": { "type": "object", "additionalProperties": true },
+          "metadata": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "ConsentReceipt": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ConsentReceiptCreateRequest" },
+          {
+            "type": "object",
+            "required": ["consentId", "status", "createdAt", "updatedAt"],
+            "properties": {
+              "consentId": { "type": "string" },
+              "status": { "enum": ["active", "revoked", "expired"] },
+              "createdAt": { "type": "string" },
+              "updatedAt": { "type": "string" },
+              "revokedAt": { "type": "string" },
+              "revokedBy": { "type": "string" },
+              "revocationReason": { "type": "string" }
+            }
+          }
+        ]
+      },
+      "ConnectedConsent": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ConsentReceipt" },
+          {
+            "type": "object",
+            "properties": {
+              "scopeSummary": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["scope", "title", "description", "riskLevel", "requiresHostedChallenge"],
+                  "properties": {
+                    "scope": { "type": "string" },
+                    "title": { "type": "string" },
+                    "description": { "type": "string" },
+                    "riskLevel": { "enum": ["low", "medium", "high"] },
+                    "requiresHostedChallenge": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ConsentRevocationRequest": {
+        "type": "object",
+        "required": ["revokedBy", "reason"],
+        "properties": {
+          "revokedBy": { "type": "string" },
+          "reason": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "ConsentScopeCatalogEntry": {
+        "type": "object",
+        "required": ["scope", "category", "riskLevel", "requiresHostedChallenge", "title", "description"],
+        "properties": {
+          "scope": { "type": "string" },
+          "category": { "enum": ["identity", "profile", "payment", "escrow", "withdrawal", "account", "webhook"] },
+          "riskLevel": { "enum": ["low", "medium", "high"] },
+          "requiresHostedChallenge": { "type": "boolean" },
+          "title": {
+            "type": "object",
+            "required": ["en", "sw"],
+            "properties": {
+              "en": { "type": "string" },
+              "sw": { "type": "string" }
+            }
+          },
+          "description": {
+            "type": "object",
+            "required": ["en", "sw"],
+            "properties": {
+              "en": { "type": "string" },
+              "sw": { "type": "string" }
+            }
+          }
+        }
+      },
+      "ConsentStatusResult": {
+        "type": "object",
+        "required": ["status", "allowed", "renewalRequired", "scopes"],
+        "properties": {
+          "status": { "enum": ["active", "expiring_soon", "expired", "revoked", "missing"] },
+          "allowed": { "type": "boolean" },
+          "renewalRequired": { "type": "boolean" },
+          "renewalReason": {
+            "enum": ["CONSENT_EXPIRING_SOON", "CONSENT_EXPIRED", "CONSENT_REVOKED", "CONSENT_MISSING"]
+          },
+          "consentId": { "type": "string" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "scopes": { "type": "array", "items": { "type": "string" } },
+          "receipt": { "$ref": "#/components/schemas/ConsentReceipt" }
+        }
+      },
+      "WebhookDeliveryRecord": {
+        "type": "object",
+        "required": ["deliveryId", "eventId", "serviceCode", "eventType", "status", "attempt", "createdAt", "updatedAt"],
+        "properties": {
+          "deliveryId": { "type": "string" },
+          "eventId": { "type": "string" },
+          "serviceCode": { "type": "string" },
+          "intentId": { "type": "string" },
+          "resourceId": { "type": "string" },
+          "eventType": { "type": "string" },
+          "payload": { "type": "object", "additionalProperties": true },
+          "callbackUrl": { "type": "string" },
+          "status": { "enum": ["pending", "delivered", "failed"] },
+          "attempt": { "type": "integer" },
+          "statusCode": { "type": "integer" },
+          "error": { "type": "string" },
+          "replayOf": { "type": "string" },
+          "createdAt": { "type": "string" },
+          "updatedAt": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

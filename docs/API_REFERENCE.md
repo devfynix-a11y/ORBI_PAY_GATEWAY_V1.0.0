@@ -2,6 +2,26 @@
 
 The gateway API is provider-facing and rail-facing. ORBI Core remains the business and ledger authority.
 
+For the stable BaaS/Open Banking contract families used by merchants,
+marketplaces, and third-party platforms, see
+[Platform Integration Contracts](./PLATFORM_INTEGRATION_CONTRACTS.md).
+For service/app onboarding, scope approvals, API key rotation, redirect
+allowlists, webhook allowlists, and developer dashboard shapes, see
+[Developer Portal Contracts](./DEVELOPER_PORTAL_CONTRACTS.md).
+For versioning, lifecycle vocabulary, and stable error codes, see
+[Contract Versioning And Error Codes](./CONTRACT_VERSIONING_AND_ERROR_CODES.md).
+
+Canonical external integration families:
+
+```text
+Payment Profile
+Hosted Challenge
+Payment Intent
+PaySafe Escrow Lifecycle
+Webhook Events
+Developer/Merchant Scopes
+```
+
 ## Health
 
 ```http
@@ -37,6 +57,23 @@ x-orbi-pay-service-key: <service-api-key>
 
 Returns the authenticated service profile without secrets. The service is identified from the key, not from the URL.
 
+## Developer Environment Profiles
+
+Developer Portal tools expose sandbox/live separation explicitly. These are
+operator/developer-control endpoints, not runtime financial endpoints.
+
+```http
+GET /v1/developer/environment-profiles
+GET /v1/developer/environment-profiles/sandbox
+GET /v1/developer/environment-profiles/live
+GET /v1/developer/sandbox-simulator
+x-orbi-pay-operator-key: <PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY>
+```
+
+Sandbox is simulated and must not commit real Core ledger movement. Live is
+real-money and requires approved scopes, allowlists, live credentials, signed
+webhooks, and stable idempotency keys.
+
 ## Payment Intents
 
 Payment intents are the production-style entry point for external ORBI products. A product creates an intent, optionally submits it immediately, and Pay Gateway forwards the signed request to ORBI Core. ORBI Core decides whether the movement is internal, external, escrow, refund, or provider-bound.
@@ -44,8 +81,27 @@ Payment intents are the production-style entry point for external ORBI products.
 ```http
 POST /v1/payment-intents
 x-orbi-pay-service-key: <ORBI_SHOP_PAY_API_KEY>
+x-orbi-environment: production
+Idempotency-Key: payment-intent:SHOP-ORDER-10001
+x-orbi-signature: sha256=<hmac>
+x-orbi-timestamp: <unix-seconds>
+x-orbi-nonce: <unique-nonce>
 Content-Type: application/json
 ```
+
+Financial runtime requests must include `x-orbi-environment` and a stable
+`Idempotency-Key`. Demo requests use sandbox keys. Production requests use live
+keys. A sandbox key cannot execute production requests, and a live key cannot be
+used as a demo key.
+
+Financial POST requests are HMAC signed. The canonical string is:
+
+```text
+<timestamp>.<nonce>.<METHOD>.<path-with-query>.<sha256-hex-raw-body>
+```
+
+The SDK signs this automatically. Raw HTTP integrations must send
+`x-orbi-signature`, `x-orbi-timestamp`, and `x-orbi-nonce`.
 
 ```json
 {
@@ -100,6 +156,46 @@ Read an intent:
 GET /v1/payment-intents/:intentId
 x-orbi-pay-service-key: <service-api-key>
 ```
+
+## Payment Profiles
+
+Payment profiles let a trusted service link its own customer record to a
+Core-owned ORBI financial profile. The service stores the returned
+`paymentProfileId`; Core keeps user identity, consent, scopes, risk, and wallet
+authority.
+
+```http
+POST /v1/payment-profiles
+x-orbi-pay-service-key: <service-api-key>
+Idempotency-Key: payment-profile:<service-code>:<external-customer-id>
+Content-Type: application/json
+```
+
+```json
+{
+  "customerId": "OB26-9885-6029",
+  "externalCustomerId": "shop-customer-456",
+  "scopes": [
+    "payment_profile:read",
+    "payments:create",
+    "escrow:create",
+    "balance:read"
+  ],
+  "consent": {
+    "consent_captured": true,
+    "consent_text_version": "orbi-payment-profile-v1",
+    "balance_read_allowed": true
+  },
+  "metadata": {
+    "source_service_code": "orbi_shop",
+    "registration_channel": "pay_gateway"
+  }
+}
+```
+
+At least one of `userId`, `customerId`, `email`, or `phone` is required.
+Merchants must not store wallet IDs or use a payment profile as automatic
+authority to move funds.
 
 ## PaySafe Escrow Product
 
@@ -292,6 +388,46 @@ Response:
 ```
 
 By default only active PaySafe states are returned (`HELD`, `DISPUTED`). Use `includeHistory=true` to include released/refunded history for seller reconciliation pages. Results are filtered to the authenticated service's merchant context, so one merchant cannot see another merchant's PaySafe holdings for the same ORBI user.
+
+## Business Registration
+
+Trusted services submit business access registration through Pay Gateway, not
+directly to Core.
+
+```http
+POST /v1/business/registrations
+x-orbi-pay-service-key: <service-api-key>
+Content-Type: application/json
+```
+
+Request:
+
+```json
+{
+  "email": "seller@example.com",
+  "phone": "+255700000000",
+  "requestedRole": "MERCHANT",
+  "businessName": "Zakaria Supplies",
+  "externalBusinessId": "shop-seller-123",
+  "note": "Seller registration from trusted service",
+  "metadata": {
+    "storeName": "Zakaria Supplies",
+    "registrationChannel": "orbi_shop"
+  }
+}
+```
+
+At least one of `userId`, `email`, or `phone` is required. Gateway signs and
+forwards the request to Core:
+
+```text
+POST /api/internal/pay-gateway/business/registrations
+scope: gateway:business-registration:write
+```
+
+Core remains the authority for `users`, `registry_type`, `role`,
+`service_access_requests`, merchant approval, merchant wallets, and settlement
+state.
 
 Merchant-native seller portal endpoints:
 

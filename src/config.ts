@@ -20,6 +20,12 @@ export const config = {
   providerMode: process.env.PAYMENT_GATEWAY_PROVIDER_MODE || 'live',
   providerManifestPath: process.env.PAYMENT_GATEWAY_PROVIDER_MANIFEST_PATH || 'config/providers.json',
   serviceRegistryPath: process.env.PAYMENT_GATEWAY_SERVICE_REGISTRY_PATH || 'config/services.json',
+  databaseUrl: process.env.DATABASE_URL || '',
+  secretEncryptionKey: process.env.ORBI_SECRET_ENCRYPTION_KEY || '',
+  consentReceiptStorePath:
+    process.env.PAYMENT_GATEWAY_CONSENT_RECEIPT_STORE_PATH || 'data/consent-receipts.json',
+  webhookDeliveryStorePath:
+    process.env.PAYMENT_GATEWAY_WEBHOOK_DELIVERY_STORE_PATH || 'data/webhook-deliveries.json',
   operatorDiscoveryApiKey: process.env.PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY || '',
   sandboxTools: {
     enabled: boolFromEnv(process.env.PAYMENT_GATEWAY_OBP_SANDBOX_TOOLS_ENABLED, false),
@@ -41,8 +47,14 @@ export const config = {
       '/api/internal/pay-gateway/service-payment-challenges',
     trustedPaySafeBalancePath:
       process.env.ORBI_CORE_TRUSTED_PAYSAFE_BALANCE_PATH || '/api/internal/pay-gateway/paysafe-balances',
+    trustedPaySafeActionPath:
+      process.env.ORBI_CORE_TRUSTED_PAYSAFE_ACTION_PATH || '/api/internal/pay-gateway/paysafe-actions',
     trustedIdentityResolvePath:
       process.env.ORBI_CORE_TRUSTED_IDENTITY_RESOLVE_PATH || '/api/internal/pay-gateway/identity-resolve',
+    trustedBusinessRegistrationPath:
+      process.env.ORBI_CORE_TRUSTED_BUSINESS_REGISTRATION_PATH || '/api/internal/pay-gateway/business/registrations',
+    trustedPaymentProfilePath:
+      process.env.ORBI_CORE_TRUSTED_PAYMENT_PROFILE_PATH || '/api/internal/pay-gateway/payment-profiles',
     trustedMerchantOrderPaymentStatusPath:
       process.env.ORBI_CORE_TRUSTED_MERCHANT_ORDER_PAYMENT_STATUS_PATH || '/api/internal/pay-gateway/merchant-order-payment-status',
     trustedMerchantSettlementsPath:
@@ -82,6 +94,14 @@ export const requireGatewayRuntimeSecrets = () => {
 
   if (config.env === 'production' && !config.operatorDiscoveryApiKey) {
     throw new Error('PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY is required for production discovery endpoints.');
+  }
+
+  if (config.env === 'production' && !config.databaseUrl) {
+    throw new Error('DATABASE_URL is required for production developer key storage.');
+  }
+
+  if (config.env === 'production' && !config.secretEncryptionKey) {
+    throw new Error('ORBI_SECRET_ENCRYPTION_KEY is required for encrypted gateway secret storage.');
   }
 
   if (config.env === 'production' && config.mtls.enabled) {

@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type { PaymentIntent, PayServiceDefinition } from '../types.js';
 import { resolveTokenSecret } from '../security/tokenResolver.js';
+import { developerPortalStore } from './developerPortalStore.js';
 
 const stableJson = (value: unknown): string => {
   if (value === null || value === undefined) return 'null';
@@ -16,6 +17,10 @@ const stableJson = (value: unknown): string => {
 export type ServiceWebhookDelivery = {
   attempted: boolean;
   delivered: boolean;
+  eventId?: string;
+  eventType?: string;
+  payload?: Record<string, unknown>;
+  callbackUrl?: string;
   statusCode?: number;
   error?: string;
 };
@@ -44,20 +49,42 @@ export const buildServiceWebhookPayload = (intent: PaymentIntent) => ({
   },
 });
 
-export const deliverServiceWebhook = async (
+export const deliverServiceWebhookPayload = async (
   service: PayServiceDefinition,
-  intent: PaymentIntent,
+  payload: {
+    eventId: string;
+    eventType: string;
+    serviceCode: string;
+    [key: string]: unknown;
+  },
 ): Promise<ServiceWebhookDelivery> => {
-  const callbackUrl = process.env[service.callbackUrlEnv]?.trim();
+  const isDeveloperPortalService = Boolean(service.metadata?.developerPortalService);
+  const developerWebhookUrls = Array.isArray(service.metadata?.webhookUrls)
+    ? service.metadata.webhookUrls.filter((url): url is string => typeof url === 'string' && Boolean(url.trim()))
+    : [];
+  const callbackUrl = isDeveloperPortalService
+    ? developerWebhookUrls[0]?.trim()
+    : process.env[service.callbackUrlEnv]?.trim();
   if (!callbackUrl) return { attempted: false, delivered: false, error: 'PAY_SERVICE_CALLBACK_URL_MISSING' };
 
-  const tokenRef = process.env[service.webhookSecretTokenRefEnv]?.trim();
-  if (!tokenRef) return { attempted: false, delivered: false, error: 'PAY_SERVICE_WEBHOOK_SECRET_TOKEN_REF_MISSING' };
+  const tokenRef = service.webhookSecretTokenRefEnv
+    ? process.env[service.webhookSecretTokenRefEnv]?.trim()
+    : '';
+  if (!isDeveloperPortalService && !tokenRef) {
+    return { attempted: false, delivered: false, error: 'PAY_SERVICE_WEBHOOK_SECRET_TOKEN_REF_MISSING' };
+  }
 
-  const payload = buildServiceWebhookPayload(intent);
+  const eventId = payload.eventId;
+  const eventType = payload.eventType;
+  const archivedPayload = payload as Record<string, unknown>;
   const body = stableJson(payload);
   const timestamp = Math.floor(Date.now() / 1000).toString();
-  const secret = resolveTokenSecret(tokenRef);
+  const environment = Array.isArray(service.metadata?.environments) && service.metadata.environments.includes('live')
+    ? 'live'
+    : 'sandbox';
+  const secret = isDeveloperPortalService
+    ? developerPortalStore.getActiveWebhookSigningSecret(service.code, environment)
+    : resolveTokenSecret(tokenRef);
   const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
 
   try {
@@ -76,6 +103,10 @@ export const deliverServiceWebhook = async (
     return {
       attempted: true,
       delivered: response.ok,
+      eventId,
+      eventType,
+      payload: archivedPayload,
+      callbackUrl,
       statusCode: response.status,
       error: response.ok ? undefined : `PAY_SERVICE_WEBHOOK_HTTP_${response.status}`,
     };
@@ -83,7 +114,17 @@ export const deliverServiceWebhook = async (
     return {
       attempted: true,
       delivered: false,
+      eventId,
+      eventType,
+      payload: archivedPayload,
+      callbackUrl,
       error: error.message || 'PAY_SERVICE_WEBHOOK_DELIVERY_FAILED',
     };
   }
 };
+
+export const deliverServiceWebhook = async (
+  service: PayServiceDefinition,
+  intent: PaymentIntent,
+): Promise<ServiceWebhookDelivery> =>
+  deliverServiceWebhookPayload(service, buildServiceWebhookPayload(intent));

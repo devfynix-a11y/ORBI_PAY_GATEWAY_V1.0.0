@@ -56,13 +56,18 @@ The gateway identifies the service from the key, enforces allowed currencies/ope
 PaySafe service actions use global product routes:
 
 ```txt
+POST /v1/payment-profiles
 POST /v1/paysafe/escrows
 POST /v1/paysafe/escrows/:escrowId/release
 POST /v1/paysafe/escrows/:escrowId/dispute
 POST /v1/paysafe/escrows/:escrowId/refund
+POST /v1/business/registrations
 ```
 
-Pay Gateway only adapts the request and signs it to Core. Core owns escrow policy, customer authorization, ledger posting, and final settlement.
+Payment profiles let a trusted service link a merchant-side customer to a
+Core-owned ORBI payment profile reference. Pay Gateway only adapts the request
+and signs it to Core. Core owns consent, escrow policy, customer
+authorization, ledger posting, and final settlement.
 
 Core sends service-facing results back to:
 
@@ -79,6 +84,10 @@ Pay Gateway then signs the result webhook back to the external service, for exam
 npm run build
 npm test
 npm run check
+npm run openapi:check
+npm run example:merchant-checkout:check
+npm run example:seller-linking:check
+npm run example:saccos-member-payments:check
 npm start
 ```
 
@@ -86,6 +95,17 @@ npm start
 
 - [Engineering Plan](./docs/ENGINEERING_PLAN.md)
 - [API Reference](./docs/API_REFERENCE.md)
+- [Platform Integration Contracts](./docs/PLATFORM_INTEGRATION_CONTRACTS.md)
+- [Language Integration Configs](./docs/LANGUAGE_INTEGRATION_CONFIGS.md)
+- [OpenAPI 3.1 Spec](./docs/openapi/orbi-pay-gateway.openapi.json)
+- [Contract Versioning And Error Codes](./docs/CONTRACT_VERSIONING_AND_ERROR_CODES.md)
+- [Developer Portal Contracts](./docs/DEVELOPER_PORTAL_CONTRACTS.md)
+- [Developer Portal UI Blueprint](./docs/DEVELOPER_PORTAL_UI_BLUEPRINT.md)
+- [Node SDK](./sdk/node/README.md)
+- [Postman/Insomnia Collection](./docs/postman/README.md)
+- [Merchant Checkout Example](./examples/merchant-checkout/README.md)
+- [Seller Linking Example](./examples/seller-linking/README.md)
+- [SACCOS Member Payments Example](./examples/saccos-member-payments/README.md)
 - [Deployment Runbook](./docs/DEPLOYMENT_RUNBOOK.md)
 - [Provider Adapter Guide](./docs/PROVIDER_ADAPTER_GUIDE.md)
 - [Security Model](./docs/SECURITY_MODEL.md)

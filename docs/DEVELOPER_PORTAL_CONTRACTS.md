@@ -1,0 +1,1172 @@
+# ORBI Pay Gateway Developer Portal Contracts
+
+This document starts Phase 2 of the ORBI Open Digital Banking and BaaS roadmap.
+It defines the control-plane contracts for merchants, developers, organizations,
+SACCOS platforms, agent networks, and internal ORBI products.
+
+The Developer Portal is the place where an external platform can:
+
+```text
+Register a service/app.
+Request sandbox and live access.
+Request scopes.
+Manage redirect URL allowlists.
+Manage webhook URL allowlists.
+Request API key rotation.
+Request webhook signing secret rotation.
+Inspect integration health.
+View event delivery logs.
+Read API contracts.
+Download SDKs when available.
+```
+
+Financial movement still goes through the public Gateway contracts in
+[Platform Integration Contracts](./PLATFORM_INTEGRATION_CONTRACTS.md).
+
+## 1. Authority Boundary
+
+```text
+Developer Portal
+-> controls service/app registration, keys, scopes, allowlists, environment,
+   webhook configuration, docs, and integration health.
+
+Pay Gateway runtime
+-> executes authenticated payment/profile/escrow/identity requests.
+
+ORBI Core
+-> owns identity authority, ledger authority, risk, consent, wallet state,
+   PaySafe lifecycle, receipts, and reconciliation truth.
+```
+
+The Developer Portal must never expose service API keys, webhook signing
+secrets, OTPs, PINs, wallet authority fields, provider credentials, or Core
+worker secrets to browsers.
+
+## 1.1 Sandbox And Live Trust Zones
+
+Sandbox and live are separate environments with separate credentials, webhook
+secrets, URL allowlists, consent evidence, and money behavior.
+
+```http
+GET /v1/developer/environment-profiles
+GET /v1/developer/environment-profiles/sandbox
+GET /v1/developer/environment-profiles/live
+GET /v1/developer/sandbox-simulator
+```
+
+Sandbox is simulated and must not commit real Core ledger movement. Live is
+real-money and requires approved scopes, allowlists, live keys, live webhook
+secrets, signed webhook handling, and stable idempotency keys.
+
+The Developer Portal should show this separation before issuing keys, opening
+simulator tools, or promoting a service to live.
+
+## 2. Service Application Contract
+
+Service onboarding begins with a service application.
+
+```json
+{
+  "legalName": "ORBI Shop Limited",
+  "displayName": "ORBI Shop",
+  "contactEmail": "ops@orbishop.example",
+  "contactPhone": "+255700000000",
+  "businessType": "marketplace",
+  "countryCode": "TZ",
+  "requestedEnvironments": ["sandbox", "live"],
+  "requestedScopes": [
+    "payment_profile:read",
+    "payments:create",
+    "escrow:create",
+    "webhooks:receive"
+  ],
+  "redirectUrls": [
+    "https://shop.orbifinancial.com/api/auth/orbi-business/link/callback"
+  ],
+  "webhookUrls": [
+    "https://shop.orbifinancial.com/api/orbi/webhooks"
+  ],
+  "useCases": [
+    "Seller payment profiles",
+    "Protected checkout through PaySafe"
+  ],
+  "termsAccepted": true
+}
+```
+
+Allowed `businessType` values:
+
+```text
+merchant
+marketplace
+organization
+saccos
+agent_network
+platform
+internal
+```
+
+Allowed environments:
+
+```text
+sandbox
+live
+```
+
+Live access requires review. Sandbox access may be automated later, but it must
+still create an auditable service record.
+
+## 3. Service Profile Response
+
+The dashboard service card should use this shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "serviceCode": "orbi-shop",
+    "displayName": "ORBI Shop",
+    "status": "active",
+    "environments": ["sandbox", "live"],
+    "scopesGranted": [
+      "payment_profile:read",
+      "payments:create",
+      "escrow:create"
+    ],
+    "scopesPending": ["balance:read"],
+    "redirectUrls": [
+      "https://shop.orbifinancial.com/api/auth/orbi-business/link/callback"
+    ],
+    "webhookUrls": [
+      "https://shop.orbifinancial.com/api/orbi/webhooks"
+    ],
+    "keyStatus": "active",
+    "webhookSecretStatus": "active",
+    "createdAt": "2026-07-23T00:00:00.000Z",
+    "updatedAt": "2026-07-23T00:00:00.000Z"
+  }
+}
+```
+
+Allowed service statuses:
+
+```text
+draft
+pending_review
+active
+suspended
+rejected
+archived
+```
+
+## 4. Scope Requests
+
+Services request minimum privileges. Merchant identity alone is never enough to
+move money.
+
+```json
+{
+  "requestedScopes": ["balance:read"],
+  "reason": "Seller dashboard needs read-only protected balance projection.",
+  "environment": "live"
+}
+```
+
+Supported Phase 2 scopes:
+
+```text
+identity:resolve
+payment_profile:create
+payment_profile:read
+payments:create
+escrow:create
+escrow:read
+escrow:release:request
+escrow:refund:request
+escrow:dispute:create
+withdrawal:request
+balance:read
+webhooks:receive
+```
+
+Scope approvals must be auditable and revocable.
+
+Developer Portal should render scope labels from the consent scope catalog:
+
+```http
+GET /v1/developer/consent-scopes
+```
+
+Example response:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "scope": "payments:create",
+      "category": "payment",
+      "riskLevel": "high",
+      "requiresHostedChallenge": true,
+      "title": {
+        "en": "Start payments",
+        "sw": "Kuanzisha malipo"
+      },
+      "description": {
+        "en": "Allows the service to start ORBI payments that still require ORBI authorization and risk checks.",
+        "sw": "Inaruhusu huduma kuanzisha malipo ya ORBI ambayo bado yatahitaji uthibitisho na ukaguzi wa hatari wa ORBI."
+      }
+    }
+  ]
+}
+```
+
+The UI must show localized scope descriptions for customer/business consent.
+Do not show raw scope strings as the primary explanation.
+
+Consent renewal status should be checked before sensitive operations and before
+rendering connected-service settings:
+
+```http
+GET /v1/developer/consent-status?serviceCode=orbi-shop&subjectId=user_001&scopes=payments:create&environment=live&renewalWindowDays=30
+```
+
+Example response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "status": "expiring_soon",
+    "allowed": true,
+    "renewalRequired": true,
+    "renewalReason": "CONSENT_EXPIRING_SOON",
+    "consentId": "consent_001",
+    "expiresAt": "2026-08-01T00:00:00.000Z",
+    "scopes": ["payments:create"]
+  }
+}
+```
+
+Status behavior:
+
+```text
+active -> continue normally.
+expiring_soon -> continue, but show renewal prompt before expiry.
+expired -> stop and start hosted consent again.
+revoked -> stop and require explicit fresh consent.
+missing -> stop and start hosted consent.
+```
+
+## 4.1 Connected Services Consent Center
+
+The Consent Center is user/business-facing. It is not an operator API and it is
+not a merchant service-key API.
+
+Trusted ORBI front doors such as Core, Auth, Mobile Shell, or ORBI Business
+Portal authenticate the subject, then inject:
+
+```http
+x-orbi-subject-id: user_001
+x-orbi-subject-type: user
+```
+
+For business accounts:
+
+```http
+x-orbi-subject-id: business_001
+x-orbi-subject-type: business
+```
+
+List connected services:
+
+```http
+GET /v1/consents?status=active&locale=sw
+```
+
+Read one connected service consent:
+
+```http
+GET /v1/consents/:consentId?locale=sw
+```
+
+Revoke connected service consent:
+
+```http
+POST /v1/consents/:consentId/revoke
+```
+
+```json
+{
+  "reason": "Customer revoked connected service access."
+}
+```
+
+The response includes `scopeSummary`, which is localized for `en` or `sw`.
+Connected Services UI should show:
+
+```text
+Service name/code.
+Status: active, expiring soon, expired, or revoked.
+Purpose.
+Expiry date.
+Localized scope descriptions.
+Revoke button for active or expiring soon consent.
+Evidence details in a secondary/details screen.
+```
+
+Revoking consent sends a signed `consent.revoked` webhook to the affected
+service, using the same webhook signing model as payment events.
+
+## 5. Redirect And Webhook Allowlists
+
+Redirect URLs and webhook URLs are explicit per environment.
+
+```json
+{
+  "redirectUrls": [
+    "https://merchant.example.com/orbi/return"
+  ],
+  "webhookUrls": [
+    "https://merchant.example.com/api/orbi/webhooks"
+  ],
+  "reason": "Add production checkout return and webhook URLs.",
+  "environment": "live"
+}
+```
+
+Rules:
+
+```text
+No wildcard hosts for live.
+No localhost for live.
+HTTPS required for live.
+Return URL is UX continuation, not payment truth.
+Webhook URL is server-to-server payment truth.
+```
+
+## 6. API Key Rotation
+
+Key rotation must be controlled and auditable.
+
+```json
+{
+  "environment": "live",
+  "currentKeyId": "key_2026_07",
+  "rotationReason": "Routine quarterly production key rotation.",
+  "requestedBy": "ops@merchant.example"
+}
+```
+
+Required behavior:
+
+```text
+Generate new key server-side only.
+Show secret once.
+Keep old key active during rotation window.
+Allow explicit cutover.
+Revoke old key after cutover or expiry.
+Emit audit event.
+Never expose keys through API reads.
+```
+
+Issue API key:
+
+```http
+POST /v1/developer/services/:serviceCode/api-keys/issue
+Content-Type: application/json
+```
+
+```json
+{
+  "environment": "sandbox",
+  "requestedBy": "operator@orbi.example",
+  "reason": "Issue first sandbox key for integration testing."
+}
+```
+
+Response contains the raw secret once:
+
+```json
+{
+  "success": true,
+  "data": {
+    "key": {
+      "keyId": "key_...",
+      "environment": "sandbox",
+      "status": "active",
+      "fingerprint": "7b4fd1...",
+      "issuedAt": "2026-07-23T00:00:00.000Z"
+    },
+    "oneTimeSecret": "orbi_sandbox_..."
+  }
+}
+```
+
+Portal UI rule:
+
+```text
+Show the one-time secret once.
+Require operator to confirm it has been copied.
+Never show it again.
+Service profile cards show keyId, environment, status, fingerprint, issuedAt,
+and expiry/revocation dates only.
+```
+
+## 7. Webhook Signing Secret Rotation
+
+Webhook secrets follow the same pattern as API keys:
+
+```text
+Create new signing secret.
+Send events with active secret.
+Optionally include next key id during rotation window.
+Merchant verifies both current and next secret during overlap.
+Revoke old secret after cutover.
+```
+
+Request webhook signing secret rotation:
+
+```http
+POST /v1/developer/services/:serviceCode/webhook-secret-rotations
+Content-Type: application/json
+```
+
+Approve, reject, or complete webhook signing secret rotation:
+
+```http
+POST /v1/developer/webhook-secret-rotations/:rotationId/decision
+Content-Type: application/json
+```
+
+Issue webhook signing secret:
+
+```http
+POST /v1/developer/services/:serviceCode/webhook-secrets/issue
+Content-Type: application/json
+```
+
+The raw webhook signing secret is also one-time display only. Store only
+`secretId`, `fingerprint`, `environment`, `status`, and timestamps in portal
+records.
+
+## 8. Developer Portal Events
+
+Developer Portal actions must emit auditable events:
+
+```json
+{
+  "eventId": "dev_evt_001",
+  "eventType": "developer.api_key.rotation_requested",
+  "serviceCode": "orbi-shop",
+  "environment": "live",
+  "occurredAt": "2026-07-23T00:00:00.000Z",
+  "data": {
+    "requestedBy": "ops@orbishop.example"
+  }
+}
+```
+
+Recommended event names:
+
+```text
+developer.service_application.submitted
+developer.service.approved
+developer.service.suspended
+developer.scope_request.submitted
+developer.scope_request.approved
+developer.allowlist.updated
+developer.api_key.rotation_requested
+developer.api_key.rotation_approved
+developer.api_key.rotation_rejected
+developer.api_key.rotated
+developer.api_key.issued
+developer.webhook_secret.rotation_requested
+developer.webhook_secret.rotation_approved
+developer.webhook_secret.rotation_rejected
+developer.webhook_secret.rotated
+developer.webhook_secret.issued
+```
+
+## 9. Developer Portal UI Blueprint
+
+Build the first portal UI around these screens:
+
+```text
+Service Applications
+Service Detail
+Scopes And Capabilities
+Redirect And Webhook Allowlists
+API Keys
+Webhook Signing Secrets
+Event Logs
+Integration Health
+API Docs
+Sandbox Tools
+SDK Links
+```
+
+### Service Applications
+
+Purpose:
+
+```text
+Submit merchant/platform service details.
+Review pending applications.
+Approve into draft or active service record.
+Reject with operator reason.
+```
+
+Primary endpoints:
+
+```text
+POST /v1/developer/service-applications
+GET /v1/developer/service-applications
+POST /v1/developer/service-applications/:applicationId/approve
+```
+
+### Service Detail
+
+Purpose:
+
+```text
+Show service status, environments, granted scopes, pending scopes, key status,
+webhook secret status, redirect URLs, webhook URLs, and event health.
+```
+
+Primary endpoints:
+
+```text
+GET /v1/developer/services
+GET /v1/developer/services/:serviceCode
+```
+
+### Scopes And Capabilities
+
+Purpose:
+
+```text
+Request minimum scopes.
+Operator approves or rejects each scope request.
+Show granted and pending scopes clearly.
+```
+
+Primary endpoints:
+
+```text
+POST /v1/developer/services/:serviceCode/scope-requests
+POST /v1/developer/scope-requests/:requestId/decision
+```
+
+### Redirect And Webhook Allowlists
+
+Purpose:
+
+```text
+Manage runtime-safe URLs.
+Prevent payment redirects and webhook callbacks to unapproved hosts.
+```
+
+Primary endpoint:
+
+```text
+POST /v1/developer/services/:serviceCode/allowlists
+```
+
+### API Keys
+
+Purpose:
+
+```text
+Issue sandbox/live keys.
+Request rotation.
+Approve/reject/complete rotation.
+Display raw key only once.
+Display fingerprint and status afterward.
+```
+
+Primary endpoints:
+
+```text
+POST /v1/developer/services/:serviceCode/api-keys/issue
+POST /v1/developer/services/:serviceCode/api-key-rotations
+POST /v1/developer/api-key-rotations/:rotationId/decision
+```
+
+### Webhook Signing Secrets
+
+Purpose:
+
+```text
+Issue signing secrets.
+Rotate signing secrets with overlap.
+Display raw secret only once.
+Display fingerprint and status afterward.
+```
+
+Primary endpoints:
+
+```text
+POST /v1/developer/services/:serviceCode/webhook-secrets/issue
+POST /v1/developer/services/:serviceCode/webhook-secret-rotations
+POST /v1/developer/webhook-secret-rotations/:rotationId/decision
+```
+
+### Event Logs
+
+Purpose:
+
+```text
+Show onboarding, scope, key, allowlist, and webhook delivery activity.
+Make support and audit investigations straightforward.
+```
+
+Primary endpoint:
+
+```text
+GET /v1/developer/events
+```
+
+### Webhook Delivery Logs And Replay
+
+Purpose:
+
+```text
+Show each webhook attempt.
+Expose HTTP status/error safely.
+Allow operator replay without manually entering containers.
+Preserve attempt number and replay lineage.
+```
+
+Primary endpoints:
+
+```text
+GET /v1/developer/webhook-deliveries
+GET /v1/developer/webhook-deliveries?serviceCode=orbi-shop
+GET /v1/developer/webhook-deliveries?intentId=pi_...
+GET /v1/developer/webhook-deliveries?status=failed
+POST /v1/developer/webhook-deliveries/:deliveryId/replay
+```
+
+Delivery record shape:
+
+```json
+{
+  "deliveryId": "whdel_...",
+  "eventId": "evt_...",
+  "serviceCode": "orbi-shop",
+  "intentId": "pi_...",
+  "eventType": "payment_intent.updated",
+  "callbackUrl": "https://shop.orbifinancial.com/api/orbi/webhooks",
+  "status": "failed",
+  "attempt": 1,
+  "statusCode": 503,
+  "error": "PAY_SERVICE_WEBHOOK_HTTP_503",
+  "createdAt": "2026-07-23T00:00:00.000Z",
+  "updatedAt": "2026-07-23T00:00:00.000Z"
+}
+```
+
+Replay rules:
+
+```text
+Replay signs a fresh webhook using the service webhook secret.
+Replay creates a new delivery record with replayOf=<original-delivery-id>.
+Replay must not mutate ledger, payment intent, or escrow state.
+Replay is for merchant notification recovery only.
+Merchant must dedupe by eventId/resource state and process idempotently.
+```
+
+### Integration Health
+
+Purpose:
+
+```text
+Give operators and merchants one health summary per service.
+Show service status, keys, webhook secrets, allowlists, scopes, webhook
+delivery health, provider readiness, and recent errors.
+```
+
+Primary endpoints:
+
+```text
+GET /v1/developer/integration-health
+GET /v1/developer/integration-health?serviceCode=orbi-shop
+```
+
+Health summary shape:
+
+```json
+{
+  "serviceCode": "orbi-shop",
+  "displayName": "ORBI Shop",
+  "status": "attention",
+  "serviceStatus": "draft",
+  "environments": ["sandbox", "live"],
+  "scopes": {
+    "granted": ["payments:create"],
+    "pending": ["balance:read"]
+  },
+  "keys": {
+    "status": "active",
+    "active": 1,
+    "rotationPending": 0
+  },
+  "webhooks": {
+    "secretStatus": "active",
+    "activeSecrets": 1,
+    "totalDeliveries": 20,
+    "delivered": 18,
+    "failed": 2,
+    "failureRatePercent": 10,
+    "lastDeliveredAt": "2026-07-23T00:00:00.000Z",
+    "lastFailedAt": "2026-07-23T00:05:00.000Z",
+    "recentErrors": []
+  },
+  "allowlists": {
+    "redirectUrls": ["https://merchant.example.com/orbi/return"],
+    "webhookUrls": ["https://merchant.example.com/api/orbi/webhooks"]
+  },
+  "warnings": [
+    "SCOPES_PENDING_REVIEW"
+  ],
+  "updatedAt": "2026-07-23T00:10:00.000Z"
+}
+```
+
+Recommended warning codes:
+
+```text
+SERVICE_NOT_ACTIVE
+API_KEY_NOT_ACTIVE
+WEBHOOK_SECRET_NOT_ACTIVE
+REDIRECT_ALLOWLIST_EMPTY
+WEBHOOK_ALLOWLIST_EMPTY
+SCOPES_PENDING_REVIEW
+WEBHOOK_FAILURE_RATE_HIGH
+```
+
+### API Docs Browser
+
+Purpose:
+
+```text
+Give developers a browsable catalog of maintained Gateway docs.
+Avoid stale external PDFs or informal integration instructions.
+```
+
+Primary endpoint:
+
+```text
+GET /v1/developer/docs-catalog
+```
+
+Catalog entry shape:
+
+```json
+{
+  "id": "platform-integration-contracts",
+  "title": "Platform Integration Contracts",
+  "category": "contracts",
+  "path": "/docs/PLATFORM_INTEGRATION_CONTRACTS.md",
+  "description": "Payment profiles, hosted challenge, payment intents, PaySafe lifecycle, webhooks, scopes."
+}
+```
+
+### Sandbox Tools
+
+Purpose:
+
+```text
+Expose available sandbox actions without mixing them with live financial
+controls.
+Show which tools are available, contract-ready, planned, or operator-gated.
+```
+
+Primary endpoint:
+
+```text
+GET /v1/developer/sandbox-tools
+```
+
+Catalog statuses:
+
+```text
+available
+contract_ready
+operator_toggle
+planned
+```
+
+### SDK Links
+
+Purpose:
+
+```text
+Show supported and planned SDKs from the portal.
+Prepare for future generated OpenAPI and typed SDK releases.
+```
+
+Primary endpoint:
+
+```text
+GET /v1/developer/sdk-catalog
+```
+
+SDK catalog entry shape:
+
+```json
+{
+  "id": "node-sdk",
+  "language": "TypeScript/Node.js",
+  "status": "bootstrap_available",
+  "packageName": "@orbi/pay-gateway",
+  "docsPath": "/sdk/node/README.md",
+  "description": "Typed client for payment intents, PaySafe actions, webhook verification, and replay."
+}
+```
+
+## 10. Implementation Order
+
+Build the portal in this order:
+
+```text
+1. Persist service applications and service records.
+2. Add operator approval workflow.
+3. Add sandbox service key generation.
+4. Add live key approval and rotation.
+5. Add redirect/webhook allowlist enforcement in runtime routes.
+6. Add scope enforcement beyond operation/currency checks.
+7. Add webhook delivery logs and replay controls.
+8. Add SDK/docs browser.
+```
+
+Executable schemas and tests:
+
+```text
+src/contracts/developerPortalContract.ts
+tests/developerPortalContract.test.ts
+src/services/webhookDeliveryStore.ts
+tests/webhookDeliveryStore.test.ts
+```
+
+## 11. Phase 2 Bootstrap Endpoints
+
+These endpoints are operator-only during bootstrap. They require:
+
+```http
+x-orbi-pay-operator-key: <PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY>
+```
+
+Submit service application:
+
+```http
+POST /v1/developer/service-applications
+Content-Type: application/json
+```
+
+List service applications:
+
+```http
+GET /v1/developer/service-applications
+GET /v1/developer/service-applications?status=pending_review
+```
+
+Approve service application:
+
+```http
+POST /v1/developer/service-applications/:applicationId/approve
+Content-Type: application/json
+```
+
+```json
+{
+  "serviceCode": "orbi-shop",
+  "initialStatus": "draft"
+}
+```
+
+List/read developer services:
+
+```http
+GET /v1/developer/services
+GET /v1/developer/services/:serviceCode
+```
+
+Request scopes:
+
+```http
+POST /v1/developer/services/:serviceCode/scope-requests
+Content-Type: application/json
+```
+
+Approve or reject a scope request:
+
+```http
+POST /v1/developer/scope-requests/:requestId/decision
+Content-Type: application/json
+```
+
+```json
+{
+  "decision": "approve",
+  "reason": "Approved for read-only seller dashboard projection.",
+  "decidedBy": "operator@orbi.example"
+}
+```
+
+Update allowlists:
+
+```http
+POST /v1/developer/services/:serviceCode/allowlists
+Content-Type: application/json
+```
+
+Once a service has portal allowlists, runtime payment and PaySafe requests must
+use URLs present in the matching allowlist:
+
+```text
+returnUrl, return_url, redirectUrl, redirect_url -> redirect allowlist
+callbackUrl, callback_url, webhookUrl, webhook_url -> webhook allowlist
+```
+
+Request API key rotation:
+
+```http
+POST /v1/developer/services/:serviceCode/api-key-rotations
+Content-Type: application/json
+```
+
+Issue API key:
+
+```http
+POST /v1/developer/services/:serviceCode/api-keys/issue
+Content-Type: application/json
+```
+
+Approve, reject, or complete API key rotation:
+
+```http
+POST /v1/developer/api-key-rotations/:rotationId/decision
+Content-Type: application/json
+```
+
+```json
+{
+  "decision": "complete",
+  "reason": "New live key installed and old key revoked.",
+  "decidedBy": "operator@orbi.example"
+}
+```
+
+Request webhook secret rotation:
+
+```http
+POST /v1/developer/services/:serviceCode/webhook-secret-rotations
+Content-Type: application/json
+```
+
+Approve, reject, or complete webhook secret rotation:
+
+```http
+POST /v1/developer/webhook-secret-rotations/:rotationId/decision
+Content-Type: application/json
+```
+
+Issue webhook signing secret:
+
+```http
+POST /v1/developer/services/:serviceCode/webhook-secrets/issue
+Content-Type: application/json
+```
+
+Read portal events:
+
+```http
+GET /v1/developer/events
+GET /v1/developer/events?serviceCode=orbi-shop
+```
+
+Create consent receipt:
+
+```http
+POST /v1/developer/consent-receipts
+Content-Type: application/json
+```
+
+```json
+{
+  "serviceCode": "orbi-shop",
+  "environment": "live",
+  "subjectType": "user",
+  "subjectId": "user_001",
+  "externalSubjectId": "shop_customer_001",
+  "scopes": ["payment_profile:read", "payments:create"],
+  "purpose": "Allow ORBI Shop to initiate protected checkout payments.",
+  "expiresAt": "2027-07-23T00:00:00.000Z",
+  "context": {
+    "locale": "sw",
+    "timezone": "Africa/Dar_es_Salaam",
+    "channel": "hosted_challenge",
+    "ipHash": "iphash_123456789",
+    "deviceHash": "devicehash_123456789"
+  },
+  "evidence": {
+    "consentTextVersion": "orbi-checkout-consent-v1",
+    "challengeType": "PIN",
+    "challengeId": "challenge_001",
+    "acceptedAt": "2026-07-23T00:00:00.000Z",
+    "evidenceHash": "evidence_hash_123456789"
+  }
+}
+```
+
+List/read consent receipts:
+
+```http
+GET /v1/developer/consent-receipts
+GET /v1/developer/consent-receipts?serviceCode=orbi-shop&subjectId=user_001&status=active
+GET /v1/developer/consent-receipts/:consentId
+```
+
+Revoke consent receipt:
+
+```http
+POST /v1/developer/consent-receipts/:consentId/revoke
+Content-Type: application/json
+```
+
+```json
+{
+  "revokedBy": "user_001",
+  "reason": "Customer revoked ORBI Shop checkout permission."
+}
+```
+
+Read integration health:
+
+```http
+GET /v1/developer/integration-health
+GET /v1/developer/integration-health?serviceCode=orbi-shop
+```
+
+Read docs, sandbox tools, and SDK catalogs:
+
+```http
+GET /v1/developer/docs-catalog
+GET /v1/developer/sandbox-tools
+GET /v1/developer/sdk-catalog
+```
+
+Machine-readable contract:
+
+```text
+docs/openapi/orbi-pay-gateway.openapi.json
+docs/postman/orbi-pay-gateway.postman_collection.json
+docs/postman/orbi-pay-gateway.postman_environment.json
+```
+
+The OpenAPI 3.1 document is the bootstrap source for Developer Portal API
+browser pages, generated SDKs, and API tools. The Postman collection is the
+bootstrap sandbox runner for checkout, hosted challenge, consent receipts, and
+webhook replay. Keep both aligned with SDK helpers so developers do not need to
+hand-build raw HTTP payloads.
+
+Read/replay webhook deliveries:
+
+```http
+GET /v1/developer/webhook-deliveries
+POST /v1/developer/webhook-deliveries/:deliveryId/replay
+```
+
+Webhook delivery records store the sanitized outbound event payload used for
+signature generation. Replay works for `payment_intent.updated`,
+`consent.revoked`, and future signed service events as long as the original
+delivery record contains archived payload data.
+
+SDK-first operator usage:
+
+```ts
+import { OrbiPayGatewayClient } from '@orbi/pay-gateway';
+
+const operator = new OrbiPayGatewayClient({
+  baseUrl: 'https://pay.orbifinancial.com',
+  operatorKey: process.env.ORBI_OPERATOR_KEY!,
+});
+
+const receipts = await operator.listConsentReceipts({
+  serviceCode: 'orbi-shop',
+  subjectId: 'user_001',
+  status: 'active',
+});
+
+await operator.revokeConsentReceipt(receipts.items[0].id, {
+  revokedBy: 'user_001',
+  reason: 'Customer revoked merchant access.',
+});
+
+await operator.replayWebhookDelivery('whdel_001', {
+  requestId: 'manual-replay-whdel-001',
+});
+
+await operator.replayFailedWebhookDeliveries({
+  serviceCode: 'orbi-shop',
+}, {
+  limit: 10,
+});
+```
+
+Developers should use SDK helpers for consent receipts, webhook verification,
+typed webhook events, and webhook replay. Raw HTTP remains part of the public
+contract, but SDK usage prevents fragile hand-built signatures, replay payloads,
+or event type parsing.
+
+SDK payment profile and error usage:
+
+```ts
+import { assertOrbiSuccess, errorInfoFromResponse, OrbiPayGatewayClient } from '@orbi/pay-gateway';
+
+const orbi = new OrbiPayGatewayClient({
+  baseUrl: 'https://pay.orbifinancial.com',
+  serviceKey: process.env.ORBI_PAY_SERVICE_KEY!,
+});
+
+const profile = await orbi.linkPaymentProfile({
+  externalCustomerId: 'merchant-user-001',
+  customerId: 'OB26-9885-6029',
+  scopes: ['payment_profile:read', 'payments:create'],
+});
+
+const failure = errorInfoFromResponse(profile);
+if (failure?.action === 'request_scope_or_consent') {
+  // Redirect the customer through hosted consent/challenge.
+}
+
+const paymentProfile = assertOrbiSuccess(profile);
+```
+
+Bootstrap persistence path:
+
+```env
+DATABASE_URL=postgresql://orbi:***@postgres:5432/orbi
+ORBI_SECRET_ENCRYPTION_KEY=***
+PAYMENT_GATEWAY_CONSENT_RECEIPT_STORE_PATH=data/consent-receipts.json
+PAYMENT_GATEWAY_WEBHOOK_DELIVERY_STORE_PATH=data/webhook-deliveries.json
+```
+
+Developer services, API-key fingerprints, encrypted webhook signing secrets, and
+developer secret events are stored in PostgreSQL control-plane tables. Raw API
+keys are displayed once during issue and are never persisted. Webhook secrets are
+never stored in plaintext; ORBI stores encrypted vault material only because the
+gateway must sign outbound callbacks after restart.
+
+To migrate service-registry credentials such as ORBI Shop into the database
+vault:
+
+```bash
+npm run secrets:migrate-service-registry
+```
+
+The migration reads secrets from the server environment, writes API-key
+fingerprints, writes encrypted webhook signing secrets, and does not print raw
+secret values.

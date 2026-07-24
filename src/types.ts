@@ -299,10 +299,50 @@ export type ServicePaySafeBalanceRequest = {
   metadata?: Record<string, unknown>;
 };
 
+export type ServicePaySafeActionRequest = {
+  serviceCode: string;
+  merchantId?: string;
+  escrowId: string;
+  reference?: string;
+  action: 'release' | 'dispute' | 'refund';
+  amount?: number;
+  currency?: string;
+  reason?: string;
+  idempotencyKey: string;
+  customer?: PaymentIntent['customer'];
+  metadata?: Record<string, unknown>;
+};
+
 export type ServiceIdentityResolveRequest = {
   serviceCode: string;
   identifier: string;
   metadata?: Record<string, unknown>;
+};
+
+export type ServiceBusinessRegistrationRequest = {
+  serviceCode: string;
+  userId?: string;
+  email?: string;
+  phone?: string;
+  requestedRole?: string;
+  businessName?: string;
+  externalBusinessId?: string;
+  note?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ServicePaymentProfileRequest = {
+  serviceCode: string;
+  userId?: string;
+  customerId?: string;
+  email?: string;
+  phone?: string;
+  externalCustomerId?: string;
+  scopes: string[];
+  consent?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  expiresAt?: string;
+  idempotencyKey?: string;
 };
 
 export type ServiceIdentityResolveResponse = {
