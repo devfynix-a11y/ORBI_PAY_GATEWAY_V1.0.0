@@ -56,6 +56,29 @@ The simulator guide helps developers test:
 
 Sandbox simulator flows must not create real ledger movement.
 
+Sandbox parity rule:
+
+```text
+The public API envelope, SDK method names, idempotency behavior, public status
+names, hosted challenge contract, and webhook event family must match live.
+Only the money source differs: sandbox uses fake balances and live uses Core
+ledger/provider settlement.
+```
+
+Developers should test both layers:
+
+```text
+Runtime sandbox:
+Use orbi.transfers.send(...) against https://sandbox-pay.orbifinancial.com.
+This validates real request signing, idempotency, hosted challenge behavior,
+webhook signing, and intent reconciliation without live money movement.
+
+Simulator tools:
+Use orbi.developer.sandboxSimulator.* for fake account movement, webhook event
+payload practice, and developer portal demos. These routes are not production
+money APIs and require operator/developer tooling credentials.
+```
+
 ## One Business SDK Contract
 
 Developers should not learn separate transfer methods for Demo and Production.
@@ -111,6 +134,8 @@ await orbi.developer.sandboxSimulator.transfer({
 - Requested live scopes are approved.
 - Live redirect and webhook URLs are allowlisted.
 - Live API key and webhook secret are issued and stored server-side.
+- Merchant-scoped products have `metadata.merchant` configured.
+- Merchant ID env vars resolve inside the live Gateway container.
 - Webhook receiver verifies signatures and dedupes `eventId`.
 - Every financial request uses a stable idempotency key.
 - Return URL is UX continuation only; signed webhook plus intent read is payment

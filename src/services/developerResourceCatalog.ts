@@ -35,6 +35,13 @@ export const developerDocsCatalog = () => [
     description: 'Server-side configuration examples for Node.js, PHP, Laravel, Python, FastAPI, and cURL integrations.',
   },
   {
+    id: 'developer-configuration-guide',
+    title: 'Developer Configuration Guide',
+    category: 'sdk',
+    path: '/docs/DEVELOPER_CONFIGURATION_GUIDE.md',
+    description: 'Practical environment variables, SDK setup, merchant readiness, sandbox simulation, webhooks, and go-live checklist.',
+  },
+  {
     id: 'openapi-spec',
     title: 'OpenAPI 3.1 Specification',
     category: 'api',

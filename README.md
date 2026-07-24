@@ -106,6 +106,8 @@ npm start
 - [Merchant Checkout Example](./examples/merchant-checkout/README.md)
 - [Seller Linking Example](./examples/seller-linking/README.md)
 - [SACCOS Member Payments Example](./examples/saccos-member-payments/README.md)
+- [Developer Configuration Guide](./docs/DEVELOPER_CONFIGURATION_GUIDE.md)
+- [Sandbox And Live Separation](./docs/SANDBOX_LIVE_SEPARATION.md)
 - [Deployment Runbook](./docs/DEPLOYMENT_RUNBOOK.md)
 - [Provider Adapter Guide](./docs/PROVIDER_ADAPTER_GUIDE.md)
 - [Security Model](./docs/SECURITY_MODEL.md)

@@ -146,6 +146,38 @@ service keys. Sandbox simulator helpers live under
 `orbi.developer.sandboxSimulator.*` and must not be used as the production
 money contract.
 
+## Environment Configuration
+
+Use these names in merchant servers and CI/CD secret stores:
+
+```env
+ORBI_PAY_GATEWAY_BASE_URL=https://sandbox-pay.orbifinancial.com
+ORBI_PAY_ENVIRONMENT=Demo
+ORBI_PAY_SERVICE_KEY=orbi_sandbox_xxx
+ORBI_PAY_WEBHOOK_SECRET=orbi_whsec_sandbox_xxx
+ORBI_PAY_RETURN_URL=https://merchant.example.com/orbi/return
+ORBI_PAY_CANCEL_URL=https://merchant.example.com/orbi/cancel
+ORBI_PAY_WEBHOOK_URL=https://merchant.example.com/api/orbi/webhooks
+```
+
+Production changes only the base URL, environment, and live credentials:
+
+```env
+ORBI_PAY_GATEWAY_BASE_URL=https://pay.orbifinancial.com
+ORBI_PAY_ENVIRONMENT=Production
+ORBI_PAY_SERVICE_KEY=orbi_live_xxx
+ORBI_PAY_WEBHOOK_SECRET=orbi_whsec_live_xxx
+```
+
+The SDK sends `x-orbi-environment`, `x-orbi-signature`,
+`x-orbi-timestamp`, and `x-orbi-nonce` automatically for financial requests.
+Always pass a stable `idempotencyKey` for retryable operations.
+
+Merchant-scoped products such as PaySafe also require operator/Developer Portal
+setup: active service, approved scopes, allowlisted URLs, merchant metadata,
+and a live merchant ID env var inside Gateway. If merchant metadata or merchant
+env is missing, Gateway/Core must fail closed.
+
 The Node SDK also signs financial POST requests automatically with:
 
 ```text
