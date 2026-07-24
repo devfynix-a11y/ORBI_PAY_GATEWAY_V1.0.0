@@ -142,11 +142,25 @@ The dashboard service card should use this shape:
     ],
     "keyStatus": "active",
     "webhookSecretStatus": "active",
+    "merchant": {
+      "merchantIdEnv": "ORBI_SHOP_MERCHANT_ID",
+      "feeProfileCode": "ORBI_SHOP_PAYSAFE",
+      "feeFlowCode": "MERCHANT_PAYMENT",
+      "requireActiveMerchant": true
+    },
+    "allowedOperations": ["collection", "refund", "paysafe"],
+    "allowedCurrencies": ["TZS"],
+    "allowedCountries": ["TZ"],
     "createdAt": "2026-07-23T00:00:00.000Z",
     "updatedAt": "2026-07-23T00:00:00.000Z"
   }
 }
 ```
+
+For merchant-scoped financial products, `merchant` is mandatory before live
+keys are issued. Developer Portal stores this in service metadata; Gateway must
+hydrate it into runtime service auth so Core receives merchant context on every
+PaySafe/payment intent request.
 
 Allowed service statuses:
 

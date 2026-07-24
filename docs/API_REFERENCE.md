@@ -208,12 +208,33 @@ For marketplace products such as ORBI Shop, the service profile must be linked t
   "merchant": {
     "merchantIdEnv": "ORBI_SHOP_MERCHANT_ID",
     "feeProfileCode": "ORBI_SHOP_PAYSAFE",
-    "feeFlowCode": "MERCHANT_PAYMENT"
+    "feeFlowCode": "MERCHANT_PAYMENT",
+    "requireActiveMerchant": true
   }
 }
 ```
 
 Every PaySafe request is merchant-scoped. Core validates that the merchant is active, resolves an active merchant PaySafe escrow wallet, resolves a settlement wallet when needed, and only then returns a customer challenge or balance projection.
+
+Developer Portal backed services must carry the same merchant metadata in
+`pay_gateway_developer_services.metadata`. Runtime authentication converts that
+metadata into a `PayServiceDefinition` before calling Core. If `merchant` is
+missing or `merchantIdEnv` resolves to an empty value, Core must fail closed
+with a merchant readiness error instead of creating an unscoped escrow.
+
+Required live readiness for merchant PaySafe:
+
+```text
+service.status = active
+service.environments contains live
+service.scopes_granted contains payments:create and escrow:create
+service.metadata.allowedOperations contains paysafe
+service.metadata.allowedCurrencies contains the request currency
+service.metadata.merchant.merchantIdEnv points to a live env var
+ORBI_SHOP_MERCHANT_ID or equivalent resolves to an active Core merchant
+Core has an active PaySafe escrow wallet for that merchant
+Core has settlement wallet rules for release/settlement flows
+```
 
 Create an escrow hold:
 
