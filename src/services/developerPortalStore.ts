@@ -13,6 +13,7 @@ import type {
   DeveloperSecretIssueRequestSchema,
   DeveloperServiceApplicationSchema,
   DeveloperServiceRecordSchema,
+  DeveloperServiceStatusUpdateSchema,
   DeveloperWebhookSecretRotationRequestSchema,
 } from '../contracts/developerPortalContract.js';
 
@@ -329,6 +330,31 @@ export class DeveloperPortalStore {
     );
     await this.persist();
     return { service, request: record };
+  }
+
+  async updateServiceStatus(serviceCode: string, input: z.infer<typeof DeveloperServiceStatusUpdateSchema>) {
+    this.assertReady();
+    const service = this.getMutableService(serviceCode);
+    const previousStatus = service.status;
+    const now = new Date().toISOString();
+
+    service.status = input.status;
+    service.updatedAt = now;
+
+    this.addEvent(input.status === 'suspended' ? 'developer.service.suspended' : 'developer.service.status_updated', {
+      serviceCode: service.serviceCode,
+      environment: service.environments.includes('live') ? 'live' : service.environments[0],
+      data: {
+        previousStatus,
+        status: input.status,
+        reason: input.reason,
+        decidedBy: input.decidedBy,
+        metadata: input.metadata || {},
+      },
+    });
+
+    await this.persist();
+    return this.publicService(service);
   }
 
   async applyAllowlistUpdate(serviceCode: string, update: z.infer<typeof DeveloperAllowlistUpdateSchema>) {

@@ -219,10 +219,10 @@ export const developerSdkCatalog = () => [
   {
     id: 'php-sdk',
     language: 'PHP',
-    status: 'release_ready',
+    status: 'live_packagist',
     packageName: 'orbifinancial/pay-gateway',
     docsPath: '/sdk/php/README.md',
-    description: 'Composer-ready source package for PHP/Laravel commerce stacks. Publish to Packagist before public install.',
+    description: 'Live Packagist package for PHP/Laravel commerce stacks.',
   },
   {
     id: 'python-sdk',

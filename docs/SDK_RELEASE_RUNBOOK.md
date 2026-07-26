@@ -9,7 +9,7 @@ registry credentials are ready.
 | --- | --- | --- | --- |
 | Node.js / TypeScript | `@orbifinancial/pay-gateway` | `sdk/node` | Live on npm, test-covered |
 | Python | `orbi-pay-gateway` | `sdk/python` | Live on PyPI, test-covered |
-| PHP | `orbifinancial/pay-gateway` | `sdk/php` | Packagist-ready, Composer-ready |
+| PHP | `orbifinancial/pay-gateway` | `sdk/php` | Live on Packagist, Composer-ready |
 
 ## Required Secrets
 
@@ -35,8 +35,11 @@ Python install is live:
 pip install orbi-pay-gateway
 ```
 
-PHP install command should be shown publicly only after Packagist publishing is
-complete.
+PHP install is live:
+
+```bash
+composer require orbifinancial/pay-gateway
+```
 
 ## PHP Packagist Release
 

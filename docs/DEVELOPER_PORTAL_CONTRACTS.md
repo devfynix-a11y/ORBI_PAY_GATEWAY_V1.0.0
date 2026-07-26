@@ -190,6 +190,8 @@ Supported Phase 2 scopes:
 
 ```text
 identity:resolve
+business_registration:create
+user:provision
 payment_profile:create
 payment_profile:read
 payments:create
@@ -834,7 +836,7 @@ SDK catalog entry shape:
   "id": "node-sdk",
   "language": "TypeScript/Node.js",
   "status": "bootstrap_available",
-  "packageName": "@orbi/pay-gateway",
+  "packageName": "@orbifinancial/pay-gateway",
   "docsPath": "/sdk/node/README.md",
   "description": "Typed client for payment intents, PaySafe actions, webhook verification, and replay."
 }
@@ -1101,7 +1103,7 @@ delivery record contains archived payload data.
 SDK-first operator usage:
 
 ```ts
-import { OrbiPayGatewayClient } from '@orbi/pay-gateway';
+import { OrbiPayGatewayClient } from '@orbifinancial/pay-gateway';
 
 const operator = new OrbiPayGatewayClient({
   baseUrl: 'https://pay.orbifinancial.com',
@@ -1138,7 +1140,7 @@ or event type parsing.
 SDK payment profile and error usage:
 
 ```ts
-import { assertOrbiSuccess, errorInfoFromResponse, OrbiPayGatewayClient } from '@orbi/pay-gateway';
+import { assertOrbiSuccess, errorInfoFromResponse, OrbiPayGatewayClient } from '@orbifinancial/pay-gateway';
 
 const orbi = new OrbiPayGatewayClient({
   baseUrl: 'https://pay.orbifinancial.com',

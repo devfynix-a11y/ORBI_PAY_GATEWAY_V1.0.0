@@ -43,6 +43,7 @@ import {
   DeveloperScopeDecisionSchema,
   DeveloperScopeRequestSchema,
   DeveloperServiceApplicationSchema,
+  DeveloperServiceStatusUpdateSchema,
   DeveloperWebhookSecretRotationRequestSchema,
 } from './contracts/developerPortalContract.js';
 import { consentReceiptStore } from './services/consentReceiptStore.js';
@@ -1725,6 +1726,18 @@ app.get('/v1/developer/services/:serviceCode', requireOperatorDiscoveryAccess, (
   } catch (e: any) {
     const error = errorCodeFromException(e, 'DEVELOPER_SERVICE_NOT_FOUND');
     return sendApiError(res, httpStatusForGatewayError(error, 404), error);
+  }
+});
+
+app.post('/v1/developer/services/:serviceCode/status', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperServiceStatusUpdateSchema.parse(req.body || {});
+    const service = await developerPortalStore.updateServiceStatus(String(req.params.serviceCode || ''), payload);
+    return res.json({ success: true, data: service });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_SERVICE_STATUS_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_SERVICE_STATUS_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 });
 

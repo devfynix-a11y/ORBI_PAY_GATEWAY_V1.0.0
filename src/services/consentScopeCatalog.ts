@@ -2,6 +2,8 @@ export type ConsentLocale = 'en' | 'sw';
 
 export type ConsentScopeName =
   | 'identity:resolve'
+  | 'business_registration:create'
+  | 'user:provision'
   | 'payment_profile:create'
   | 'payment_profile:read'
   | 'payments:create'
@@ -16,7 +18,7 @@ export type ConsentScopeName =
 
 export type ConsentScopeCatalogEntry = {
   scope: ConsentScopeName;
-  category: 'identity' | 'profile' | 'payment' | 'escrow' | 'withdrawal' | 'account' | 'webhook';
+  category: 'identity' | 'profile' | 'payment' | 'escrow' | 'withdrawal' | 'account' | 'webhook' | 'business';
   riskLevel: 'low' | 'medium' | 'high';
   requiresHostedChallenge: boolean;
   title: Record<ConsentLocale, string>;
@@ -33,6 +35,28 @@ const entries: ConsentScopeCatalogEntry[] = [
     description: {
       en: 'Allows the service to confirm that your phone, email, or ORBI ID belongs to an ORBI account.',
       sw: 'Inaruhusu huduma kuthibitisha kuwa simu, barua pepe, au ORBI ID yako ipo kwenye akaunti ya ORBI.',
+    },
+  },
+  {
+    scope: 'business_registration:create',
+    category: 'business',
+    riskLevel: 'high',
+    requiresHostedChallenge: true,
+    title: { en: 'Register business access', sw: 'Kusajili ufikiaji wa biashara' },
+    description: {
+      en: 'Allows the service to submit merchant, SACCOS, organization, or platform business access requests for ORBI review.',
+      sw: 'Inaruhusu huduma kuwasilisha maombi ya ufikiaji wa biashara kama merchant, SACCOS, organization, au platform kwa ukaguzi wa ORBI.',
+    },
+  },
+  {
+    scope: 'user:provision',
+    category: 'identity',
+    riskLevel: 'high',
+    requiresHostedChallenge: true,
+    title: { en: 'Provision linked ORBI users', sw: 'Kutengeneza watumiaji waliounganishwa na ORBI' },
+    description: {
+      en: 'Allows the service to request creation or linking of ORBI-backed user identities under approved registration protocols.',
+      sw: 'Inaruhusu huduma kuomba kutengeneza au kuunganisha utambulisho wa mtumiaji wa ORBI chini ya taratibu zilizoidhinishwa.',
     },
   },
   {

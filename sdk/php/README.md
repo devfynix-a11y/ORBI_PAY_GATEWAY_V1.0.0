@@ -6,8 +6,7 @@ Use this SDK from trusted backend code only. Do not expose ORBI service keys in 
 
 ## Install
 
-Status: source package is ready for Packagist. Use this install command after
-the package is published to Packagist.
+Status: live on Packagist.
 
 ```bash
 composer require orbifinancial/pay-gateway

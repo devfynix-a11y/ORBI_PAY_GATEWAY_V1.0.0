@@ -49,9 +49,11 @@ test('developer environment catalog separates sandbox and live trust zones', () 
   assert.equal(developerEnvironmentSeparationMatrix().rules.length >= 4, true);
 });
 
-test('developer sdk catalog exposes generated and planned SDKs', () => {
+test('developer sdk catalog exposes live SDK registries and OpenAPI contract', () => {
   const sdks = developerSdkCatalog();
-  assert.equal(sdks.some((entry) => entry.id === 'node-sdk' && entry.status === 'bootstrap_available'), true);
+  assert.equal(sdks.some((entry) => entry.id === 'node-sdk' && entry.status === 'live_npm'), true);
+  assert.equal(sdks.some((entry) => entry.id === 'python-sdk' && entry.status === 'live_pypi'), true);
+  assert.equal(sdks.some((entry) => entry.id === 'php-sdk' && entry.status === 'live_packagist'), true);
   assert.equal(sdks.some((entry) => entry.id === 'openapi-spec' && entry.status === 'bootstrap_available'), true);
-  assert.equal(sdks.filter((entry) => entry.status === 'planned').length >= 2, true);
+  assert.equal(sdks.every((entry) => String(entry.packageName || '').length > 0), true);
 });

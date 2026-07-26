@@ -578,7 +578,7 @@ SDK event handling:
 import {
   handleOrbiWebhookEvent,
   verifyAndParseOrbiWebhook,
-} from '@orbi/pay-gateway';
+} from '@orbifinancial/pay-gateway';
 
 const parsed = verifyAndParseOrbiWebhook({
   rawBody,
@@ -916,6 +916,8 @@ Recommended scope families:
 
 ```text
 identity:resolve
+business_registration:create
+user:provision
 payment_profile:create
 payment_profile:read
 payments:create

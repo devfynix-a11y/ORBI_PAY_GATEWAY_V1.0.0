@@ -24,6 +24,8 @@ export const DeveloperServiceStatusSchema = z.enum([
 
 export const DeveloperScopeSchema = z.enum([
   'identity:resolve',
+  'business_registration:create',
+  'user:provision',
   'payment_profile:create',
   'payment_profile:read',
   'payments:create',
@@ -115,6 +117,13 @@ export const DeveloperScopeDecisionSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+export const DeveloperServiceStatusUpdateSchema = z.object({
+  status: z.enum(['draft', 'active', 'suspended', 'archived']),
+  reason: z.string().trim().min(10).max(1000),
+  decidedBy: z.string().trim().min(3).max(180),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
 export const DeveloperAllowlistUpdateSchema = z
   .object({
     redirectUrls: UrlAllowlistSchema.optional(),
@@ -163,6 +172,7 @@ export const DeveloperPortalEventSchema = z
     eventType: z.enum([
       'developer.service_application.submitted',
       'developer.service.approved',
+      'developer.service.status_updated',
       'developer.service.suspended',
       'developer.scope_request.submitted',
       'developer.scope_request.approved',

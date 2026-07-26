@@ -13,7 +13,7 @@ Production/Live base URL: https://pay.orbifinancial.com
 ```
 
 ```ts
-import { createOrbi } from '@orbi/pay-gateway';
+import { createOrbi } from '@orbifinancial/pay-gateway';
 
 const orbi = createOrbi({
   baseUrl: process.env.ORBI_PAY_GATEWAY_BASE_URL!,
