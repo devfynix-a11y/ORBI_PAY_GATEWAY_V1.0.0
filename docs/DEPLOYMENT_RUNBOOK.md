@@ -157,6 +157,31 @@ npm run build
 npm start
 ```
 
+## Release Gate
+
+Every Pay Gateway release candidate must pass the local sandbox release gate
+before the live container is restarted. The gate builds the Node SDK, runs SDK
+tests, builds the gateway service and Docker image, starts the isolated sandbox
+Core and Pay Gateway containers, rotates sandbox fixture secrets, creates and
+approves a sandbox PaySafe payment through the public SDK contract, verifies
+webhook delivery and replay, and runs negative checks for auth, redirect, and
+idempotency behavior.
+
+```powershell
+.\scripts\release-gate.ps1
+```
+
+The gate depends on the Core repository because the sandbox Core and fixture
+scripts live there. If the Core repository is in a different location, pass it
+explicitly:
+
+```powershell
+.\scripts\release-gate.ps1 -CoreRepoPath "D:\FYNIX\ORBI\ORBI CORE\ORBI-Insitutional-Core-V2.0.4-Preview Stable"
+```
+
+Use `-SkipSandboxGate` only for an explicitly documented incident diagnostic.
+It is not a valid production release path.
+
 ## Docker
 
 ```bash

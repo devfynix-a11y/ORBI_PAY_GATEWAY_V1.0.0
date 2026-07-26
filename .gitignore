@@ -9,6 +9,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 coverage/
+.sandbox/
 .DS_Store
 __pycache__/
 *.py[cod]
