@@ -179,6 +179,10 @@ explicitly:
 .\scripts\release-gate.ps1 -CoreRepoPath "D:\FYNIX\ORBI\ORBI CORE\ORBI-Insitutional-Core-V2.0.4-Preview Stable"
 ```
 
+The gate writes local release evidence under `.release-gate/` with the tested
+Gateway commit SHA. Keep that evidence on the release host for operator audit;
+do not commit it or copy sandbox secrets into Git.
+
 Use `-SkipSandboxGate` only for an explicitly documented incident diagnostic.
 It is not a valid production release path.
 

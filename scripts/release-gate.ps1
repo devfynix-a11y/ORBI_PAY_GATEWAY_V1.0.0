@@ -3,6 +3,7 @@ param(
   [string]$GatewayImage = "orbi-pay-gateway:local",
   [string]$GatewayBaseUrl = "http://127.0.0.1:3101",
   [string]$CoreHealthUrl = "http://127.0.0.1:3001/health",
+  [string]$EvidencePath = ".release-gate\pay-gateway-release-gate.json",
   [switch]$InstallDependencies,
   [switch]$SkipBuild,
   [switch]$SkipSdkChecks,
@@ -70,4 +71,24 @@ if (-not $SkipSandboxGate) {
   Invoke-OrbiCommand "Running Pay Gateway sandbox smoke gate" "powershell" $powershellArgs
 }
 
+$commitSha = (& git rev-parse HEAD).Trim()
+$evidenceFullPath = [System.IO.Path]::GetFullPath((Join-Path $gatewayRoot $EvidencePath))
+$evidenceDirectory = Split-Path -Parent $evidenceFullPath
+if (-not (Test-Path $evidenceDirectory)) {
+  New-Item -ItemType Directory -Path $evidenceDirectory -Force | Out-Null
+}
+
+[ordered]@{
+  service = "orbi-pay-gateway"
+  commitSha = $commitSha
+  generatedAtUtc = [datetime]::UtcNow.ToString("o")
+  gatewayImage = $GatewayImage
+  coreRepoPath = $CoreRepoPath
+  gatewayBaseUrl = $GatewayBaseUrl
+  sdkChecksSkipped = [bool]$SkipSdkChecks
+  sandboxGateSkipped = [bool]$SkipSandboxGate
+  negativeTestsSkipped = [bool]$SkipNegativeTests
+} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $evidenceFullPath -Encoding ASCII
+
+Write-Output "Release gate evidence written to $evidenceFullPath"
 Write-Output "PAY_GATEWAY_RELEASE_GATE_PASS"
