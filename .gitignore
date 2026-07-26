@@ -10,6 +10,11 @@ yarn-error.log*
 pnpm-debug.log*
 coverage/
 .DS_Store
+__pycache__/
+*.py[cod]
+sdk/python/build/
+sdk/python/dist/
+sdk/python/src/*.egg-info/
 *.pem
 *.key
 *.crt

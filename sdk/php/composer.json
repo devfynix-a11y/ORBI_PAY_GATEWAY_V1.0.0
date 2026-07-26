@@ -1,0 +1,19 @@
+{
+  "name": "orbifinancial/pay-gateway",
+  "description": "Official ORBI Pay Gateway SDK for server-side payments, PaySafe escrow, identity lookup, and webhook verification.",
+  "type": "library",
+  "license": "proprietary",
+  "autoload": {
+    "psr-4": {
+      "Orbi\\PayGateway\\": "src/"
+    }
+  },
+  "require": {
+    "php": ">=8.1",
+    "ext-curl": "*",
+    "ext-json": "*"
+  },
+  "require-dev": {},
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}

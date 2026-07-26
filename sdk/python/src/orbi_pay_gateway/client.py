@@ -1,0 +1,256 @@
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import time
+import uuid
+from dataclasses import dataclass
+from typing import Any, Callable
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+
+Json = dict[str, Any]
+Fetch = Callable[[str, str, dict[str, str], str | None], tuple[int, Json]]
+
+
+class OrbiPayGatewayError(Exception):
+    def __init__(self, message: str, status: int | None = None, response: Any = None):
+        super().__init__(message)
+        self.status = status
+        self.response = response
+
+
+@dataclass(frozen=True)
+class OrbiPayGatewayConfig:
+    base_url: str
+    service_key: str | None = None
+    operator_key: str | None = None
+    environment: str | None = None
+    request_signing: bool = True
+    request_signing_secret: str | None = None
+    fetch: Fetch | None = None
+
+
+class OrbiPayGatewayClient:
+    def __init__(
+        self,
+        base_url: str,
+        service_key: str | None = None,
+        operator_key: str | None = None,
+        environment: str | None = None,
+        request_signing: bool = True,
+        request_signing_secret: str | None = None,
+        fetch: Fetch | None = None,
+    ):
+        self.base_url = base_url.rstrip("/")
+        self.service_key = service_key or ""
+        self.operator_key = operator_key
+        self.environment = environment
+        self.request_signing = request_signing
+        self.request_signing_secret = request_signing_secret
+        self.fetch = fetch or _default_fetch
+        if not self.base_url:
+            raise ValueError("ORBI_PAY_GATEWAY_BASE_URL_REQUIRED")
+        if not self.service_key and not self.operator_key:
+            raise ValueError("ORBI_PAY_GATEWAY_CREDENTIAL_REQUIRED")
+
+    def create_payment_intent(self, payload: Json, **options: Any) -> Json:
+        return self._request("POST", "/v1/payment-intents", payload, options)
+
+    def create_checkout_payment_intent(self, payload: Json, **options: Any) -> Json:
+        return self.create_payment_intent({**payload, "confirm": payload.get("confirm", True)}, **options)
+
+    def get_payment_intent(self, intent_id: str) -> Json:
+        return self._request("GET", f"/v1/payment-intents/{intent_id}")
+
+    def confirm_payment_intent(self, intent_id: str, payload: Json | None = None, **options: Any) -> Json:
+        return self._request("POST", f"/v1/payment-intents/{intent_id}/confirm", payload or {}, options)
+
+    def payment_intent_next_action(self, intent: Json) -> Json:
+        status = intent.get("status")
+        if status == "completed":
+            return {"type": "complete", "intent": intent}
+        if status in ("failed", "cancelled"):
+            return {"type": "failed", "intent": intent}
+        if status == "requires_action" and intent.get("challengeMode") == "hosted" and intent.get("challengeUrl"):
+            return {"type": "redirect_to_hosted_challenge", "url": intent["challengeUrl"], "intent": intent}
+        if status == "requires_action" and intent.get("challengeMode") == "in_app_required":
+            return {"type": "open_in_app_challenge", "intent": intent}
+        return {"type": "wait_for_webhook", "intent": intent}
+
+    def create_paysafe_escrow(self, payload: Json, **options: Any) -> Json:
+        return self._request("POST", "/v1/paysafe/escrows", payload, options)
+
+    def release_paysafe_escrow(self, escrow_id: str, payload: Json, **options: Any) -> Json:
+        return self._request("POST", f"/v1/paysafe/escrows/{escrow_id}/release", payload, options)
+
+    def refund_paysafe_escrow(self, escrow_id: str, payload: Json, **options: Any) -> Json:
+        return self._request("POST", f"/v1/paysafe/escrows/{escrow_id}/refund", payload, options)
+
+    def dispute_paysafe_escrow(self, escrow_id: str, payload: Json, **options: Any) -> Json:
+        return self._request("POST", f"/v1/paysafe/escrows/{escrow_id}/dispute", payload, options)
+
+    def resolve_identity(self, payload: Json, **options: Any) -> Json:
+        return self._request("POST", "/v1/identity/resolve", payload, options)
+
+    def create_business_registration(self, payload: Json, **options: Any) -> Json:
+        return self._request("POST", "/v1/business/registrations", payload, options)
+
+    def create_payment_profile(self, payload: Json, **options: Any) -> Json:
+        return self._request("POST", "/v1/payment-profiles", payload, options)
+
+    def link_payment_profile(self, payload: Json, **options: Any) -> Json:
+        if not options.get("idempotency_key") and payload.get("externalCustomerId"):
+            options["idempotency_key"] = f"payment-profile:{payload['externalCustomerId']}"
+        return self.create_payment_profile(payload, **options)
+
+    def _request(self, method: str, path: str, payload: Json | None = None, options: Json | None = None) -> Json:
+        if not self.service_key:
+            raise ValueError("ORBI_PAY_GATEWAY_SERVICE_KEY_REQUIRED")
+        options = options or {}
+        body = None if method == "GET" else json.dumps(payload or {}, separators=(",", ":"))
+        headers = {
+            "accept": "application/json",
+            "x-orbi-pay-service-key": self.service_key,
+            **(options.get("headers") or {}),
+        }
+        environment = _normalize_environment(options.get("environment") or self.environment)
+        if environment:
+            headers["x-orbi-environment"] = environment
+        if options.get("idempotency_key"):
+            headers["idempotency-key"] = options["idempotency_key"]
+        if options.get("request_id"):
+            headers["x-request-id"] = options["request_id"]
+        if method != "GET":
+            headers["content-type"] = "application/json"
+        if self.request_signing and self.service_key and method != "GET":
+            headers.update(_sign_request(method, path, body or "", self.request_signing_secret or self.service_key))
+        status, response = self.fetch(f"{self.base_url}{path}", method, headers, body)
+        if status >= 400 and not isinstance(response, dict):
+            raise OrbiPayGatewayError(f"ORBI_PAY_GATEWAY_HTTP_{status}", status, response)
+        return response
+
+
+class Orbi:
+    def __init__(self, **config: Any):
+        self.client = OrbiPayGatewayClient(**config)
+        self.transfers = _Transfers(self.client)
+        self.payments = _Payments(self.client)
+        self.paysafe = _PaySafe(self.client)
+        self.identity = _Identity(self.client)
+        self.payment_profiles = _PaymentProfiles(self.client)
+
+
+class _Transfers:
+    def __init__(self, client: OrbiPayGatewayClient):
+        self.client = client
+
+    def send(self, payload: Json, **options: Any) -> Json:
+        return self.client.create_payment_intent(
+            {
+                **payload,
+                "operation": "collection",
+                "paymentCategory": payload.get("paymentCategory", "orbi"),
+                "paymentRail": payload.get("paymentRail", "orbi_wallet"),
+            },
+            **options,
+        )
+
+
+class _Payments:
+    def __init__(self, client: OrbiPayGatewayClient):
+        self.client = client
+
+    def create_intent(self, payload: Json, **options: Any) -> Json:
+        return self.client.create_payment_intent(payload, **options)
+
+    def checkout(self, payload: Json, **options: Any) -> Json:
+        return self.client.create_checkout_payment_intent(payload, **options)
+
+    def get_intent(self, intent_id: str) -> Json:
+        return self.client.get_payment_intent(intent_id)
+
+    def confirm_intent(self, intent_id: str, payload: Json | None = None, **options: Any) -> Json:
+        return self.client.confirm_payment_intent(intent_id, payload, **options)
+
+    def next_action(self, intent: Json) -> Json:
+        return self.client.payment_intent_next_action(intent)
+
+
+class _PaySafe:
+    def __init__(self, client: OrbiPayGatewayClient):
+        self.client = client
+
+    def create_escrow(self, payload: Json, **options: Any) -> Json:
+        return self.client.create_paysafe_escrow(payload, **options)
+
+    def release(self, escrow_id: str, payload: Json, **options: Any) -> Json:
+        return self.client.release_paysafe_escrow(escrow_id, payload, **options)
+
+    def refund(self, escrow_id: str, payload: Json, **options: Any) -> Json:
+        return self.client.refund_paysafe_escrow(escrow_id, payload, **options)
+
+    def dispute(self, escrow_id: str, payload: Json, **options: Any) -> Json:
+        return self.client.dispute_paysafe_escrow(escrow_id, payload, **options)
+
+
+class _Identity:
+    def __init__(self, client: OrbiPayGatewayClient):
+        self.client = client
+
+    def resolve(self, payload: Json, **options: Any) -> Json:
+        return self.client.resolve_identity(payload, **options)
+
+    def register_business(self, payload: Json, **options: Any) -> Json:
+        return self.client.create_business_registration(payload, **options)
+
+
+class _PaymentProfiles:
+    def __init__(self, client: OrbiPayGatewayClient):
+        self.client = client
+
+    def link(self, payload: Json, **options: Any) -> Json:
+        return self.client.link_payment_profile(payload, **options)
+
+
+def _default_fetch(url: str, method: str, headers: dict[str, str], body: str | None) -> tuple[int, Json]:
+    request = Request(url, data=body.encode("utf-8") if body is not None else None, headers=headers, method=method)
+    try:
+        with urlopen(request, timeout=30) as response:
+            text = response.read().decode("utf-8")
+            return response.status, json.loads(text) if text else {}
+    except HTTPError as error:
+        text = error.read().decode("utf-8")
+        return error.code, json.loads(text) if text else {}
+
+
+def _normalize_environment(environment: str | None) -> str | None:
+    if not environment:
+        return None
+    normalized = environment.strip().lower()
+    if normalized == "demo":
+        return "demo"
+    if normalized == "production":
+        return "production"
+    raise ValueError("ORBI_PAY_GATEWAY_ENVIRONMENT_INVALID")
+
+
+def _sign_request(method: str, path: str, body: str, secret: str) -> dict[str, str]:
+    timestamp = str(int(time.time()))
+    nonce = str(uuid.uuid4())
+    body_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    canonical = ".".join([timestamp, nonce, method.upper(), path, body_hash])
+    signature = hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+    return {
+        "x-orbi-timestamp": timestamp,
+        "x-orbi-nonce": nonce,
+        "x-orbi-signature": f"sha256={signature}",
+    }
+
+
+def _query_string(query: Json) -> str:
+    clean = {key: value for key, value in query.items() if value is not None and str(value).strip()}
+    return f"?{urlencode(clean)}" if clean else ""

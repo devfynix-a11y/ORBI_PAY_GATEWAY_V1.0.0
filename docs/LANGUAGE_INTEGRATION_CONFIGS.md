@@ -1,18 +1,21 @@
 # ORBI Pay Gateway Language Integration Configs
 
-This guide gives starter configuration patterns for different programming
-languages. The protocol stays the same for every language:
+Use official ORBI SDK methods from trusted server code. Developers should not
+hand-build financial requests unless they are building a certified SDK or doing
+operator diagnostics.
 
 ```text
-Server-side app only
--> x-orbi-pay-service-key
--> Idempotency-Key for every financial/retryable action
--> hosted challenge redirect when returned
--> signed webhook verification before mutating local state
+Merchant/SACCOS/Platform server
+-> ORBI SDK
+-> Demo or Production environment
+-> stable idempotency key
+-> hosted challenge redirect when required
+-> signed webhook verification before updating local records
 ```
 
-Do not expose service keys or webhook secrets in browsers, mobile apps, Vite
-client bundles, APKs, or public JavaScript.
+Never expose service keys, signing secrets, webhook secrets, OTP, PIN, wallet
+authority fields, or challenge answers in browser JavaScript, mobile apps,
+Vite bundles, APKs, or public client code.
 
 ## Shared Environment
 
@@ -22,298 +25,225 @@ Use equivalent environment variables in every stack:
 ORBI_PAY_GATEWAY_BASE_URL=https://sandbox-pay.orbifinancial.com
 ORBI_PAY_ENVIRONMENT=Demo
 ORBI_PAY_SERVICE_KEY=orbi_sandbox_service_key
-ORBI_PAY_WEBHOOK_SECRET=webhook_secret_from_developer_portal
+ORBI_PAY_SIGNING_SECRET=orbi_sandbox_signing_secret
+ORBI_PAY_WEBHOOK_SECRET=orbi_whsec_sandbox
 ORBI_PAY_RETURN_URL=https://merchant.example.com/orbi/return
+ORBI_PAY_CANCEL_URL=https://merchant.example.com/orbi/cancel
 ORBI_PAY_WEBHOOK_URL=https://merchant.example.com/api/orbi/webhooks
 ```
 
-Use `https://sandbox-pay.orbifinancial.com` with `ORBI_PAY_ENVIRONMENT=Demo`
-and `orbi_sandbox_...` keys for testing. Use
-`https://pay.orbifinancial.com` with `ORBI_PAY_ENVIRONMENT=Production` and
-`orbi_live_...` keys only after live approval.
+Use `https://sandbox-pay.orbifinancial.com` with `Demo` keys for testing. Use
+`https://pay.orbifinancial.com` with `Production` keys only after live approval.
 
-Required request headers:
+## Node.js / Express
 
-```http
-content-type: application/json
-accept: application/json
-x-orbi-pay-service-key: <service key>
-x-orbi-environment: demo|production
-idempotency-key: <stable operation key>
-x-request-id: <optional trace id>
-x-orbi-signature: sha256=<hmac>
-x-orbi-timestamp: <unix timestamp seconds>
-x-orbi-nonce: <unique nonce>
-```
-
-Webhook verification uses:
-
-```http
-x-orbi-pay-signature: sha256=<hmac>
-x-orbi-pay-timestamp: <unix timestamp seconds>
-```
-
-## Node.js / TypeScript
-
-Recommended: use the official SDK.
+Install:
 
 ```bash
-npm install @orbi/pay-gateway
+npm install @orbifinancial/pay-gateway express
 ```
+
+Create one server-side client:
 
 ```ts
-import {
-  assertOrbiSuccess,
-  OrbiPayGatewayClient,
-  verifyOrbiWebhookSignature,
-} from '@orbi/pay-gateway';
+import { createOrbi } from '@orbifinancial/pay-gateway';
 
-const orbi = new OrbiPayGatewayClient({
-  baseUrl: process.env.ORBI_PAY_GATEWAY_BASE_URL!,
-  serviceKey: process.env.ORBI_PAY_SERVICE_KEY!,
+export const orbi = createOrbi({
+  baseUrl: process.env.ORBI_PAY_GATEWAY_BASE_URL,
+  serviceKey: process.env.ORBI_PAY_SERVICE_KEY,
+  signingSecret: process.env.ORBI_PAY_SIGNING_SECRET,
+  environment: process.env.ORBI_PAY_ENVIRONMENT,
 });
-
-const response = await orbi.createCheckoutPaymentIntent({
-  reference: 'ORDER-10001',
-  amount: 125000,
-  currency: 'TZS',
-  paymentCategory: 'orbi',
-  paymentRail: 'orbi_wallet',
-  customer: { phone: '+255700000000' },
-  returnUrl: process.env.ORBI_PAY_RETURN_URL!,
-  callbackUrl: process.env.ORBI_PAY_WEBHOOK_URL!,
-}, {
-  idempotencyKey: 'payment-intent:ORDER-10001',
-  requestId: 'checkout:ORDER-10001',
-});
-
-const intent = assertOrbiSuccess(response);
-const action = orbi.getPaymentIntentNextAction(intent);
 ```
 
-Webhook:
+Create a checkout payment:
 
 ```ts
-const verified = verifyOrbiWebhookSignature({
-  rawBody,
-  signatureHeader: req.header('x-orbi-pay-signature') || '',
-  timestampHeader: req.header('x-orbi-pay-timestamp') || '',
-  secret: process.env.ORBI_PAY_WEBHOOK_SECRET!,
+app.post('/checkout/orbi', async (req, res) => {
+  const intent = await orbi.transfers.send({
+    reference: req.body.orderId,
+    amount: req.body.amount,
+    currency: 'TZS',
+    description: 'Protected checkout',
+    customer: { phone: req.body.phone },
+    returnUrl: process.env.ORBI_PAY_RETURN_URL,
+    cancelUrl: process.env.ORBI_PAY_CANCEL_URL,
+    callbackUrl: process.env.ORBI_PAY_WEBHOOK_URL,
+  }, {
+    idempotencyKey: `payment-intent:${req.body.orderId}`,
+  });
+
+  const action = orbi.getPaymentIntentNextAction(intent);
+  if (action.type === 'redirect_to_hosted_challenge') {
+    return res.redirect(303, action.url);
+  }
+
+  res.json(intent);
 });
-
-if (!verified.ok) throw new Error(`Invalid ORBI webhook: ${verified.reason}`);
 ```
 
-## PHP
+Verify webhooks before updating orders:
 
-Recommended HTTP clients: Guzzle, Symfony HTTP Client, or Laravel HTTP client.
+```ts
+app.post('/api/orbi/webhooks', express.raw({ type: 'application/json' }), async (req, res) => {
+  const event = orbi.webhooks.parse({
+    rawBody: req.body,
+    signatureHeader: req.header('x-orbi-pay-signature') || '',
+    timestampHeader: req.header('x-orbi-pay-timestamp') || '',
+    secret: process.env.ORBI_PAY_WEBHOOK_SECRET,
+  });
 
-```bash
-composer require guzzlehttp/guzzle
-```
-
-```php
-<?php
-
-use GuzzleHttp\Client;
-
-$client = new Client([
-    'base_uri' => getenv('ORBI_PAY_GATEWAY_BASE_URL'),
-    'timeout' => 20,
-]);
-
-$reference = 'ORDER-10001';
-$response = $client->post('/v1/payment-intents', [
-    'headers' => [
-        'accept' => 'application/json',
-        'content-type' => 'application/json',
-        'x-orbi-pay-service-key' => getenv('ORBI_PAY_SERVICE_KEY'),
-        'idempotency-key' => 'payment-intent:' . $reference,
-        'x-request-id' => 'checkout:' . $reference,
-    ],
-    'json' => [
-        'reference' => $reference,
-        'amount' => 125000,
-        'currency' => 'TZS',
-        'paymentCategory' => 'orbi',
-        'paymentRail' => 'orbi_wallet',
-        'customer' => ['phone' => '+255700000000'],
-        'returnUrl' => getenv('ORBI_PAY_RETURN_URL'),
-        'callbackUrl' => getenv('ORBI_PAY_WEBHOOK_URL'),
-        'confirm' => true,
-    ],
-]);
-
-$payload = json_decode((string) $response->getBody(), true);
-if (!$payload['success']) {
-    throw new RuntimeException($payload['error'] . ': ' . $payload['message']);
-}
-
-$intent = $payload['data'];
-if (($intent['status'] ?? null) === 'requires_action' && !empty($intent['challengeUrl'])) {
-    header('Location: ' . $intent['challengeUrl'], true, 303);
-    exit;
-}
-```
-
-Webhook verification:
-
-```php
-<?php
-
-$rawBody = file_get_contents('php://input');
-$timestamp = $_SERVER['HTTP_X_ORBI_PAY_TIMESTAMP'] ?? '';
-$signature = $_SERVER['HTTP_X_ORBI_PAY_SIGNATURE'] ?? '';
-$secret = getenv('ORBI_PAY_WEBHOOK_SECRET');
-
-$expected = 'sha256=' . hash_hmac('sha256', $timestamp . '.' . $rawBody, $secret);
-
-if (!hash_equals($expected, $signature)) {
-    http_response_code(401);
-    echo json_encode(['error' => 'WEBHOOK_SIGNATURE_INVALID']);
-    exit;
-}
+  await updateOrderFromOrbiEvent(event);
+  res.sendStatus(200);
+});
 ```
 
 ## Python
 
-Recommended HTTP clients: `httpx` or `requests`. Use `httpx` for async-ready
-services.
+Install:
 
 ```bash
-pip install httpx
+pip install orbi-pay-gateway
 ```
+
+Create payment:
 
 ```py
 import os
-import httpx
+from orbi_pay_gateway import Orbi
 
-reference = "ORDER-10001"
-
-response = httpx.post(
-    f"{os.environ['ORBI_PAY_GATEWAY_BASE_URL']}/v1/payment-intents",
-    headers={
-        "accept": "application/json",
-        "content-type": "application/json",
-        "x-orbi-pay-service-key": os.environ["ORBI_PAY_SERVICE_KEY"],
-        "idempotency-key": f"payment-intent:{reference}",
-        "x-request-id": f"checkout:{reference}",
-    },
-    json={
-        "reference": reference,
-        "amount": 125000,
-        "currency": "TZS",
-        "paymentCategory": "orbi",
-        "paymentRail": "orbi_wallet",
-        "customer": {"phone": "+255700000000"},
-        "returnUrl": os.environ["ORBI_PAY_RETURN_URL"],
-        "callbackUrl": os.environ["ORBI_PAY_WEBHOOK_URL"],
-        "confirm": True,
-    },
-    timeout=20,
+orbi = Orbi(
+    base_url=os.environ["ORBI_PAY_GATEWAY_BASE_URL"],
+    service_key=os.environ["ORBI_PAY_SERVICE_KEY"],
+    signing_secret=os.environ.get("ORBI_PAY_SIGNING_SECRET"),
+    environment=os.environ.get("ORBI_PAY_ENVIRONMENT", "Demo"),
 )
-payload = response.json()
-if not payload.get("success"):
-    raise RuntimeError(f"{payload.get('error')}: {payload.get('message')}")
 
-intent = payload["data"]
-challenge_url = intent.get("challengeUrl")
+intent = orbi.transfers.send({
+    "reference": order.id,
+    "amount": order.amount,
+    "currency": "TZS",
+    "description": "Protected checkout",
+    "customer": {"phone": customer.phone},
+    "returnUrl": os.environ["ORBI_PAY_RETURN_URL"],
+    "cancelUrl": os.environ["ORBI_PAY_CANCEL_URL"],
+    "callbackUrl": os.environ["ORBI_PAY_WEBHOOK_URL"],
+}, idempotency_key=f"payment-intent:{order.id}")
+
+action = orbi.payments.next_action(intent)
 ```
 
-Webhook verification:
+Verify webhook:
 
 ```py
-import hmac
-import hashlib
-import os
+from orbi_pay_gateway import verify_and_parse_webhook
 
-def verify_orbi_webhook(raw_body: bytes, signature: str, timestamp: str) -> bool:
-    secret = os.environ["ORBI_PAY_WEBHOOK_SECRET"].encode("utf-8")
-    signed_payload = timestamp.encode("utf-8") + b"." + raw_body
-    expected = "sha256=" + hmac.new(secret, signed_payload, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature)
+event = verify_and_parse_webhook(
+    raw_body=request.data,
+    signature_header=request.headers.get("x-orbi-pay-signature", ""),
+    timestamp_header=request.headers.get("x-orbi-pay-timestamp", ""),
+    secret=os.environ["ORBI_PAY_WEBHOOK_SECRET"],
+)
+
+update_order_from_orbi_event(event["event"])
 ```
 
-## Laravel
+## PHP / Laravel
 
-Use Laravel's HTTP client server-side:
+Install:
+
+```bash
+composer require orbifinancial/pay-gateway
+```
+
+Create payment:
 
 ```php
-$reference = 'ORDER-10001';
+use Orbi\PayGateway\Orbi;
 
-$response = Http::withHeaders([
-    'x-orbi-pay-service-key' => config('services.orbi_pay.service_key'),
-    'idempotency-key' => 'payment-intent:' . $reference,
-    'x-request-id' => 'checkout:' . $reference,
-])->post(config('services.orbi_pay.base_url') . '/v1/payment-intents', [
-    'reference' => $reference,
-    'amount' => 125000,
+$orbi = Orbi::create([
+    'baseUrl' => env('ORBI_PAY_GATEWAY_BASE_URL'),
+    'serviceKey' => env('ORBI_PAY_SERVICE_KEY'),
+    'signingSecret' => env('ORBI_PAY_SIGNING_SECRET'),
+    'environment' => env('ORBI_PAY_ENVIRONMENT', 'Demo'),
+]);
+
+$intent = $orbi->transfers()->send([
+    'reference' => $order->id,
+    'amount' => $order->amount,
     'currency' => 'TZS',
-    'paymentCategory' => 'orbi',
-    'paymentRail' => 'orbi_wallet',
-    'customer' => ['phone' => '+255700000000'],
-    'returnUrl' => route('orbi.return'),
-    'callbackUrl' => route('orbi.webhook'),
-    'confirm' => true,
+    'description' => 'Protected checkout',
+    'customer' => ['phone' => $customer->phone],
+    'returnUrl' => env('ORBI_PAY_RETURN_URL'),
+    'cancelUrl' => env('ORBI_PAY_CANCEL_URL'),
+    'callbackUrl' => env('ORBI_PAY_WEBHOOK_URL'),
+], [
+    'idempotencyKey' => 'payment-intent:' . $order->id,
 ]);
 ```
 
-Recommended `config/services.php`:
+Verify webhook:
 
 ```php
-'orbi_pay' => [
-    'base_url' => env('ORBI_PAY_GATEWAY_BASE_URL'),
-    'service_key' => env('ORBI_PAY_SERVICE_KEY'),
-    'webhook_secret' => env('ORBI_PAY_WEBHOOK_SECRET'),
-],
+use Orbi\PayGateway\Webhooks;
+
+$event = Webhooks::verifyAndParse(
+    $request->getContent(),
+    $request->header('x-orbi-pay-signature', ''),
+    $request->header('x-orbi-pay-timestamp', ''),
+    env('ORBI_PAY_WEBHOOK_SECRET')
+);
+
+updateOrderFromOrbiEvent($event);
 ```
 
 ## Django / FastAPI
 
-Use the Python pattern above. Store ORBI settings in environment variables or
-your secret manager, not in source code.
-
-FastAPI webhook route rule:
+Use the Python SDK from your backend service. For FastAPI webhooks, read the raw
+body before parsing JSON:
 
 ```py
 raw_body = await request.body()
-signature = request.headers.get("x-orbi-pay-signature", "")
-timestamp = request.headers.get("x-orbi-pay-timestamp", "")
+event = verify_and_parse_webhook(
+    raw_body=raw_body,
+    signature_header=request.headers.get("x-orbi-pay-signature", ""),
+    timestamp_header=request.headers.get("x-orbi-pay-timestamp", ""),
+    secret=os.environ["ORBI_PAY_WEBHOOK_SECRET"],
+)
 ```
 
-Verify the raw body before parsing JSON or mutating payment/order state.
-
 ## cURL Smoke Test
+
+Use cURL only for connectivity checks from a secure machine. Production systems
+should use the SDK so HMAC, idempotency, request IDs, and webhook verification
+stay consistent.
 
 ```bash
 curl -X POST "$ORBI_PAY_GATEWAY_BASE_URL/v1/payment-intents" \
   -H "accept: application/json" \
   -H "content-type: application/json" \
   -H "x-orbi-pay-service-key: $ORBI_PAY_SERVICE_KEY" \
+  -H "x-orbi-environment: demo" \
   -H "idempotency-key: payment-intent:ORDER-10001" \
-  -H "x-request-id: checkout:ORDER-10001" \
   -d '{
     "reference": "ORDER-10001",
     "amount": 125000,
     "currency": "TZS",
-    "paymentCategory": "orbi",
-    "paymentRail": "orbi_wallet",
     "customer": { "phone": "+255700000000" },
     "returnUrl": "https://merchant.example.com/orbi/return",
-    "callbackUrl": "https://merchant.example.com/api/orbi/webhooks",
-    "confirm": true
+    "cancelUrl": "https://merchant.example.com/orbi/cancel",
+    "callbackUrl": "https://merchant.example.com/api/orbi/webhooks"
   }'
 ```
 
-## Safety Checklist For Every Language
+## Safety Checklist
 
-- Keep service keys and webhook secrets server-side only.
-- Use `Idempotency-Key` on every financial action.
+- Keep ORBI keys and webhook secrets server-side only.
+- Use one stable idempotency key for every financial action.
 - Reuse the same idempotency key after timeout or network retry.
-- Redirect to `challengeUrl` when status is `requires_action`.
+- Redirect to `challengeUrl` when ORBI returns hosted challenge.
 - Treat return URL as customer UX only.
-- Verify signed webhooks before updating local orders, sellers, members, or
-  settlement records.
+- Verify signed webhooks before updating orders, sellers, members, or balances.
 - Deduplicate webhook events by `eventId`.
-- Never store ORBI PIN, OTP, password, challenge answer, or raw wallet authority
-  fields in the external platform.
+- Never store ORBI PIN, OTP, password, challenge answer, or wallet authority
+  fields in external platforms.

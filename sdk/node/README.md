@@ -17,7 +17,7 @@ Vite client bundles.
 When published:
 
 ```bash
-npm install @orbi/pay-gateway
+npm install @orbifinancial/pay-gateway
 ```
 
 Local development from this repo:
@@ -102,7 +102,7 @@ Use the same business methods in Demo and Production. The environment is sent
 as a constant request context, not as a different transfer API.
 
 ```ts
-import { createOrbi } from '@orbi/pay-gateway';
+import { createOrbi } from '@orbifinancial/pay-gateway';
 
 const sandboxOrbi = createOrbi({
   baseUrl: 'https://sandbox-pay.orbifinancial.com',
@@ -199,7 +199,7 @@ where request-signing secrets will be issued separately from API keys.
 ## Low-Level Client
 
 ```ts
-import { OrbiPayGatewayClient } from '@orbi/pay-gateway';
+import { OrbiPayGatewayClient } from '@orbifinancial/pay-gateway';
 
 const orbi = new OrbiPayGatewayClient({
   baseUrl: 'https://pay.orbifinancial.com',
@@ -305,7 +305,7 @@ const profile = await orbi.linkPaymentProfile({
 ## Error Helpers
 
 ```ts
-import { assertOrbiSuccess, classifyOrbiErrorCode, errorInfoFromResponse } from '@orbi/pay-gateway';
+import { assertOrbiSuccess, classifyOrbiErrorCode, errorInfoFromResponse } from '@orbifinancial/pay-gateway';
 
 const data = assertOrbiSuccess(profile);
 
@@ -324,7 +324,7 @@ console.log(details.action); // stop
 import {
   handleOrbiWebhookEvent,
   verifyAndParseOrbiWebhook,
-} from '@orbi/pay-gateway';
+} from '@orbifinancial/pay-gateway';
 
 const parsed = verifyAndParseOrbiWebhook({
   rawBody,

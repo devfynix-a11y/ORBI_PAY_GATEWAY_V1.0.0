@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orbi-pay-gateway"
+version = "0.1.0"
+description = "Official ORBI Pay Gateway SDK for server-side payments, PaySafe escrow, identity lookup, and webhook verification."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "LicenseRef-Proprietary"
+authors = [{ name = "ORBI Financial" }]
+keywords = ["orbi", "payments", "paysafe", "escrow", "baas", "open-banking"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Office/Business :: Financial",
+]
+
+[project.urls]
+Homepage = "https://orbifinancial.com"
+Documentation = "https://sandbox-pay.orbifinancial.com/docs"
+
+[tool.setuptools.packages.find]
+where = ["src"]
