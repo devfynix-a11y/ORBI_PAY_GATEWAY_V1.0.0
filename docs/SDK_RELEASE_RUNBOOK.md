@@ -26,7 +26,7 @@ linking it to Packagist. Do not store Composer credentials in source control.
 Node install is live:
 
 ```bash
-npm install @orbifinancial/pay-gateway
+npm i @orbifinancial/pay-gateway
 ```
 
 Python install is live:

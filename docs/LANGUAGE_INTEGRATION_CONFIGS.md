@@ -40,7 +40,7 @@ Use `https://sandbox-pay.orbifinancial.com` with `Demo` keys for testing. Use
 Install:
 
 ```bash
-npm install @orbifinancial/pay-gateway express
+npm i @orbifinancial/pay-gateway express
 ```
 
 Create one server-side client:

@@ -22,6 +22,25 @@ Webhook Events
 Developer/Merchant Scopes
 ```
 
+## SDK First
+
+Use the official SDKs for runtime financial operations. They send service
+authentication, environment headers, HMAC signatures, nonces, timestamps, and
+idempotency keys consistently, so developers do not have to hand-roll raw HTTP
+for sensitive payment flows.
+
+```bash
+npm i @orbifinancial/pay-gateway
+pip install orbi-pay-gateway
+composer require orbifinancial/pay-gateway
+```
+
+Raw endpoint examples remain in this reference for advanced operators, SDK
+authors, and platform teams. Merchant applications should prefer SDK methods
+such as `orbi.identity.resolve(...)`, `orbi.payments.createIntent(...)`,
+`orbi.payments.waitForIntent(...)`, `orbi.paysafe.create(...)`, and
+`orbi.webhooks.verify(...)`.
+
 ## Health
 
 ```http

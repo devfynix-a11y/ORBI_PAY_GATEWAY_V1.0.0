@@ -7,6 +7,14 @@ SACCOS, organizations, and BaaS platforms integrating with ORBI Pay Gateway.
 
 Use the same SDK methods in every environment. Only configuration changes.
 
+Install the official server SDK for your stack:
+
+```bash
+npm i @orbifinancial/pay-gateway
+pip install orbi-pay-gateway
+composer require orbifinancial/pay-gateway
+```
+
 ```text
 Demo/Sandbox base URL: https://sandbox-pay.orbifinancial.com
 Production/Live base URL: https://pay.orbifinancial.com
@@ -280,4 +288,3 @@ Wrong webhook secret, wrong environment, modified raw body, or timestamp outside
 Duplicate payment after timeout:
 Retry used a new idempotency key instead of reusing the original key.
 ```
-
