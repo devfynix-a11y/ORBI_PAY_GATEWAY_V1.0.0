@@ -13,6 +13,7 @@ import {
   authenticatePayServiceCredential,
   developerEnvironmentForRuntime,
   extractServiceApiKey,
+  serviceDefinitionFromDeveloperService,
   type AuthenticatedPayService,
   type RuntimeEnvironment,
 } from './services/payServiceAuth.js';
@@ -1582,7 +1583,13 @@ app.post('/v1/internal/core/service-payment-events', async (req, res) => {
     });
 
     const event = CoreServicePaymentEventSchema.parse(req.body) as ServicePaymentCoreEvent;
-    const service = payServiceRegistry.get(event.serviceCode);
+    let service: PayServiceDefinition;
+    try {
+      service = payServiceRegistry.get(event.serviceCode);
+    } catch (error: any) {
+      if (error?.message !== 'PAY_SERVICE_NOT_REGISTERED') throw error;
+      service = serviceDefinitionFromDeveloperService(developerPortalStore.getService(event.serviceCode));
+    }
     const intent = paymentIntentStore.get(service.code, event.intentId);
     const updatedIntent = paymentIntentStore.applyCoreEvent(intent, event);
     const webhookDelivery = await deliverServiceWebhook(service, updatedIntent);

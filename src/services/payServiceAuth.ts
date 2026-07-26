@@ -51,7 +51,7 @@ const serviceOperationsForScopes = (scopes: string[]): PayServiceOperation[] => 
   return [...operations];
 };
 
-const serviceDefinitionFromDeveloperService = (
+export const serviceDefinitionFromDeveloperService = (
   service: ReturnType<typeof developerPortalStore.getService>,
 ): PayServiceDefinition => {
   const metadata = service.metadata || {};
