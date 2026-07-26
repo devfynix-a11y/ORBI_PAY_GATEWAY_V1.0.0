@@ -136,15 +136,18 @@ export const authenticatePayServiceCredential = (
     };
   }
 
-  let unresolvedBinding = false;
   for (const service of services) {
     const tokenRef = process.env[service.apiKeyTokenRefEnv]?.trim();
     if (!tokenRef) {
-      unresolvedBinding = true;
       continue;
     }
 
-    const expected = resolveTokenSecret(tokenRef);
+    let expected: string;
+    try {
+      expected = resolveTokenSecret(tokenRef);
+    } catch {
+      continue;
+    }
     if (safeEqual(provided, expected)) {
       return {
         service,
@@ -155,10 +158,6 @@ export const authenticatePayServiceCredential = (
         },
       };
     }
-  }
-
-  if (unresolvedBinding && services.length === 1) {
-    throw new Error('PAY_SERVICE_API_KEY_TOKEN_REF_MISSING');
   }
 
   throw new Error('PAY_SERVICE_AUTH_FAILED');

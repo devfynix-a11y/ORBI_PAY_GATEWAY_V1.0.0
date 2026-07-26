@@ -2088,7 +2088,13 @@ app.get('/v1/developer/webhook-deliveries', requireOperatorDiscoveryAccess, (req
 app.post('/v1/developer/webhook-deliveries/:deliveryId/replay', requireOperatorDiscoveryAccess, async (req, res) => {
   try {
     const replay = webhookDeliveryStore.nextReplayAttempt(String(req.params.deliveryId || ''));
-    const service = payServiceRegistry.get(replay.original.serviceCode);
+    let service: PayServiceDefinition;
+    try {
+      service = payServiceRegistry.get(replay.original.serviceCode);
+    } catch (error: any) {
+      if (error?.message !== 'PAY_SERVICE_NOT_REGISTERED') throw error;
+      service = serviceDefinitionFromDeveloperService(developerPortalStore.getService(replay.original.serviceCode));
+    }
     const payload = replay.original.payload || (
       replay.original.intentId
         ? buildServiceWebhookPayload(paymentIntentStore.get(service.code, replay.original.intentId))
