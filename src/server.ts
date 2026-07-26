@@ -49,6 +49,7 @@ import {
 } from './contracts/developerPortalContract.js';
 import { consentReceiptStore } from './services/consentReceiptStore.js';
 import { developerPortalStore } from './services/developerPortalStore.js';
+import { portalAccessStore, type PortalRole } from './services/portalAccessStore.js';
 import { ServiceConsentGuard, subjectIdForConsent } from './services/serviceConsentGuard.js';
 import { buildDeveloperHealthSummary } from './services/developerHealthService.js';
 import {
@@ -1630,6 +1631,194 @@ const requireOperatorDiscoveryAccess = (req: express.Request, res: express.Respo
 
   return next();
 };
+
+const portalOperatorPaths = [
+  { pattern: /^\/v1\/developer\/services$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/services\/[^/]+$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/service-applications$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/events$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/webhook-deliveries$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/docs-catalog$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/sdk-catalog$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/consent-scopes$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/environment-profiles$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/sandbox-simulator\/accounts$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/integration-health$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/scope-requests$/, permission: 'developer:manage_scopes' },
+  { pattern: /^\/v1\/developer\/service-applications\/[^/]+\/approve$/, permission: 'developer:approve_applications', confirmation: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/status$/, permission: 'developer:manage_services', confirmation: true },
+  { pattern: /^\/v1\/developer\/sandbox-simulator\/reset$/, permission: 'developer:manage_sandbox', confirmation: true },
+  { pattern: /^\/v1\/developer\/service-applications$/, permission: 'developer:request_access', developerAllowed: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/api-key-rotations$/, permission: 'developer:manage_keys', confirmation: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/webhook-secrets\/issue$/, permission: 'developer:manage_keys', confirmation: true },
+  { pattern: /^\/v1\/developer\/webhook-deliveries\/[^/]+\/replay$/, permission: 'developer:replay_webhooks', confirmation: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/api-keys\/issue$/, permission: 'developer:manage_keys', confirmation: true },
+] as const;
+
+const portalRuleForPath = (path: string) => portalOperatorPaths.find((item) => item.pattern.test(path));
+
+const portalResult = (res: express.Response, result: any) => {
+  if (!result.ok) return res.status(result.status || 400).json({ success: false, error: result.error || 'Portal request failed.' });
+  return res.json({ success: true, data: result.data });
+};
+
+app.post('/v1/portal/auth/login', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const result = await portalAccessStore.login(req.body || {}, req);
+    return res.json(result);
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'PORTAL_AUTH_FAILED');
+    const message = error === 'PORTAL_INVALID_MFA_CODE'
+      ? 'Enter the 6-digit authenticator code.'
+      : error === 'PORTAL_INVALID_CREDENTIALS'
+        ? 'Invalid email or password.'
+        : error;
+    return res.status(401).json({ success: false, error: message });
+  }
+});
+
+app.get('/v1/portal/auth/session', requireOperatorDiscoveryAccess, (req, res) => {
+  const session = portalAccessStore.requireSession(req, 'developer');
+  if (!session.ok) return res.status(session.status).json({ success: false, error: session.error });
+  return res.json({
+    success: true,
+    data: {
+      user: portalAccessStore.publicUserFromClaims(session.claims),
+      expiresAt: session.claims.exp ? new Date(Number(session.claims.exp) * 1000).toISOString() : undefined,
+    },
+  });
+});
+
+app.post('/v1/portal/auth/logout', requireOperatorDiscoveryAccess, (_req, res) => {
+  return res.json({ success: true });
+});
+
+app.get('/v1/portal/auth/mfa', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.mfaSetup(req));
+});
+
+app.get('/v1/portal/users', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.listUsers(req));
+});
+
+app.post('/v1/portal/users', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.createUser(req, req.body || {}));
+});
+
+app.patch('/v1/portal/users/:userId', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.updateUser(req, String(req.params.userId || ''), req.body || {}));
+});
+
+app.get('/v1/portal/audit-events', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.listAuditEvents(req));
+});
+
+app.post('/v1/portal/gateway', requireOperatorDiscoveryAccess, async (req, res) => {
+  const environment = String(req.body?.environment || 'sandbox') === 'live' ? 'live' : 'sandbox';
+  const path = String(req.body?.path || '');
+  const method = String(req.body?.method || 'GET').toUpperCase();
+  const rule = portalRuleForPath(path);
+
+  if (!rule) return sendApiError(res, 403, 'PORTAL_GATEWAY_ACTION_NOT_ALLOWED');
+  const allowedMethods = 'methods' in rule ? rule.methods : ['POST', 'PATCH', 'PUT', 'DELETE'];
+  if (!allowedMethods.includes(method as any)) return sendApiError(res, 405, 'PORTAL_GATEWAY_METHOD_NOT_ALLOWED');
+
+  const minRole: PortalRole = 'developerAllowed' in rule && rule.developerAllowed ? 'developer' : 'operator';
+  const session = portalAccessStore.requirePermission(req, rule.permission, minRole);
+  if (!session.ok) return res.status(session.status).json({ success: false, error: session.error });
+
+  if ('confirmation' in rule && rule.confirmation && !req.body?.confirmationAccepted) {
+    return res.status(409).json({ success: false, error: 'Confirmation is required before this admin action can continue.' });
+  }
+  if ('confirmation' in rule && rule.confirmation && !String(req.body?.reason || req.body?.body?.reason || req.body?.body?.rotationReason || '').trim()) {
+    return res.status(400).json({ success: false, error: 'A clear reason is required for this admin action.' });
+  }
+
+  const requestBody = method === 'GET'
+    ? undefined
+    : {
+        ...(req.body?.body || {}),
+        actor: {
+          email: session.claims.email,
+          role: session.claims.role,
+          name: session.claims.name,
+        },
+      };
+  if (method !== 'GET') {
+    await portalAccessStore.writeAuditEvent(req, {
+      action: `portal.gateway.${method.toLowerCase()}`,
+      target: path,
+      environment,
+      metadata: {
+        permission: rule.permission,
+        reason: req.body?.reason || req.body?.body?.reason || req.body?.body?.rotationReason || undefined,
+      },
+    });
+  }
+
+  const endpoint = `http://127.0.0.1:${config.port}${path}`;
+  const response = await fetch(endpoint, {
+    method,
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      'x-orbi-pay-operator-key': config.operatorDiscoveryApiKey,
+      'x-orbi-environment': environment === 'live' ? 'Production' : 'Demo',
+    },
+    body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  return res.status(response.status).json(data);
+});
+
+app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) => {
+  const accessLevel = ['developer', 'operator', 'admin'].includes(String(req.query.accessLevel))
+    ? String(req.query.accessLevel)
+    : 'public';
+  const environment = String(req.query.environment || 'sandbox') === 'live' ? 'live' : 'sandbox';
+  const canUseOperator = accessLevel === 'operator' || accessLevel === 'admin';
+  const session = canUseOperator
+    ? portalAccessStore.requireSession(req, 'operator')
+    : { ok: false as const, status: 401, error: 'Operator session is required.' };
+  const errors: { name: string; error: string }[] = [];
+  if (canUseOperator && !session.ok) errors.push({ name: 'session', error: session.error || 'Sign in to continue.' });
+
+  const operatorAllowed = canUseOperator && session.ok;
+  const adminAllowed = accessLevel === 'admin' && session.ok && session.claims.role === 'admin';
+  const adminUsers = adminAllowed ? await portalAccessStore.listUsers(req) : { ok: true as const, data: [] };
+  const adminAudit = adminAllowed ? await portalAccessStore.listAuditEvents(req) : { ok: true as const, data: [] };
+  if (!adminUsers.ok) errors.push({ name: 'portalUsers', error: adminUsers.error });
+  if (!adminAudit.ok) errors.push({ name: 'portalAudit', error: adminAudit.error });
+
+  return res.json({
+    success: true,
+    data: {
+      environment,
+      gatewayBaseUrl: config.publicBaseUrl,
+      snapshot: {
+        health: { status: 'ok', service: 'orbi-pay-gateway' },
+        ready: { status: 'ready', service: 'orbi-pay-gateway' },
+        services: operatorAllowed ? developerPortalStore.listServices() : [],
+        applications: operatorAllowed ? developerPortalStore.listApplications() : [],
+        events: operatorAllowed ? developerPortalStore.listEvents() : [],
+        webhookDeliveries: operatorAllowed ? webhookDeliveryStore.list({}) : [],
+        docs: operatorAllowed ? developerDocsCatalog() : [],
+        sdks: operatorAllowed ? developerSdkCatalog() : [],
+        consentScopes: operatorAllowed ? consentScopeCatalog() : [],
+        environmentProfiles: operatorAllowed
+          ? { profiles: developerEnvironmentProfiles(), separation: developerEnvironmentSeparationMatrix() }
+          : {},
+        sandboxAccounts: operatorAllowed ? sandboxSimulatorStore.listAccounts() : [],
+        integrationHealth: operatorAllowed ? await buildDeveloperHealthSummary() : undefined,
+        serviceProfile: undefined,
+        portalUsers: adminUsers.ok ? adminUsers.data : [],
+        portalAudit: adminAudit.ok ? adminAudit.data : [],
+      },
+      errors,
+    },
+  });
+});
 
 app.get('/v1/consents', requireConsentSubjectAccess, (req, res) => {
   try {

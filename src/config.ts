@@ -30,6 +30,21 @@ export const config = {
   sandboxTools: {
     enabled: boolFromEnv(process.env.PAYMENT_GATEWAY_OBP_SANDBOX_TOOLS_ENABLED, false),
   },
+  portal: {
+    authSecret: process.env.PAYMENT_GATEWAY_PORTAL_AUTH_SECRET || '',
+    sessionTtlSeconds: Number(process.env.PAYMENT_GATEWAY_PORTAL_SESSION_TTL_SECONDS || 60 * 60 * 8),
+    totpIssuer: process.env.PAYMENT_GATEWAY_PORTAL_TOTP_ISSUER || 'ORBI Pay Developer Portal',
+    bootstrapAdmin: {
+      email: process.env.PAYMENT_GATEWAY_PORTAL_ADMIN_EMAIL || '',
+      name: process.env.PAYMENT_GATEWAY_PORTAL_ADMIN_NAME || 'ORBI Admin',
+      role: process.env.PAYMENT_GATEWAY_PORTAL_ADMIN_ROLE || 'admin',
+      passwordHash: process.env.PAYMENT_GATEWAY_PORTAL_ADMIN_PASSWORD_HASH || '',
+      passwordSalt: process.env.PAYMENT_GATEWAY_PORTAL_ADMIN_PASSWORD_SALT || '',
+      passwordIterations: Number(process.env.PAYMENT_GATEWAY_PORTAL_ADMIN_PASSWORD_ITERATIONS || 210000),
+      totpSecret: process.env.PAYMENT_GATEWAY_PORTAL_ADMIN_TOTP_SECRET || '',
+      mfaRequired: boolFromEnv(process.env.PAYMENT_GATEWAY_PORTAL_ADMIN_MFA_REQUIRED, false),
+    },
+  },
   security: {
     credentialMode: (process.env.PAYMENT_GATEWAY_CREDENTIAL_MODE || 'tokenized') as 'tokenized' | 'direct',
     requireStrongCustomerAuth: boolFromEnv(process.env.PAYMENT_GATEWAY_REQUIRE_STRONG_CUSTOMER_AUTH, true),
@@ -102,6 +117,10 @@ export const requireGatewayRuntimeSecrets = () => {
 
   if (config.env === 'production' && !config.secretEncryptionKey) {
     throw new Error('ORBI_SECRET_ENCRYPTION_KEY is required for encrypted gateway secret storage.');
+  }
+
+  if (config.env === 'production' && !config.portal.authSecret) {
+    throw new Error('PAYMENT_GATEWAY_PORTAL_AUTH_SECRET is required for production portal sessions.');
   }
 
   if (config.env === 'production' && config.mtls.enabled) {
