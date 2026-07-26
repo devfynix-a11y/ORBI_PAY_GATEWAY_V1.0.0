@@ -6,6 +6,7 @@ Run ORBI Pay Gateway on a separate VM or container from ORBI Core.
 
 ```txt
 pay.orbifinancial.com -> Nginx -> ORBI Pay Gateway :3100
+sandbox-pay.orbifinancial.com -> Nginx -> ORBI Pay Gateway Sandbox :3101
 api.orbifinancial.com     -> Nginx -> ORBI Core :3000
 ```
 
@@ -50,6 +51,42 @@ PAYMENT_GATEWAY_INTERNAL_MTLS_CERT_PATH=/opt/orbi/mtls/pay-gateway-client.crt
 PAYMENT_GATEWAY_INTERNAL_MTLS_KEY_PATH=/opt/orbi/mtls/pay-gateway-client.key
 PAYMENT_GATEWAY_INTERNAL_MTLS_CA_PATH=/opt/orbi/mtls/orbi-internal-ca.crt
 PAYMENT_GATEWAY_INTERNAL_MTLS_REJECT_UNAUTHORIZED=true
+```
+
+## Sandbox Environment
+
+Sandbox must run as a separate container or process. It must not reuse the live
+database URL, worker signing secret, service API key, webhook secret, or public
+base URL.
+
+```env
+NODE_ENV=production
+PAYMENT_GATEWAY_PORT=3101
+PAYMENT_GATEWAY_PUBLIC_BASE_URL=https://sandbox-pay.orbifinancial.com
+PAYMENT_GATEWAY_PROVIDER_MODE=sandbox
+
+DATABASE_URL=<sandbox-pay-gateway-database-url>
+ORBI_SECRET_ENCRYPTION_KEY=<sandbox-only-secret-encryption-key>
+
+ORBI_CORE_INTERNAL_BASE_URL=<sandbox-core-internal-url>
+PAYMENT_GATEWAY_ALLOW_PRIVATE_HTTP_CORE=true
+
+PAYMENT_GATEWAY_WORKER_ID=orbi-payment-gateway-sandbox
+PAYMENT_GATEWAY_WORKER_SCOPES=gateway:events:write,gateway:service-payments:write,gateway:service-payments:result,gateway:identity:read,gateway:paysafe-balances:read,gateway:business-registration:write,gateway:payment-profiles:write,gateway:merchant-payments:read,gateway:merchant-settlements:read
+WORKER_SIGNING_SECRET=<sandbox-worker-signing-secret>
+WORKER_KEY_ID=payment-gateway-sandbox-v1
+
+ORBI_SHOP_PAY_API_KEY=<sandbox-shop-service-key>
+ORBI_SHOP_PAY_WEBHOOK_SECRET=<sandbox-shop-webhook-secret>
+ORBI_SHOP_PAY_WEBHOOK_URL=https://shop.orbifinancial.com/api/orbi-pay/sandbox/webhooks
+ORBI_SHOP_MERCHANT_ID=<sandbox-shop-merchant-id>
+```
+
+Cloudflare Tunnel routing should be split:
+
+```txt
+pay.orbifinancial.com -> http://pay-gateway:3100
+sandbox-pay.orbifinancial.com -> http://pay-gateway-sandbox:3101
 ```
 
 ## Core Production Safety
@@ -154,6 +191,9 @@ server {
 curl -i https://pay.orbifinancial.com/health
 curl -i https://pay.orbifinancial.com/ready
 curl -i https://pay.orbifinancial.com/v1/providers
+curl -i https://sandbox-pay.orbifinancial.com/health
+curl -i https://sandbox-pay.orbifinancial.com/ready
+curl -i https://sandbox-pay.orbifinancial.com/v1/providers
 ```
 
 ## Rollback
