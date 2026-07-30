@@ -78,6 +78,25 @@ Core verifies:
 
 Future hardening adds mTLS on top of HMAC. HMAC must remain permanently enabled.
 
+## Active Hardening Memory
+
+The gateway hardening sequence must be executed step by step:
+
+```text
+1. Live mTLS cutover after sandbox direct mTLS verification and maintenance
+   approval. Keep HMAC enabled permanently.
+2. Developer Portal backend-only finalization. The portal must call gateway
+   backend APIs only, never databases directly.
+3. Merchant domain/origin governance for browser origins, redirect URLs,
+   callback URLs, and webhook URLs.
+4. Audit correlation across SDK, gateway, Core, hosted challenge, webhooks, and
+   operator actions.
+5. Production webhook replay with signed replay evidence and delivery lineage.
+6. SDK production polish for Node, Python, PHP, and future SDKs.
+7. Open Banking/BaaS compliance support through consent, scopes, revocation,
+   access grants, rate limits, and audit exports.
+```
+
 ## Provider Adapter Roadmap
 
 Phase 1:
