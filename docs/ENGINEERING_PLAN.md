@@ -280,6 +280,12 @@ Tasks:
     webhook, or OAuth runtime flows.
 - Add alerts for callback failures, mTLS expiry, webhook failure spikes,
   auth anomalies, idempotency reuse, and reconciliation mismatches.
+  - Current Gateway scheduled reconciliation raises actionable operator alerts
+    when exception queues are non-empty. Alerts can be delivered to HTTP JSON via
+    `PAYMENT_GATEWAY_OPERATOR_ALERT_SINK_URL` or JSONL via
+    `PAYMENT_GATEWAY_OPERATOR_ALERT_SINK_PATH`.
+  - Alert payloads include report id, critical/warning counts, exception type
+    counts, and runbook triage steps.
 - Define SLOs and error budgets.
 
 Acceptance:

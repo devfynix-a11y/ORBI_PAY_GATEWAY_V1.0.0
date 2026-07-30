@@ -1,10 +1,12 @@
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { auditEventSink } from './auditEventSink.js';
+import { operatorAlertSink } from './operatorAlertSink.js';
 import { reconciliationEvidenceService, type ReconciliationEvidenceService } from './reconciliationEvidenceService.js';
 
 type ReconciliationEvidenceSchedulerOptions = {
   service?: ReconciliationEvidenceService;
+  alertSink?: typeof operatorAlertSink;
   enabled?: boolean;
   intervalMinutes?: number;
   windowHours?: number;
@@ -14,6 +16,7 @@ type ReconciliationEvidenceSchedulerOptions = {
 
 export class ReconciliationEvidenceScheduler {
   private readonly service: ReconciliationEvidenceService;
+  private readonly alertSink: typeof operatorAlertSink;
   private readonly enabled: boolean;
   private readonly intervalMinutes: number;
   private readonly windowHours: number;
@@ -24,6 +27,7 @@ export class ReconciliationEvidenceScheduler {
 
   constructor(options: ReconciliationEvidenceSchedulerOptions = {}) {
     this.service = options.service || reconciliationEvidenceService;
+    this.alertSink = options.alertSink || operatorAlertSink;
     this.enabled = Boolean(options.enabled ?? config.reconciliation.scheduleEnabled);
     this.intervalMinutes = Math.max(1, Number(options.intervalMinutes ?? config.reconciliation.scheduleIntervalMinutes));
     this.windowHours = Math.max(1, Number(options.windowHours ?? config.reconciliation.scheduleWindowHours));
@@ -107,6 +111,7 @@ export class ReconciliationEvidenceScheduler {
           to: result.report.window.to,
         },
       });
+      await this.sendExceptionAlertIfNeeded(result.report, result.path, trigger);
       return { skipped: false as const, result };
     } catch (error: any) {
       logger.error('reconciliation_scheduler_run_failed', {
@@ -127,6 +132,72 @@ export class ReconciliationEvidenceScheduler {
     } finally {
       this.running = false;
     }
+  }
+
+  private async sendExceptionAlertIfNeeded(
+    report: Awaited<ReturnType<ReconciliationEvidenceService['export']>>['report'],
+    exportedPath: string | undefined,
+    trigger: 'startup' | 'interval' | 'manual',
+  ) {
+    if (report.summary.exceptionCount <= 0) return;
+    const criticalCount = report.summary.exceptionsBySeverity.critical || 0;
+    const warningCount = report.summary.exceptionsBySeverity.warning || 0;
+    const severity = criticalCount > 0 ? 'critical' : 'warning';
+    const title = criticalCount > 0
+      ? 'Critical reconciliation exceptions detected'
+      : 'Reconciliation exceptions detected';
+
+    void auditEventSink.emit({
+      eventType: 'reconciliation.exception_alert.raised',
+      severity,
+      outcome: 'pending',
+      actor: { requestedBy: this.requestedBy },
+      resource: {
+        type: 'reconciliation_evidence_report',
+        id: report.reportId,
+      },
+      metadata: {
+        trigger,
+        exportedPath,
+        exceptionCount: report.summary.exceptionCount,
+        criticalCount,
+        warningCount,
+        exceptionsByType: report.summary.exceptionsByType,
+        from: report.window.from,
+        to: report.window.to,
+      },
+    });
+
+    await this.alertSink.send({
+      alertType: 'reconciliation.exceptions_detected',
+      severity,
+      title,
+      message: `Gateway reconciliation found ${report.summary.exceptionCount} exception(s): ${criticalCount} critical, ${warningCount} warning.`,
+      resource: {
+        type: 'reconciliation_evidence_report',
+        id: report.reportId,
+      },
+      metadata: {
+        trigger,
+        exportedPath,
+        exceptionCount: report.summary.exceptionCount,
+        criticalCount,
+        warningCount,
+        exceptionsByType: report.summary.exceptionsByType,
+        from: report.window.from,
+        to: report.window.to,
+      },
+      runbook: {
+        name: 'Gateway reconciliation exception triage',
+        steps: [
+          'Open the signed reconciliation report and verify reportHash/signature.',
+          'Review critical exceptions first: failed Core submissions and failed webhook deliveries.',
+          'Replay failed webhooks only through the signed webhook replay workflow.',
+          'For stuck intents, compare Gateway intent status with Core ledger transaction state.',
+          'Record operator decision and attach the reportId to the incident record.',
+        ],
+      },
+    });
   }
 }
 

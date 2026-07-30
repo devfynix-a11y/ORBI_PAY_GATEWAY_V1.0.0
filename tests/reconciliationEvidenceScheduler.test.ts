@@ -69,3 +69,44 @@ test('reconciliation scheduler skips overlapping runs', async () => {
   release();
   await running;
 });
+
+test('reconciliation scheduler raises operator alert when exceptions exist', async () => {
+  const alerts: any[] = [];
+  const scheduler = new ReconciliationEvidenceScheduler({
+    enabled: false,
+    requestedBy: 'unit-scheduler',
+    alertSink: {
+      send: async (alert: any) => {
+        alerts.push(alert);
+      },
+    } as any,
+    service: {
+      export: async (input: any) => ({
+        report: {
+          reportId: 'recon_with_exceptions',
+          window: { from: input.from, to: input.to },
+          summary: {
+            exceptionCount: 2,
+            paymentIntentCount: 1,
+            webhookDeliveryCount: 1,
+            exceptionsBySeverity: { critical: 1, warning: 1 },
+            exceptionsByType: {
+              webhook_delivery_failed: 1,
+              payment_intent_stuck: 1,
+            },
+          },
+        },
+        path: '/tmp/recon_with_exceptions.json',
+      }),
+    } as any,
+  });
+
+  const result = await scheduler.runOnce('manual');
+  assert.equal(result.skipped, false);
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].severity, 'critical');
+  assert.equal(alerts[0].resource.id, 'recon_with_exceptions');
+  assert.equal(alerts[0].metadata.criticalCount, 1);
+  assert.equal(alerts[0].metadata.warningCount, 1);
+  assert.ok(alerts[0].runbook.steps.length >= 3);
+});

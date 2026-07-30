@@ -82,6 +82,9 @@ export const config = {
       process.env.PAYMENT_GATEWAY_AUDIT_EVENT_SINK_URL || process.env.PAYMENT_GATEWAY_SIEM_SINK_URL || '',
     auditEventSinkPath: process.env.PAYMENT_GATEWAY_AUDIT_EVENT_SINK_PATH || '',
     auditEventSinkTimeoutMs: Number(process.env.PAYMENT_GATEWAY_AUDIT_EVENT_SINK_TIMEOUT_MS || 1500),
+    operatorAlertSinkUrl: process.env.PAYMENT_GATEWAY_OPERATOR_ALERT_SINK_URL || '',
+    operatorAlertSinkPath: process.env.PAYMENT_GATEWAY_OPERATOR_ALERT_SINK_PATH || '',
+    operatorAlertSinkTimeoutMs: Number(process.env.PAYMENT_GATEWAY_OPERATOR_ALERT_SINK_TIMEOUT_MS || 1500),
   },
   reconciliation: {
     exportPath: process.env.PAYMENT_GATEWAY_RECONCILIATION_EXPORT_PATH || '',
