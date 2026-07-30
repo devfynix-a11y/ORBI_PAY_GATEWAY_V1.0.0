@@ -22,6 +22,8 @@ export const ServiceAccessTokenClaimsSchema = z.object({
 
 export type ServiceAccessTokenClaims = z.infer<typeof ServiceAccessTokenClaimsSchema>;
 
+const revokedTokenIds = new Set<string>();
+
 const base64urlJson = (value: unknown): string =>
   Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 
@@ -92,5 +94,23 @@ export const verifyServiceAccessToken = (token: string): ServiceAccessTokenClaim
   if (parsed.exp <= Math.floor(Date.now() / 1000)) {
     throw new Error('SERVICE_ACCESS_TOKEN_EXPIRED');
   }
+  if (revokedTokenIds.has(parsed.jti)) {
+    throw new Error('SERVICE_ACCESS_TOKEN_REVOKED');
+  }
   return parsed;
+};
+
+export const introspectServiceAccessToken = (token: string) => {
+  try {
+    const claims = verifyServiceAccessToken(token);
+    return { active: true as const, claims };
+  } catch {
+    return { active: false as const };
+  }
+};
+
+export const revokeServiceAccessToken = (token: string) => {
+  const claims = verifyServiceAccessToken(token);
+  revokedTokenIds.add(claims.jti);
+  return claims;
 };

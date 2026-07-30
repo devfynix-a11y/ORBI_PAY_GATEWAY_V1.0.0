@@ -41,6 +41,8 @@ import {
 import {
   isServiceAccessToken,
   issueServiceAccessToken,
+  introspectServiceAccessToken,
+  revokeServiceAccessToken,
 } from './security/serviceAccessToken.js';
 import {
   buildApiErrorBody,
@@ -230,6 +232,11 @@ const OAuthTokenRequestSchema = z.object({
     z.string().trim(),
     z.array(z.string().trim()),
   ]).optional(),
+});
+
+const OAuthTokenControlRequestSchema = z.object({
+  token: z.string().trim().min(1),
+  client_secret: z.string().trim().min(1).optional(),
 });
 
 const PaySafeBalanceQuerySchema = z.object({
@@ -501,7 +508,7 @@ const requireRuntimeEnvironment = (req: express.Request): RuntimeEnvironment => 
   return environment;
 };
 
-const tokenRequestClientSecret = (req: express.Request, body: z.infer<typeof OAuthTokenRequestSchema>): string => {
+const tokenRequestClientSecret = (req: express.Request, body: { client_secret?: string }): string => {
   const basic = req.get('authorization')?.match(/^Basic\s+(.+)$/i)?.[1]?.trim();
   if (basic) {
     try {
@@ -1352,6 +1359,87 @@ const serviceTokenHandler = (req: express.Request, res: express.Response) => {
 
 app.post('/oauth/token', serviceTokenHandler);
 app.post('/v1/oauth/token', serviceTokenHandler);
+
+const authenticateOAuthClient = (req: express.Request, body: { client_secret?: string }) => {
+  const clientSecret = tokenRequestClientSecret(req, body);
+  if (!clientSecret || isServiceAccessToken(clientSecret)) throw new Error('OAUTH_CLIENT_AUTH_INVALID');
+  const authenticated = authenticatePayServiceCredential(payServiceRegistry.activeServices(), {
+    get: (name: string) => {
+      const normalized = name.toLowerCase();
+      if (normalized === 'x-orbi-pay-service-key') return clientSecret;
+      return undefined;
+    },
+  } as express.Request);
+  if (authenticated.credential.source !== 'developer_portal') {
+    throw new Error('OAUTH_DEVELOPER_PORTAL_SERVICE_REQUIRED');
+  }
+  return authenticated;
+};
+
+const serviceTokenIntrospectionHandler = (req: express.Request, res: express.Response) => {
+  const parsed = OAuthTokenControlRequestSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return sendValidationError(res, 'OAUTH_TOKEN_INTROSPECTION_INVALID', parsed.error.issues);
+  }
+
+  try {
+    const authenticated = authenticateOAuthClient(req, parsed.data);
+    const introspected = introspectServiceAccessToken(parsed.data.token);
+    if (!introspected.active || introspected.claims.serviceCode !== authenticated.service.code) {
+      return res.json({ active: false });
+    }
+    return res.json({
+      active: true,
+      iss: introspected.claims.iss,
+      aud: introspected.claims.aud,
+      typ: introspected.claims.typ,
+      sub: introspected.claims.sub,
+      service_code: introspected.claims.serviceCode,
+      environment: introspected.claims.environment,
+      scope: introspected.claims.scopes.join(' '),
+      key_id: introspected.claims.keyId,
+      iat: introspected.claims.iat,
+      exp: introspected.claims.exp,
+      jti: introspected.claims.jti,
+    });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'OAUTH_TOKEN_INTROSPECTION_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error, 403), error);
+  }
+};
+
+const serviceTokenRevocationHandler = (req: express.Request, res: express.Response) => {
+  const parsed = OAuthTokenControlRequestSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return sendValidationError(res, 'OAUTH_TOKEN_REVOCATION_INVALID', parsed.error.issues);
+  }
+
+  try {
+    const authenticated = authenticateOAuthClient(req, parsed.data);
+    const introspected = introspectServiceAccessToken(parsed.data.token);
+    if (!introspected.active || introspected.claims.serviceCode !== authenticated.service.code) {
+      return res.status(200).json({ success: true, data: { revoked: false } });
+    }
+    const claims = revokeServiceAccessToken(parsed.data.token);
+    return res.json({
+      success: true,
+      data: {
+        revoked: true,
+        serviceCode: claims.serviceCode,
+        environment: claims.environment,
+        revokedAt: new Date().toISOString(),
+      },
+    });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'OAUTH_TOKEN_REVOCATION_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error, 403), error);
+  }
+};
+
+app.post('/oauth/introspect', serviceTokenIntrospectionHandler);
+app.post('/v1/oauth/introspect', serviceTokenIntrospectionHandler);
+app.post('/oauth/revoke', serviceTokenRevocationHandler);
+app.post('/v1/oauth/revoke', serviceTokenRevocationHandler);
 
 const submitPaymentIntentToCore = async (service: PayServiceDefinition, intent: PaymentIntent) => {
   const merchantContext = serviceMerchantContext(service);

@@ -364,6 +364,77 @@ Rules:
 - Production requires PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET.
 ```
 
+Introspection:
+
+```http
+POST /oauth/introspect
+content-type: application/json
+authorization: Basic base64(<service-code>:<one-time-api-key-secret>)
+```
+
+Body:
+
+```json
+{
+  "token": "orbi_at_..."
+}
+```
+
+Active response:
+
+```json
+{
+  "active": true,
+  "service_code": "orbi-shop",
+  "environment": "live",
+  "scope": "payments:create escrow:create",
+  "iat": 1785420000,
+  "exp": 1785420900,
+  "jti": "sat_..."
+}
+```
+
+Inactive, expired, revoked, invalid, or wrong-service tokens return:
+
+```json
+{
+  "active": false
+}
+```
+
+Revocation:
+
+```http
+POST /oauth/revoke
+content-type: application/json
+authorization: Basic base64(<service-code>:<one-time-api-key-secret>)
+```
+
+Body:
+
+```json
+{
+  "token": "orbi_at_..."
+}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "revoked": true,
+    "serviceCode": "orbi-shop",
+    "environment": "live",
+    "revokedAt": "2026-07-30T09:10:00.000Z"
+  }
+}
+```
+
+Revocation is service-scoped: a service cannot introspect or revoke another
+service's token.
+
 Runtime scope enforcement:
 
 ```text
