@@ -145,6 +145,7 @@ stable.
 | `PAY_GATEWAY_ENVIRONMENT_INVALID` | Environment header is not recognized. | Use `demo`, `sandbox`, `production`, or `live`. |
 | `PAY_GATEWAY_CREDENTIAL_ENVIRONMENT_UNBOUND` | Service key cannot be tied to sandbox/live trust zone. | Rotate to an issued `orbi_sandbox_...` or `orbi_live_...` key. |
 | `PAY_GATEWAY_ENVIRONMENT_KEY_MISMATCH` | Key environment does not match request environment. | Use sandbox keys for Demo and live keys for Production. |
+| `PAY_GATEWAY_ORIGIN_NOT_ALLOWED` | Browser origin is not allowlisted for Gateway access. | Add the portal or merchant origin through controlled deployment configuration. |
 | `PAY_GATEWAY_IDEMPOTENCY_KEY_REQUIRED` | Financial runtime request has no stable idempotency key. | Retry with a stable `Idempotency-Key` for the same business operation. |
 | `PAY_GATEWAY_SIGNATURE_REQUIRED` | Financial runtime request is missing HMAC signature. | Use SDK signing or send `x-orbi-signature`. |
 | `PAY_GATEWAY_SIGNATURE_TIMESTAMP_REQUIRED` | HMAC timestamp header is missing. | Send `x-orbi-timestamp`. |

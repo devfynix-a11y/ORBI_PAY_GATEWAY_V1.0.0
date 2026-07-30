@@ -79,9 +79,9 @@ const migrate = async () => {
         `insert into public.pay_gateway_developer_services (
           service_code, display_name, legal_name, business_type, country_code,
           contact_email, contact_phone, status, environments, scopes_granted,
-          scopes_pending, redirect_urls, webhook_urls, external_developer_id,
-          metadata, created_at, updated_at
-        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+          scopes_pending, browser_origins, redirect_urls, webhook_urls,
+          external_developer_id, metadata, created_at, updated_at
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
         on conflict (service_code) do update set
           display_name = excluded.display_name,
           business_type = excluded.business_type,
@@ -89,6 +89,7 @@ const migrate = async () => {
           status = excluded.status,
           environments = excluded.environments,
           scopes_granted = excluded.scopes_granted,
+          browser_origins = excluded.browser_origins,
           webhook_urls = excluded.webhook_urls,
           metadata = excluded.metadata,
           updated_at = excluded.updated_at`,
@@ -103,6 +104,7 @@ const migrate = async () => {
           'active',
           [environment],
           scopesForOperations(service.allowedOperations),
+          [],
           [],
           [],
           [callbackUrl],

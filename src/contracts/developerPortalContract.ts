@@ -44,6 +44,17 @@ export const UrlAllowlistSchema = z
   .max(25)
   .default([]);
 
+export const OriginAllowlistSchema = z
+  .array(z.string().url())
+  .max(25)
+  .default([])
+  .transform((items) =>
+    items.map((item) => {
+      const url = new URL(item);
+      return `${url.protocol}//${url.host}`;
+    }),
+  );
+
 export const DeveloperServiceApplicationSchema = z.object({
   externalDeveloperId: z.string().trim().min(1).max(160).optional(),
   legalName: z.string().trim().min(2).max(180),
@@ -54,6 +65,7 @@ export const DeveloperServiceApplicationSchema = z.object({
   countryCode: z.string().trim().min(2).max(3),
   requestedEnvironments: z.array(DeveloperPortalEnvironmentSchema).min(1).max(2),
   requestedScopes: z.array(DeveloperScopeSchema).min(1).max(20),
+  browserOrigins: OriginAllowlistSchema,
   redirectUrls: UrlAllowlistSchema,
   webhookUrls: UrlAllowlistSchema,
   useCases: z.array(z.string().trim().min(3).max(240)).min(1).max(12),
@@ -70,6 +82,7 @@ export const DeveloperServiceRecordSchema = z
     environments: z.array(DeveloperPortalEnvironmentSchema).min(1),
     scopesGranted: z.array(DeveloperScopeSchema),
     scopesPending: z.array(DeveloperScopeSchema).default([]),
+    browserOrigins: OriginAllowlistSchema,
     redirectUrls: UrlAllowlistSchema,
     webhookUrls: UrlAllowlistSchema,
     keyStatus: z.enum(['not_issued', 'active', 'rotation_pending', 'revoked']),
@@ -126,14 +139,15 @@ export const DeveloperServiceStatusUpdateSchema = z.object({
 
 export const DeveloperAllowlistUpdateSchema = z
   .object({
+    browserOrigins: OriginAllowlistSchema.optional(),
     redirectUrls: UrlAllowlistSchema.optional(),
     webhookUrls: UrlAllowlistSchema.optional(),
     reason: z.string().trim().min(10).max(1000),
     environment: DeveloperPortalEnvironmentSchema,
   })
-  .refine((value) => Boolean(value.redirectUrls?.length || value.webhookUrls?.length), {
-    message: 'Provide at least one redirect or webhook URL.',
-    path: ['redirectUrls'],
+  .refine((value) => Boolean(value.browserOrigins?.length || value.redirectUrls?.length || value.webhookUrls?.length), {
+    message: 'Provide at least one browser origin, redirect URL, or webhook URL.',
+    path: ['browserOrigins'],
   });
 
 export const DeveloperApiKeyRotationRequestSchema = z.object({

@@ -26,6 +26,7 @@ test('developer health summary reports warnings and webhook failure rate', async
       countryCode: 'TZ',
       requestedEnvironments: ['sandbox'],
       requestedScopes: ['payments:create'],
+      browserOrigins: [],
       redirectUrls: [],
       webhookUrls: [],
       useCases: ['Protected checkout'],

@@ -80,6 +80,9 @@ Service onboarding begins with a service application.
     "escrow:create",
     "webhooks:receive"
   ],
+  "browserOrigins": [
+    "https://shop.orbifinancial.com"
+  ],
   "redirectUrls": [
     "https://shop.orbifinancial.com/api/auth/orbi-business/link/callback"
   ],
@@ -134,6 +137,9 @@ The dashboard service card should use this shape:
       "escrow:create"
     ],
     "scopesPending": ["balance:read"],
+    "browserOrigins": [
+      "https://shop.orbifinancial.com"
+    ],
     "redirectUrls": [
       "https://shop.orbifinancial.com/api/auth/orbi-business/link/callback"
     ],
@@ -419,6 +425,9 @@ Redirect URLs and webhook URLs are explicit per environment.
 
 ```json
 {
+  "browserOrigins": [
+    "https://merchant.example.com"
+  ],
   "redirectUrls": [
     "https://merchant.example.com/orbi/return"
   ],
@@ -436,6 +445,8 @@ Rules:
 No wildcard hosts for live.
 No localhost for live.
 HTTPS required for live.
+Browser origin is the website origin allowed to call or embed ORBI-hosted flows,
+for example `https://www.tag.co.tz`.
 Return URL is UX continuation, not payment truth.
 Webhook URL is server-to-server payment truth.
 ```
@@ -1096,6 +1107,7 @@ Once a service has portal allowlists, runtime payment and PaySafe requests must
 use URLs present in the matching allowlist:
 
 ```text
+Origin header -> browser origin allowlist
 returnUrl, return_url, redirectUrl, redirect_url -> redirect allowlist
 callbackUrl, callback_url, webhookUrl, webhook_url -> webhook allowlist
 ```

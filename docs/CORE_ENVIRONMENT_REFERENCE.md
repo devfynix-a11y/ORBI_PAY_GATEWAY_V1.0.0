@@ -103,6 +103,9 @@ This reference is for maintainability only. It intentionally does not store secr
 | `PAYMENT_GATEWAY_PORT` | Runtime | Non-secret | No | Payment gateway only | Local port for the standalone ORBI Payment Gateway service. |
 | `PAYMENT_GATEWAY_PUBLIC_BASE_URL` | Runtime | Non-secret | No | Payment gateway only | Public base URL for external payment provider traffic, commonly `https://pay.orbifinancial.com`. |
 | `PAYMENT_GATEWAY_PROVIDER_MODE` | Runtime | Non-secret | No | Payment gateway only | Gateway provider mode. Use `live` for production provider adapters. |
+| `PAYMENT_GATEWAY_ALLOWED_BROWSER_ORIGINS` | Runtime | Non-secret | No | Payment gateway only | Comma-separated ORBI-owned browser origins allowed globally. Merchant/developer domains belong in Developer Portal `browserOrigins`, not this global env. |
+| `PAYMENT_GATEWAY_REQUIRE_SIGNED_INTERNAL_INGRESS` | Runtime | Non-secret | No | Payment gateway only | Requires worker-signed headers on Gateway internal ingress routes. Default `true` in production. |
+| `PAYMENT_GATEWAY_REQUEST_AUDIT_ENABLED` | Runtime | Non-secret | No | Payment gateway only | Emits structured request completion logs with request, trace, and correlation IDs. Default `true`. |
 | `ORBI_CORE_INTERNAL_BASE_URL` | Runtime | Non-secret | No | Payment gateway only | Secure Core external root used by the payment gateway for signed callbacks, commonly `https://api.orbifinancial.com`. |
 | `ORBI_CORE_TRUSTED_GATEWAY_EVENT_PATH` | Runtime | Non-secret | No | Payment gateway only | Core internal route for normalized trusted provider events. |
 | `PAYMENT_GATEWAY_WORKER_ID` | Runtime | Non-secret | No | Payment gateway only | Internal worker identity sent to Core by the payment gateway. |

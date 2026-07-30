@@ -12,6 +12,7 @@ test('developer portal store persists service application lifecycle', async () =
     countryCode: 'TZ',
     requestedEnvironments: ['sandbox', 'live'],
     requestedScopes: ['payments:create', 'escrow:create', 'webhooks:receive'],
+    browserOrigins: ['https://shop.orbifinancial.com'],
     redirectUrls: ['https://shop.orbifinancial.com/return'],
     webhookUrls: ['https://shop.orbifinancial.com/api/orbi/webhooks'],
     useCases: ['Protected checkout'],
@@ -23,6 +24,7 @@ test('developer portal store persists service application lifecycle', async () =
   assert.equal(service.serviceCode, 'orbi-shop');
   assert.equal(service.status, 'draft');
   assert.deepEqual(service.scopesPending, ['payments:create', 'escrow:create', 'webhooks:receive']);
+  assert.equal(service.browserOrigins.includes('https://shop.orbifinancial.com'), true);
 });
 
 test('developer portal store records scope, allowlist, key rotation, and events', async () => {
@@ -35,6 +37,7 @@ test('developer portal store records scope, allowlist, key rotation, and events'
     countryCode: 'TZ',
     requestedEnvironments: ['sandbox'],
     requestedScopes: ['payment_profile:read'],
+    browserOrigins: [],
     redirectUrls: [],
     webhookUrls: [],
     useCases: ['Seller onboarding'],
@@ -57,11 +60,15 @@ test('developer portal store records scope, allowlist, key rotation, and events'
   assert.equal(scopeDecision.service.scopesGranted.includes('balance:read'), true);
 
   const allowlist = await store.applyAllowlistUpdate(service.serviceCode, {
+    browserOrigins: ['https://merchant.example'],
     redirectUrls: ['https://merchant.example/orbi/return'],
     webhookUrls: ['https://merchant.example/api/orbi/webhooks'],
     reason: 'Add sandbox return URL.',
     environment: 'sandbox',
   });
+  assert.equal(allowlist.service.browserOrigins.includes('https://merchant.example'), true);
+  assert.equal(store.isBrowserOriginAllowed(service.serviceCode, 'https://merchant.example'), true);
+  assert.equal(store.isAnyBrowserOriginAllowed('https://merchant.example'), true);
   assert.equal(allowlist.service.redirectUrls.includes('https://merchant.example/orbi/return'), true);
   assert.equal(store.isReturnUrlAllowed(service.serviceCode, 'https://merchant.example/orbi/return'), true);
   assert.equal(store.isReturnUrlAllowed(service.serviceCode, 'https://evil.example/return'), false);
@@ -124,6 +131,7 @@ test('developer portal key lifecycle keeps grace window then revokes on cutover'
     countryCode: 'TZ',
     requestedEnvironments: ['sandbox'],
     requestedScopes: ['payments:create'],
+    browserOrigins: ['https://rotation.example'],
     redirectUrls: ['https://rotation.example/orbi/return'],
     webhookUrls: ['https://rotation.example/api/orbi/webhooks'],
     useCases: ['Checkout key rotation'],
@@ -186,6 +194,7 @@ test('developer portal webhook secret lifecycle supports cutover and explicit re
     countryCode: 'TZ',
     requestedEnvironments: ['sandbox'],
     requestedScopes: ['webhooks:receive'],
+    browserOrigins: ['https://webhook.example'],
     redirectUrls: ['https://webhook.example/orbi/return'],
     webhookUrls: ['https://webhook.example/api/orbi/webhooks'],
     useCases: ['Webhook secret rotation'],

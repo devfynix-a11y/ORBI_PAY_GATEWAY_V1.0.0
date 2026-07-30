@@ -19,6 +19,7 @@ test('developer service application captures onboarding controls', () => {
     countryCode: 'TZ',
     requestedEnvironments: ['sandbox', 'live'],
     requestedScopes: ['payment_profile:read', 'payments:create', 'escrow:create', 'webhooks:receive'],
+    browserOrigins: ['https://www.tag.co.tz/checkout'],
     redirectUrls: ['https://shop.orbifinancial.com/api/auth/orbi-business/link/callback'],
     webhookUrls: ['https://shop.orbifinancial.com/api/orbi/webhooks'],
     useCases: ['Seller payment profiles', 'Protected checkout through PaySafe'],
@@ -27,6 +28,7 @@ test('developer service application captures onboarding controls', () => {
 
   assert.equal(application.businessType, 'marketplace');
   assert.deepEqual(application.requestedEnvironments, ['sandbox', 'live']);
+  assert.deepEqual(application.browserOrigins, ['https://www.tag.co.tz']);
   assert.equal(application.termsAccepted, true);
 });
 
@@ -41,6 +43,7 @@ test('developer service profile response is stable for dashboard cards', () => {
         environments: ['sandbox', 'live'],
         scopesGranted: ['payment_profile:read', 'payments:create', 'escrow:create'],
         scopesPending: ['balance:read'],
+        browserOrigins: ['https://www.tag.co.tz'],
         redirectUrls: ['https://shop.orbifinancial.com/api/auth/orbi-business/link/callback'],
         webhookUrls: ['https://shop.orbifinancial.com/api/orbi/webhooks'],
         keyStatus: 'active',
@@ -70,9 +73,10 @@ test('scope requests require a reason and known scopes', () => {
   );
 });
 
-test('allowlist updates must include redirect or webhook urls', () => {
+test('allowlist updates must include browser origin, redirect, or webhook urls', () => {
   assert.doesNotThrow(() =>
     DeveloperAllowlistUpdateSchema.parse({
+      browserOrigins: ['https://merchant.example.com/app'],
       redirectUrls: ['https://merchant.example.com/orbi/return'],
       reason: 'Add production checkout return URL.',
       environment: 'live',

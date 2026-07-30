@@ -279,6 +279,7 @@ live environment is approved
 required live scopes are granted
 live API key is issued and stored server-side
 live webhook secret is issued and stored server-side
+browser origins are allowlisted
 redirect URLs are allowlisted
 webhook URLs are allowlisted
 merchant metadata is configured for merchant-scoped products

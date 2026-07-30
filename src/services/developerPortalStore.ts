@@ -134,6 +134,7 @@ export class DeveloperPortalStore {
     if (this.mode === 'postgres') {
       if (!this.databaseUrl) throw new Error('DATABASE_URL_REQUIRED');
       this.pool = new Pool({ connectionString: this.databaseUrl });
+      await this.ensureDatabaseSchema();
       await this.loadFromDatabase();
     }
     this.initialized = true;
@@ -240,6 +241,7 @@ export class DeveloperPortalStore {
       environments: unique(application.requestedEnvironments),
       scopesGranted: [],
       scopesPending: unique(application.requestedScopes),
+      browserOrigins: unique(application.browserOrigins || []),
       redirectUrls: unique(application.redirectUrls || []),
       webhookUrls: unique(application.webhookUrls || []),
       keyStatus: 'not_issued',
@@ -362,6 +364,7 @@ export class DeveloperPortalStore {
     this.assertReady();
     const service = this.getMutableService(serviceCode);
     const now = new Date().toISOString();
+    service.browserOrigins = unique([...(service.browserOrigins || []), ...(update.browserOrigins || [])]);
     service.redirectUrls = unique([...(service.redirectUrls || []), ...(update.redirectUrls || [])]);
     service.webhookUrls = unique([...(service.webhookUrls || []), ...(update.webhookUrls || [])]);
     service.updatedAt = now;
@@ -377,6 +380,7 @@ export class DeveloperPortalStore {
       environment: update.environment,
       data: {
         updateId: record.updateId,
+        browserOrigins: update.browserOrigins || [],
         redirectUrls: update.redirectUrls || [],
         webhookUrls: update.webhookUrls || [],
       },
@@ -706,6 +710,20 @@ export class DeveloperPortalStore {
     return service.webhookUrls.includes(value);
   }
 
+  isBrowserOriginAllowed(serviceCode: string, value: string | undefined) {
+    this.assertReady();
+    if (!value) return true;
+    const service = this.state.services.find((item) => item.serviceCode === slug(serviceCode));
+    if (!service || !service.browserOrigins?.length) return false;
+    return service.browserOrigins.includes(value);
+  }
+
+  isAnyBrowserOriginAllowed(value: string | undefined) {
+    this.assertReady();
+    if (!value) return true;
+    return this.state.services.some((service) => (service.browserOrigins || []).includes(value));
+  }
+
   listEvents(serviceCode?: string) {
     this.assertReady();
     const normalized = serviceCode ? slug(serviceCode) : '';
@@ -763,6 +781,7 @@ export class DeveloperPortalStore {
       environments: row.environments || [],
       scopesGranted: row.scopes_granted || [],
       scopesPending: row.scopes_pending || [],
+      browserOrigins: row.browser_origins || [],
       redirectUrls: row.redirect_urls || [],
       webhookUrls: row.webhook_urls || [],
       keyStatus: 'not_issued',
@@ -843,6 +862,14 @@ export class DeveloperPortalStore {
     };
   }
 
+  private async ensureDatabaseSchema() {
+    if (!this.pool) throw new Error('DATABASE_URL_REQUIRED');
+    await this.pool.query(`
+      alter table if exists public.pay_gateway_developer_services
+      add column if not exists browser_origins text[] not null default '{}'
+    `);
+  }
+
   private async persist() {
     if (this.mode === 'memory') return;
     if (!this.pool) throw new Error('DATABASE_URL_REQUIRED');
@@ -867,10 +894,10 @@ export class DeveloperPortalStore {
         `insert into public.pay_gateway_developer_services (
           service_code, display_name, legal_name, business_type, country_code,
           contact_email, contact_phone, status, environments, scopes_granted,
-          scopes_pending, redirect_urls, webhook_urls, external_developer_id,
-          metadata, created_at, updated_at
+          scopes_pending, browser_origins, redirect_urls, webhook_urls,
+          external_developer_id, metadata, created_at, updated_at
         ) values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
         ) on conflict (service_code) do update set
           display_name = excluded.display_name,
           legal_name = excluded.legal_name,
@@ -882,6 +909,7 @@ export class DeveloperPortalStore {
           environments = excluded.environments,
           scopes_granted = excluded.scopes_granted,
           scopes_pending = excluded.scopes_pending,
+          browser_origins = excluded.browser_origins,
           redirect_urls = excluded.redirect_urls,
           webhook_urls = excluded.webhook_urls,
           external_developer_id = excluded.external_developer_id,
@@ -899,6 +927,7 @@ export class DeveloperPortalStore {
           service.environments || [],
           service.scopesGranted || [],
           service.scopesPending || [],
+          service.browserOrigins || [],
           service.redirectUrls || [],
           service.webhookUrls || [],
           service.externalDeveloperId || null,

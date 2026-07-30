@@ -29,6 +29,7 @@ export const buildDeveloperHealthSummary = async (serviceCode?: string) => {
     }
     if (!service.redirectUrls?.length) warnings.push('REDIRECT_ALLOWLIST_EMPTY');
     if (!service.webhookUrls?.length) warnings.push('WEBHOOK_ALLOWLIST_EMPTY');
+    if (!service.browserOrigins?.length) warnings.push('BROWSER_ORIGIN_ALLOWLIST_EMPTY');
     if (service.scopesPending?.length) warnings.push('SCOPES_PENDING_REVIEW');
     if (deliveries.length && failedDeliveries.length / deliveries.length >= 0.2) {
       warnings.push('WEBHOOK_FAILURE_RATE_HIGH');
@@ -68,6 +69,7 @@ export const buildDeveloperHealthSummary = async (serviceCode?: string) => {
         })),
       },
       allowlists: {
+        browserOrigins: service.browserOrigins || [],
         redirectUrls: service.redirectUrls || [],
         webhookUrls: service.webhookUrls || [],
       },

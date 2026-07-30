@@ -31,6 +31,14 @@ import {
   assertNonceNotReplayed,
 } from './security/financialRequestGuard.js';
 import {
+  createRequestAuditContext,
+  hasSignedInternalRequestHeaders,
+  isInternalGatewayPath,
+  isOriginAllowed,
+  parseOriginAllowlist,
+  type RequestAuditContext,
+} from './security/runtimeControls.js';
+import {
   isServiceAccessToken,
   issueServiceAccessToken,
 } from './security/serviceAccessToken.js';
@@ -93,6 +101,7 @@ declare global {
   namespace Express {
     interface Request {
       rawBody?: Buffer;
+      auditContext?: RequestAuditContext;
     }
   }
 }
@@ -947,6 +956,93 @@ const sanitizePaymentIntent = (intent: PaymentIntent) => {
 };
 
 const app = express();
+
+const allowedBrowserOrigins = parseOriginAllowlist(config.security.allowedBrowserOrigins, [config.publicBaseUrl]);
+
+app.use((req, res, next) => {
+  const auditContext = createRequestAuditContext(req);
+  req.auditContext = auditContext;
+  res.locals.auditContext = auditContext;
+  res.setHeader('x-request-id', auditContext.requestId);
+  res.setHeader('x-correlation-id', auditContext.correlationId);
+  res.setHeader('x-trace-id', auditContext.traceId);
+
+  res.on('finish', () => {
+    if (!config.security.requestAuditEnabled) return;
+    if (req.path === '/health' || req.path === '/ready') return;
+    logger.info('http.request_completed', {
+      requestId: auditContext.requestId,
+      traceId: auditContext.traceId,
+      correlationId: auditContext.correlationId,
+      method: req.method,
+      path: req.path,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - auditContext.startedAtMs,
+      origin: req.get('origin') || undefined,
+      userAgent: req.get('user-agent') || undefined,
+    });
+  });
+
+  next();
+});
+
+app.use((req, res, next) => {
+  const origin = req.get('origin');
+  let developerOriginAllowed = false;
+  if (origin) {
+    try {
+      developerOriginAllowed = developerPortalStore.isAnyBrowserOriginAllowed(origin);
+    } catch {
+      developerOriginAllowed = false;
+    }
+  }
+
+  if (!isOriginAllowed(origin, allowedBrowserOrigins) && !developerOriginAllowed) {
+    return sendApiError(res, 403, 'PAY_GATEWAY_ORIGIN_NOT_ALLOWED');
+  }
+
+  if (origin) {
+    res.setHeader('access-control-allow-origin', origin);
+    res.setHeader('vary', 'Origin');
+    res.setHeader('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.setHeader(
+      'access-control-allow-headers',
+      [
+        'authorization',
+        'content-type',
+        'idempotency-key',
+        'x-api-key',
+        'x-idempotency-key',
+        'x-orbi-correlation-id',
+        'x-orbi-environment',
+        'x-orbi-idempotency-key',
+        'x-orbi-nonce',
+        'x-orbi-pay-operator-key',
+        'x-orbi-pay-service-key',
+        'x-orbi-signature',
+        'x-orbi-timestamp',
+        'x-request-id',
+        'x-trace-id',
+      ].join(', '),
+    );
+    res.setHeader('access-control-max-age', '600');
+  }
+
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  return next();
+});
+
+app.use((req, res, next) => {
+  if (
+    config.security.requireSignedInternalIngress &&
+    isInternalGatewayPath(req.path) &&
+    !hasSignedInternalRequestHeaders(req)
+  ) {
+    return sendApiError(res, 403, 'INTERNAL_SIGNATURE_HEADERS_MISSING');
+  }
+  return next();
+});
+
 app.use(express.json({
   limit: '2mb',
   verify: (req, _res, buf) => {
@@ -954,12 +1050,6 @@ app.use(express.json({
   },
 }));
 app.use(express.urlencoded({ extended: false, limit: '32kb' }));
-
-app.use((req, res, next) => {
-  const requestId = req.get('x-request-id') || crypto.randomUUID();
-  res.setHeader('x-request-id', requestId);
-  next();
-});
 
 app.get('/health', (_req, res) => {
   res.json({

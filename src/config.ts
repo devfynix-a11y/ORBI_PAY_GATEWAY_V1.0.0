@@ -49,6 +49,10 @@ export const config = {
   security: {
     credentialMode: (process.env.PAYMENT_GATEWAY_CREDENTIAL_MODE || 'tokenized') as 'tokenized' | 'direct',
     requireStrongCustomerAuth: boolFromEnv(process.env.PAYMENT_GATEWAY_REQUIRE_STRONG_CUSTOMER_AUTH, true),
+    requestAuditEnabled: boolFromEnv(process.env.PAYMENT_GATEWAY_REQUEST_AUDIT_ENABLED, true),
+    allowedBrowserOrigins: process.env.PAYMENT_GATEWAY_ALLOWED_BROWSER_ORIGINS || '',
+    requireSignedInternalIngress:
+      boolFromEnv(process.env.PAYMENT_GATEWAY_REQUIRE_SIGNED_INTERNAL_INGRESS, process.env.NODE_ENV === 'production'),
     financialSignatureToleranceSeconds:
       Number(process.env.PAYMENT_GATEWAY_FINANCIAL_SIGNATURE_TOLERANCE_SECONDS || 300),
     financialNonceTtlSeconds:
@@ -142,6 +146,10 @@ export const requireGatewayRuntimeSecrets = () => {
 
   if (config.env === 'production' && !config.security.serviceAccessTokenSecret) {
     throw new Error('PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET is required for production service access tokens.');
+  }
+
+  if (config.env === 'production' && !config.security.allowedBrowserOrigins) {
+    throw new Error('PAYMENT_GATEWAY_ALLOWED_BROWSER_ORIGINS is required for production browser access control.');
   }
 
   if (config.env === 'production' && config.mtls.enabled) {

@@ -36,6 +36,9 @@ NODE_ENV=production
 PAYMENT_GATEWAY_PORT=3100
 PAYMENT_GATEWAY_PUBLIC_BASE_URL=https://pay.orbifinancial.com
 PAYMENT_GATEWAY_PROVIDER_MODE=live
+PAYMENT_GATEWAY_ALLOWED_BROWSER_ORIGINS=https://pay.orbifinancial.com,https://shop.orbifinancial.com,https://developers.orbifinancial.com
+PAYMENT_GATEWAY_REQUIRE_SIGNED_INTERNAL_INGRESS=true
+PAYMENT_GATEWAY_REQUEST_AUDIT_ENABLED=true
 
 ORBI_CORE_INTERNAL_BASE_URL=https://api.orbifinancial.com
 ORBI_CORE_TRUSTED_GATEWAY_EVENT_PATH=/api/internal/gateway/provider-events
@@ -64,6 +67,9 @@ NODE_ENV=production
 PAYMENT_GATEWAY_PORT=3101
 PAYMENT_GATEWAY_PUBLIC_BASE_URL=https://sandbox-pay.orbifinancial.com
 PAYMENT_GATEWAY_PROVIDER_MODE=sandbox
+PAYMENT_GATEWAY_ALLOWED_BROWSER_ORIGINS=https://sandbox-pay.orbifinancial.com,https://shop.orbifinancial.com,https://developers.orbifinancial.com
+PAYMENT_GATEWAY_REQUIRE_SIGNED_INTERNAL_INGRESS=true
+PAYMENT_GATEWAY_REQUEST_AUDIT_ENABLED=true
 
 DATABASE_URL=<sandbox-pay-gateway-database-url>
 ORBI_SECRET_ENCRYPTION_KEY=<sandbox-only-secret-encryption-key>

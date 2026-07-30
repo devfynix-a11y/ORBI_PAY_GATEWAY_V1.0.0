@@ -122,7 +122,7 @@ Stepper:
 1. Submit service application
 2. Approve sandbox service
 3. Request scopes
-4. Add redirect and webhook allowlists
+4. Add browser origin, redirect, and webhook allowlists
 5. Issue sandbox API key
 6. Issue sandbox webhook secret
 7. Create test payment intent

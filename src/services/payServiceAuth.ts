@@ -90,6 +90,7 @@ export const serviceDefinitionFromDeveloperService = (
       environments: service.environments,
       scopesGranted: grantedScopes,
       serviceAccessTokenScoped: grantedScopes.length !== service.scopesGranted.length,
+      browserOrigins: service.browserOrigins,
       webhookUrls: service.webhookUrls,
     },
   };
