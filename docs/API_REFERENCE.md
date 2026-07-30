@@ -24,10 +24,10 @@ Developer/Merchant Scopes
 
 ## SDK First
 
-Use the official SDKs for runtime financial operations. They send service
-authentication, environment headers, HMAC signatures, nonces, timestamps, and
-idempotency keys consistently, so developers do not have to hand-roll raw HTTP
-for sensitive payment flows.
+Use the official SDKs for runtime financial operations. They exchange service
+keys for short-lived access tokens, send environment headers, HMAC signatures,
+nonces, timestamps, and idempotency keys consistently, so developers do not
+have to hand-roll raw HTTP for sensitive payment flows.
 
 ```bash
 npm i @orbifinancial/pay-gateway
@@ -40,6 +40,21 @@ authors, and platform teams. Merchant applications should prefer SDK methods
 such as `orbi.identity.resolve(...)`, `orbi.payments.createIntent(...)`,
 `orbi.payments.waitForIntent(...)`, `orbi.paysafe.create(...)`, and
 `orbi.webhooks.verify(...)`.
+
+Recommended Node setup:
+
+```ts
+import { createOrbi } from '@orbifinancial/pay-gateway';
+
+const orbi = createOrbi({
+  baseUrl: process.env.ORBI_PAY_GATEWAY_BASE_URL!,
+  serviceKey: process.env.ORBI_PAY_SERVICE_KEY!,
+  authMode: 'access_token',
+  environment: process.env.ORBI_PAY_ENVIRONMENT === 'Production'
+    ? 'Production'
+    : 'Demo',
+});
+```
 
 ## Health
 

@@ -65,15 +65,27 @@ export class OrbiPayGatewayClient {
   private readonly serviceKey: string;
   private readonly operatorKey?: string;
   private readonly environment?: OrbiRuntimeEnvironment;
+  private readonly authMode: 'access_token' | 'api_key';
+  private readonly accessTokenScopes: string[];
+  private readonly accessTokenRefreshSkewSeconds: number;
   private readonly requestSigning: boolean;
   private readonly requestSigningSecret?: string;
   private readonly fetchImpl: typeof fetch;
+  private accessTokenCache?: {
+    token: string;
+    expiresAtMs: number;
+    scope: string;
+  };
+  private accessTokenPromise?: Promise<string>;
 
   constructor(config: OrbiPayGatewayConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
     this.serviceKey = config.serviceKey || '';
     this.operatorKey = config.operatorKey;
     this.environment = config.environment;
+    this.authMode = config.authMode || 'api_key';
+    this.accessTokenScopes = config.accessTokenScopes || [];
+    this.accessTokenRefreshSkewSeconds = Math.max(5, config.accessTokenRefreshSkewSeconds ?? 60);
     this.requestSigning = config.requestSigning ?? true;
     this.requestSigningSecret = config.requestSigningSecret;
     this.fetchImpl = config.fetchImpl || fetch;
@@ -421,9 +433,12 @@ export class OrbiPayGatewayClient {
     includeServiceKey = requireServiceKey,
   ): Promise<OrbiApiResponse<T>> {
     if (requireServiceKey && !this.serviceKey) throw new Error('ORBI_PAY_GATEWAY_SERVICE_KEY_REQUIRED');
+    const serviceAuth = includeServiceKey && this.serviceKey
+      ? await this.serviceAuthorization()
+      : undefined;
     const headers: Record<string, string> = {
       accept: 'application/json',
-      ...(includeServiceKey && this.serviceKey ? { 'x-orbi-pay-service-key': this.serviceKey } : {}),
+      ...(serviceAuth ? serviceAuth.headers : {}),
       ...(options.headers || {}),
     };
     const environment = normalizeRuntimeEnvironment(options.environment || this.environment);
@@ -437,7 +452,7 @@ export class OrbiPayGatewayClient {
         method,
         path,
         body: requestBody || '',
-        secret: this.requestSigningSecret || this.serviceKey,
+        secret: this.requestSigningSecret || serviceAuth?.signingSecret || this.serviceKey,
       }));
     }
 
@@ -452,6 +467,70 @@ export class OrbiPayGatewayClient {
       throw new OrbiPayGatewayError(`ORBI_PAY_GATEWAY_HTTP_${response.status}`, response.status, responseBody);
     }
     return responseBody as OrbiApiResponse<T>;
+  }
+
+  private async serviceAuthorization(): Promise<{
+    headers: Record<string, string>;
+    signingSecret: string;
+  }> {
+    if (this.authMode === 'api_key') {
+      return {
+        headers: { 'x-orbi-pay-service-key': this.serviceKey },
+        signingSecret: this.serviceKey,
+      };
+    }
+    const token = await this.getServiceAccessToken();
+    return {
+      headers: { authorization: `Bearer ${token}` },
+      signingSecret: token,
+    };
+  }
+
+  private async getServiceAccessToken(): Promise<string> {
+    const now = Date.now();
+    const scope = this.accessTokenScopes.join(' ');
+    if (
+      this.accessTokenCache &&
+      this.accessTokenCache.scope === scope &&
+      this.accessTokenCache.expiresAtMs - (this.accessTokenRefreshSkewSeconds * 1000) > now
+    ) {
+      return this.accessTokenCache.token;
+    }
+    if (!this.accessTokenPromise) {
+      this.accessTokenPromise = this.issueServiceAccessToken(scope).finally(() => {
+        this.accessTokenPromise = undefined;
+      });
+    }
+    return this.accessTokenPromise;
+  }
+
+  private async issueServiceAccessToken(scope: string): Promise<string> {
+    const response = await this.fetchImpl(`${this.baseUrl}/oauth/token`, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        grant_type: 'client_credentials',
+        client_secret: this.serviceKey,
+        ...(scope ? { scope } : {}),
+      }),
+    });
+    const text = await response.text();
+    const body = text ? JSON.parse(text) : {};
+    if (!response.ok || !body?.access_token) {
+      const error = typeof body?.error === 'string' ? body.error : `ORBI_PAY_GATEWAY_TOKEN_HTTP_${response.status}`;
+      throw new OrbiPayGatewayError(error, response.status, body);
+    }
+    const expiresInSeconds = Number(body.expires_in || 900);
+    const token = String(body.access_token);
+    this.accessTokenCache = {
+      token,
+      scope,
+      expiresAtMs: Date.now() + (expiresInSeconds * 1000),
+    };
+    return token;
   }
 
   private operatorRequest<T>(

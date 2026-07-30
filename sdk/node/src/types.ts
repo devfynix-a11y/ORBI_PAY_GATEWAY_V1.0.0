@@ -3,6 +3,9 @@ export type OrbiPayGatewayConfig = {
   serviceKey?: string;
   operatorKey?: string;
   environment?: OrbiRuntimeEnvironment;
+  authMode?: 'access_token' | 'api_key';
+  accessTokenScopes?: string[];
+  accessTokenRefreshSkewSeconds?: number;
   requestSigning?: boolean;
   requestSigningSecret?: string;
   fetchImpl?: typeof fetch;

@@ -28,6 +28,35 @@ npm install
 npm run check
 ```
 
+## Server Setup
+
+Use access-token mode for new production integrations. The SDK exchanges your
+server-side service key for a short-lived ORBI access token, caches it, and signs
+financial requests with that token.
+
+```ts
+import { createOrbi } from '@orbifinancial/pay-gateway';
+
+const orbi = createOrbi({
+  baseUrl: process.env.ORBI_PAY_GATEWAY_BASE_URL!,
+  serviceKey: process.env.ORBI_PAY_SERVICE_KEY!,
+  authMode: 'access_token',
+  environment: process.env.ORBI_PAY_ENVIRONMENT === 'Production'
+    ? 'Production'
+    : 'Demo',
+});
+```
+
+Legacy/direct-key mode is available only for controlled migration:
+
+```ts
+const orbi = createOrbi({
+  baseUrl: process.env.ORBI_PAY_GATEWAY_BASE_URL!,
+  serviceKey: process.env.ORBI_PAY_SERVICE_KEY!,
+  authMode: 'api_key',
+});
+```
+
 ## CLI
 
 When installed, use:

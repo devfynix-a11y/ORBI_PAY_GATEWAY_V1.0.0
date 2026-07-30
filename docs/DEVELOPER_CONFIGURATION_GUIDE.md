@@ -26,6 +26,7 @@ import { createOrbi } from '@orbifinancial/pay-gateway';
 const orbi = createOrbi({
   baseUrl: process.env.ORBI_PAY_GATEWAY_BASE_URL!,
   serviceKey: process.env.ORBI_PAY_SERVICE_KEY!,
+  authMode: 'access_token',
   environment: process.env.ORBI_PAY_ENVIRONMENT === 'Production'
     ? 'Production'
     : 'Demo',
@@ -69,12 +70,13 @@ ORBI_PAY_WEBHOOK_SECRET=orbi_whsec_live_xxx
 
 ## 3. Required Request Headers
 
-The official SDK sends these automatically for financial POST requests.
+The official SDK exchanges the service key for a short-lived access token and
+sends these automatically for financial POST requests.
 
 ```http
 content-type: application/json
 accept: application/json
-x-orbi-pay-service-key: <service-key>
+authorization: Bearer <short-lived-orbi-access-token>
 x-orbi-environment: demo|production
 idempotency-key: <stable-operation-key>
 x-request-id: <optional-trace-id>
@@ -82,6 +84,18 @@ x-orbi-signature: sha256=<hmac>
 x-orbi-timestamp: <unix-timestamp-seconds>
 x-orbi-nonce: <unique-nonce>
 ```
+
+Legacy/direct-key mode exists only for controlled migration and debugging:
+
+```ts
+createOrbi({
+  baseUrl: process.env.ORBI_PAY_GATEWAY_BASE_URL!,
+  serviceKey: process.env.ORBI_PAY_SERVICE_KEY!,
+  authMode: 'api_key',
+});
+```
+
+New production integrations should use `authMode: 'access_token'`.
 
 Use one stable idempotency key per business operation:
 

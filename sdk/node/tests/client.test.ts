@@ -8,13 +8,22 @@ import {
   OrbiPayGatewayClient,
 } from '../src/index.js';
 
-test('client sends service key and idempotency headers', async () => {
+test('client exchanges service key for access token and signs runtime request with it', async () => {
   const calls: Array<{ url: string; init: RequestInit }> = [];
   const client = new OrbiPayGatewayClient({
     baseUrl: 'https://pay.example',
     serviceKey: 'svc_test_key',
+    authMode: 'access_token',
     fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
       calls.push({ url: String(url), init: init || {} });
+      if (String(url).endsWith('/oauth/token')) {
+        return new Response(JSON.stringify({
+          access_token: 'orbi_at_test_access_token',
+          token_type: 'Bearer',
+          expires_in: 900,
+          scope: 'payments:create',
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       return new Response(JSON.stringify({
         success: true,
         data: {
@@ -43,13 +52,53 @@ test('client sends service key and idempotency headers', async () => {
   });
 
   assert.equal(response.success, true);
+  assert.equal(calls[0].url, 'https://pay.example/oauth/token');
+  assert.match(String(calls[0].init.body), /"client_secret":"svc_test_key"/);
+  assert.equal(calls[1].url, 'https://pay.example/v1/payment-intents');
+  assert.equal((calls[1].init.headers as Record<string, string>).authorization, 'Bearer orbi_at_test_access_token');
+  assert.equal((calls[1].init.headers as Record<string, string>)['x-orbi-pay-service-key'], undefined);
+  assert.equal((calls[1].init.headers as Record<string, string>)['idempotency-key'], 'idem-order-1');
+  assert.equal((calls[1].init.headers as Record<string, string>)['x-request-id'], 'req-order-1');
+  assert.match((calls[1].init.headers as Record<string, string>)['x-orbi-signature'], /^sha256=[a-f0-9]{64}$/);
+  assert.match((calls[1].init.headers as Record<string, string>)['x-orbi-timestamp'], /^\d+$/);
+  assert.match((calls[1].init.headers as Record<string, string>)['x-orbi-nonce'], /^[0-9a-f-]{36}$/);
+});
+
+test('client can use explicit api_key auth mode for legacy integrations', async () => {
+  const calls: Array<{ url: string; init: RequestInit }> = [];
+  const client = new OrbiPayGatewayClient({
+    baseUrl: 'https://pay.example',
+    serviceKey: 'svc_test_key',
+    authMode: 'api_key',
+    fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init || {} });
+      return new Response(JSON.stringify({
+        success: true,
+        data: {
+          id: 'pi_123',
+          serviceCode: 'merchant',
+          operation: 'collection',
+          reference: 'ORDER-1',
+          amount: 1000,
+          currency: 'TZS',
+          status: 'processing',
+          checkoutUrl: 'https://pay.example/checkout/pi_123',
+          createdAt: '2026-07-23T00:00:00.000Z',
+          updatedAt: '2026-07-23T00:00:00.000Z',
+        },
+      }), { status: 201, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch,
+  });
+
+  await client.createPaymentIntent({
+    reference: 'ORDER-1',
+    amount: 1000,
+    currency: 'TZS',
+  }, { idempotencyKey: 'idem-order-1' });
+
+  assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'https://pay.example/v1/payment-intents');
   assert.equal((calls[0].init.headers as Record<string, string>)['x-orbi-pay-service-key'], 'svc_test_key');
-  assert.equal((calls[0].init.headers as Record<string, string>)['idempotency-key'], 'idem-order-1');
-  assert.equal((calls[0].init.headers as Record<string, string>)['x-request-id'], 'req-order-1');
-  assert.match((calls[0].init.headers as Record<string, string>)['x-orbi-signature'], /^sha256=[a-f0-9]{64}$/);
-  assert.match((calls[0].init.headers as Record<string, string>)['x-orbi-timestamp'], /^\d+$/);
-  assert.match((calls[0].init.headers as Record<string, string>)['x-orbi-nonce'], /^[0-9a-f-]{36}$/);
 });
 
 test('facade supports orbi.transfers.send contract style', async () => {
