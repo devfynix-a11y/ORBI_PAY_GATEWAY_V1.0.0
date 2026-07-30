@@ -21,6 +21,7 @@ test('service access token is signed and verifies stable claims', () => {
   assert.equal(isServiceAccessToken(issued.accessToken), true);
   assert.equal(issued.expiresIn, 120);
   const claims = verifyServiceAccessToken(issued.accessToken);
+  assert.equal(claims.aud, 'orbi-pay-gateway-runtime');
   assert.equal(claims.serviceCode, 'orbi-shop');
   assert.equal(claims.environment, 'sandbox');
   assert.deepEqual(claims.scopes, ['payments:create', 'escrow:create']);

@@ -3,9 +3,11 @@ import { z } from 'zod';
 import { config } from '../config.js';
 
 export const SERVICE_ACCESS_TOKEN_PREFIX = 'orbi_at_';
+export const SERVICE_ACCESS_TOKEN_AUDIENCE = 'orbi-pay-gateway-runtime';
 
 export const ServiceAccessTokenClaimsSchema = z.object({
   iss: z.literal('orbi-pay-gateway'),
+  aud: z.literal(SERVICE_ACCESS_TOKEN_AUDIENCE),
   typ: z.literal('service_access'),
   sub: z.string().trim().min(1),
   serviceCode: z.string().trim().min(1),
@@ -46,6 +48,7 @@ export const issueServiceAccessToken = (input: {
   const ttlSeconds = Math.max(60, Math.min(input.ttlSeconds || config.security.serviceAccessTokenTtlSeconds, 3600));
   const claims: ServiceAccessTokenClaims = {
     iss: 'orbi-pay-gateway',
+    aud: SERVICE_ACCESS_TOKEN_AUDIENCE,
     typ: 'service_access',
     sub: input.serviceCode,
     serviceCode: input.serviceCode,

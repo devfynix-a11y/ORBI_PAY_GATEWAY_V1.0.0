@@ -97,6 +97,10 @@ createOrbi({
 
 New production integrations should use `authMode: 'access_token'`.
 
+Identity lookup, business registration, payment profile, and financial runtime
+POST requests must declare the environment and include a valid SDK signature.
+Financial commit routes also require a stable idempotency key.
+
 Use one stable idempotency key per business operation:
 
 ```text

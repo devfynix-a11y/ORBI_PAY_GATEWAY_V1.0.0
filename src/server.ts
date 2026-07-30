@@ -590,6 +590,24 @@ const assertFinancialRuntimeRequest = (
   return environment;
 };
 
+const assertSignedRuntimeRequest = (
+  req: express.Request,
+  res: express.Response,
+) => {
+  const environment = requireRuntimeEnvironment(req);
+  const service = res.locals.payService as PayServiceDefinition | undefined;
+  const credential = res.locals.payServiceCredential as AuthenticatedPayService['credential'] | undefined;
+  assertServiceCredentialEnvironment(credential, environment);
+  const subject = financialCredentialSubject(service, credential);
+  assertFinancialRateLimit(subject, {
+    windowMs: config.security.financialRateLimitWindowSeconds * 1000,
+    maxRequests: config.security.financialRateLimitMaxRequests,
+    maxSubjects: config.security.financialRateLimitMaxSubjects,
+  });
+  assertFinancialRequestSignature(req, subject);
+  return environment;
+};
+
 const safeServiceReturnUrl = (value: unknown): string | undefined => {
   const raw = String(value || '').trim();
   if (!raw) return undefined;
@@ -1518,6 +1536,7 @@ app.post('/v1/identity/resolve', requirePayServiceAccess, async (req, res) => {
 
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    assertSignedRuntimeRequest(req, res);
     serviceConsentGuard.assertServiceScopeGranted(service, 'identity:resolve');
     const coreResult = await orbiCoreClient.resolveIdentity({
       serviceCode: service.code,
@@ -1546,6 +1565,7 @@ app.post('/v1/business/registrations', requirePayServiceAccess, async (req, res)
 
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    assertSignedRuntimeRequest(req, res);
     serviceConsentGuard.assertServiceScopeGranted(service, 'business_registration:create');
     const body = parsed.data;
     const coreResult = await orbiCoreClient.submitBusinessRegistration({
@@ -1584,6 +1604,7 @@ app.post('/v1/payment-profiles', requirePayServiceAccess, async (req, res) => {
   try {
     const service = res.locals.payService as PayServiceDefinition;
     const body = parsed.data;
+    assertSignedRuntimeRequest(req, res);
     serviceConsentGuard.assertServiceScopeGranted(service, 'payment_profile:create');
     const subjectId = subjectIdForConsent(body);
     serviceConsentGuard.assertActiveConsent(service, {
