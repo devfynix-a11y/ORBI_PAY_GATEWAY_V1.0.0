@@ -99,6 +99,53 @@ records, exception queues, `reportHash`, and an HMAC-SHA256 signature. If
 `PAYMENT_GATEWAY_RECONCILIATION_EXPORT_PATH` is configured, `exportedPath`
 points to the written JSON evidence file.
 
+## Operator Incident Lifecycle
+
+```http
+GET /v1/operator/incidents
+GET /v1/operator/incidents/{incidentId}
+POST /v1/operator/incidents/{incidentId}/acknowledge
+POST /v1/operator/incidents/{incidentId}/assign
+POST /v1/operator/incidents/{incidentId}/resolve
+x-orbi-pay-operator-key: <PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY>
+```
+
+Gateway reconciliation alerts open operator incidents automatically. Incidents
+track severity, status, report resource, runbook, assignment, acknowledgement,
+and final resolution. Developer Portal operator/admin tools should call these
+routes through `/v1/portal/gateway`; browser clients must not connect directly
+to the database.
+
+List filters:
+
+```http
+GET /v1/operator/incidents?status=open&severity=critical&incidentType=reconciliation.exceptions_detected
+```
+
+Action bodies:
+
+```json
+{
+  "acknowledgedBy": "ops@orbifinancial.com",
+  "note": "Reviewing signed reconciliation report."
+}
+```
+
+```json
+{
+  "assignedTo": "recon-team@orbifinancial.com",
+  "assignedBy": "ops@orbifinancial.com",
+  "note": "Webhook delivery failure needs replay review."
+}
+```
+
+```json
+{
+  "resolvedBy": "recon-team@orbifinancial.com",
+  "resolution": "Webhook replay completed, Core ledger state matched, report attached."
+}
+```
+
 ## Trusted Services
 
 Trusted ORBI products such as ORBI Shop use scoped service credentials instead of provider credentials.

@@ -78,6 +78,7 @@ import { scopeForPaymentIntent, scopeForPaymentOperation } from './services/serv
 import { buildDeveloperHealthSummary } from './services/developerHealthService.js';
 import { serviceAccessTokenRevocationStore } from './services/serviceAccessTokenRevocationStore.js';
 import { auditEventSink } from './services/auditEventSink.js';
+import { operatorIncidentStore } from './services/operatorIncidentStore.js';
 import { reconciliationEvidenceService } from './services/reconciliationEvidenceService.js';
 import { reconciliationEvidenceScheduler } from './services/reconciliationEvidenceScheduler.js';
 import {
@@ -2135,7 +2136,88 @@ const requireOperatorDiscoveryAccess = (req: express.Request, res: express.Respo
   return next();
 };
 
+const OperatorIncidentQuerySchema = z.object({
+  status: z.enum(['open', 'acknowledged', 'assigned', 'resolved']).optional(),
+  severity: z.enum(['warning', 'critical']).optional(),
+  incidentType: z.string().min(1).max(120).optional(),
+});
+
+const OperatorIncidentAcknowledgeSchema = z.object({
+  acknowledgedBy: z.string().min(1).max(160),
+  note: z.string().max(1000).optional(),
+});
+
+const OperatorIncidentAssignSchema = z.object({
+  assignedTo: z.string().min(1).max(160),
+  assignedBy: z.string().min(1).max(160).optional(),
+  note: z.string().max(1000).optional(),
+});
+
+const OperatorIncidentResolveSchema = z.object({
+  resolvedBy: z.string().min(1).max(160),
+  resolution: z.string().min(3).max(2000),
+});
+
+app.get('/v1/operator/incidents', requireOperatorDiscoveryAccess, async (req, res) => {
+  const parsed = OperatorIncidentQuerySchema.safeParse(req.query);
+  if (!parsed.success) return sendValidationError(res, 'OPERATOR_INCIDENT_QUERY_INVALID', parsed.error.issues);
+  return res.json({
+    success: true,
+    data: await operatorIncidentStore.list(parsed.data),
+  });
+});
+
+app.get('/v1/operator/incidents/:incidentId', requireOperatorDiscoveryAccess, async (req, res) => {
+  const incident = await operatorIncidentStore.get(String(req.params.incidentId || ''));
+  if (!incident) return sendApiError(res, 404, 'OPERATOR_INCIDENT_NOT_FOUND');
+  return res.json({ success: true, data: incident });
+});
+
+app.post('/v1/operator/incidents/:incidentId/acknowledge', requireOperatorDiscoveryAccess, async (req, res) => {
+  const parsed = OperatorIncidentAcknowledgeSchema.safeParse(req.body || {});
+  if (!parsed.success) return sendValidationError(res, 'OPERATOR_INCIDENT_ACKNOWLEDGE_INVALID', parsed.error.issues);
+  try {
+    return res.json({
+      success: true,
+      data: await operatorIncidentStore.acknowledge(String(req.params.incidentId || ''), parsed.data),
+    });
+  } catch (error: any) {
+    return sendApiError(res, error?.message === 'OPERATOR_INCIDENT_NOT_FOUND' ? 404 : 400, errorCodeFromException(error, 'OPERATOR_INCIDENT_ACKNOWLEDGE_FAILED'));
+  }
+});
+
+app.post('/v1/operator/incidents/:incidentId/assign', requireOperatorDiscoveryAccess, async (req, res) => {
+  const parsed = OperatorIncidentAssignSchema.safeParse(req.body || {});
+  if (!parsed.success) return sendValidationError(res, 'OPERATOR_INCIDENT_ASSIGN_INVALID', parsed.error.issues);
+  try {
+    return res.json({
+      success: true,
+      data: await operatorIncidentStore.assign(String(req.params.incidentId || ''), parsed.data),
+    });
+  } catch (error: any) {
+    return sendApiError(res, error?.message === 'OPERATOR_INCIDENT_NOT_FOUND' ? 404 : 400, errorCodeFromException(error, 'OPERATOR_INCIDENT_ASSIGN_FAILED'));
+  }
+});
+
+app.post('/v1/operator/incidents/:incidentId/resolve', requireOperatorDiscoveryAccess, async (req, res) => {
+  const parsed = OperatorIncidentResolveSchema.safeParse(req.body || {});
+  if (!parsed.success) return sendValidationError(res, 'OPERATOR_INCIDENT_RESOLVE_INVALID', parsed.error.issues);
+  try {
+    return res.json({
+      success: true,
+      data: await operatorIncidentStore.resolve(String(req.params.incidentId || ''), parsed.data),
+    });
+  } catch (error: any) {
+    return sendApiError(res, error?.message === 'OPERATOR_INCIDENT_NOT_FOUND' ? 404 : 400, errorCodeFromException(error, 'OPERATOR_INCIDENT_RESOLVE_FAILED'));
+  }
+});
+
 const portalOperatorPaths = [
+  { pattern: /^\/v1\/operator\/incidents$/, permission: 'operator:manage_incidents', methods: ['GET'] },
+  { pattern: /^\/v1\/operator\/incidents\/[^/]+$/, permission: 'operator:manage_incidents', methods: ['GET'] },
+  { pattern: /^\/v1\/operator\/incidents\/[^/]+\/acknowledge$/, permission: 'operator:manage_incidents', confirmation: true },
+  { pattern: /^\/v1\/operator\/incidents\/[^/]+\/assign$/, permission: 'operator:manage_incidents', confirmation: true },
+  { pattern: /^\/v1\/operator\/incidents\/[^/]+\/resolve$/, permission: 'operator:manage_incidents', confirmation: true },
   { pattern: /^\/v1\/developer\/services$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/services\/[^/]+$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/service-applications$/, permission: 'developer:read_all', methods: ['GET'] },
@@ -2405,6 +2487,7 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
     : developerAllowed
       ? (await Promise.all(visibleServices.map((service) => buildDeveloperHealthSummary(service.serviceCode)))).flat()
       : undefined;
+  const visibleIncidents = operatorAllowed ? await operatorIncidentStore.list() : [];
 
   return res.json({
     success: true,
@@ -2426,6 +2509,7 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
           : {},
         sandboxAccounts: (operatorAllowed || developerAllowed) ? sandboxSimulatorStore.listAccounts() : [],
         integrationHealth: visibleHealth,
+        incidents: visibleIncidents,
         serviceProfile: undefined,
         portalUsers: adminUsers.ok ? adminUsers.data : [],
         portalAudit: adminAudit.ok ? adminAudit.data : [],
@@ -3207,6 +3291,7 @@ const start = async () => {
   rejectUnsafeDirectSecretsInProduction();
   await developerPortalStore.initialize();
   await serviceAccessTokenRevocationStore.initialize();
+  await operatorIncidentStore.initialize();
   reconciliationEvidenceScheduler.start();
 
   app.listen(config.port, () => {

@@ -286,6 +286,10 @@ Tasks:
     `PAYMENT_GATEWAY_OPERATOR_ALERT_SINK_PATH`.
   - Alert payloads include report id, critical/warning counts, exception type
     counts, and runbook triage steps.
+  - Current Gateway also opens persistent operator incidents for reconciliation
+    exceptions. Incidents support `open -> acknowledged -> assigned -> resolved`
+    lifecycle through `/v1/operator/incidents...`, and Developer Portal
+    operator/admin tools must access them through the portal gateway BFF.
 - Define SLOs and error budgets.
 
 Acceptance:

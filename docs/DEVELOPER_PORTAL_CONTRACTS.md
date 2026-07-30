@@ -97,6 +97,19 @@ Otherwise the Gateway returns `PORTAL_GATEWAY_SERVICE_ACCESS_DENIED`.
 Operator/admin actions still require operator discovery access, a portal
 session, role permission, and confirmation/MFA for sensitive changes.
 
+Operator incident actions are exposed only to operator/admin sessions:
+
+```http
+GET  /v1/operator/incidents
+GET  /v1/operator/incidents/{incidentId}
+POST /v1/operator/incidents/{incidentId}/acknowledge
+POST /v1/operator/incidents/{incidentId}/assign
+POST /v1/operator/incidents/{incidentId}/resolve
+```
+
+Portal frontend calls these through `/v1/portal/gateway`; it never receives a
+database URL and never writes operational state directly.
+
 ## 1.1 Sandbox And Live Trust Zones
 
 Sandbox and live are separate environments with separate credentials, webhook

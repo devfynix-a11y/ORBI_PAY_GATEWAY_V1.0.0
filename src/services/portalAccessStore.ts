@@ -64,6 +64,7 @@ const ROLE_PERMISSIONS: Record<PortalRole, string[]> = {
     'developer:manage_keys',
     'developer:replay_webhooks',
     'developer:manage_sandbox',
+    'operator:manage_incidents',
   ],
   admin: [
     'developer:request_access',
@@ -75,6 +76,7 @@ const ROLE_PERMISSIONS: Record<PortalRole, string[]> = {
     'developer:manage_keys',
     'developer:replay_webhooks',
     'developer:manage_sandbox',
+    'operator:manage_incidents',
     'portal:manage_users',
     'portal:read_audit',
   ],

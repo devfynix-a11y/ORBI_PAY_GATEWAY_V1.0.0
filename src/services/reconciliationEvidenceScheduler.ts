@@ -1,12 +1,14 @@
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { auditEventSink } from './auditEventSink.js';
-import { operatorAlertSink } from './operatorAlertSink.js';
+import { operatorAlertSink, type OperatorAlert } from './operatorAlertSink.js';
+import { operatorIncidentStore } from './operatorIncidentStore.js';
 import { reconciliationEvidenceService, type ReconciliationEvidenceService } from './reconciliationEvidenceService.js';
 
 type ReconciliationEvidenceSchedulerOptions = {
   service?: ReconciliationEvidenceService;
   alertSink?: typeof operatorAlertSink;
+  incidentStore?: typeof operatorIncidentStore;
   enabled?: boolean;
   intervalMinutes?: number;
   windowHours?: number;
@@ -17,6 +19,7 @@ type ReconciliationEvidenceSchedulerOptions = {
 export class ReconciliationEvidenceScheduler {
   private readonly service: ReconciliationEvidenceService;
   private readonly alertSink: typeof operatorAlertSink;
+  private readonly incidentStore: typeof operatorIncidentStore;
   private readonly enabled: boolean;
   private readonly intervalMinutes: number;
   private readonly windowHours: number;
@@ -28,6 +31,7 @@ export class ReconciliationEvidenceScheduler {
   constructor(options: ReconciliationEvidenceSchedulerOptions = {}) {
     this.service = options.service || reconciliationEvidenceService;
     this.alertSink = options.alertSink || operatorAlertSink;
+    this.incidentStore = options.incidentStore || operatorIncidentStore;
     this.enabled = Boolean(options.enabled ?? config.reconciliation.scheduleEnabled);
     this.intervalMinutes = Math.max(1, Number(options.intervalMinutes ?? config.reconciliation.scheduleIntervalMinutes));
     this.windowHours = Math.max(1, Number(options.windowHours ?? config.reconciliation.scheduleWindowHours));
@@ -147,28 +151,7 @@ export class ReconciliationEvidenceScheduler {
       ? 'Critical reconciliation exceptions detected'
       : 'Reconciliation exceptions detected';
 
-    void auditEventSink.emit({
-      eventType: 'reconciliation.exception_alert.raised',
-      severity,
-      outcome: 'pending',
-      actor: { requestedBy: this.requestedBy },
-      resource: {
-        type: 'reconciliation_evidence_report',
-        id: report.reportId,
-      },
-      metadata: {
-        trigger,
-        exportedPath,
-        exceptionCount: report.summary.exceptionCount,
-        criticalCount,
-        warningCount,
-        exceptionsByType: report.summary.exceptionsByType,
-        from: report.window.from,
-        to: report.window.to,
-      },
-    });
-
-    await this.alertSink.send({
+    const alert: OperatorAlert = {
       alertType: 'reconciliation.exceptions_detected',
       severity,
       title,
@@ -197,7 +180,27 @@ export class ReconciliationEvidenceScheduler {
           'Record operator decision and attach the reportId to the incident record.',
         ],
       },
+    };
+    const incident = await this.incidentStore.createFromAlert(alert);
+    const alertWithIncident = {
+      ...alert,
+      alertId: incident.incidentId,
+      metadata: {
+        ...alert.metadata,
+        incidentId: incident.incidentId,
+      },
+    };
+
+    void auditEventSink.emit({
+      eventType: 'reconciliation.exception_alert.raised',
+      severity,
+      outcome: 'pending',
+      actor: { requestedBy: this.requestedBy },
+      resource: alert.resource,
+      metadata: alertWithIncident.metadata,
     });
+
+    await this.alertSink.send(alertWithIncident);
   }
 }
 
