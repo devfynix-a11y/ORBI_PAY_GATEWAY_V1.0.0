@@ -6,6 +6,8 @@ import type {
   ConnectedConsentRevocationRequest,
   ConsentReceipt,
   ConsentReceiptCreateRequest,
+  ConsentReceiptExport,
+  ConsentReceiptQuery,
   ConsentRevocationRequest,
   ConsentScopeCatalogEntry,
   ConsentStatusQuery,
@@ -362,12 +364,12 @@ export class OrbiPayGatewayClient {
     );
   }
 
-  listConsentReceipts(query: {
-    serviceCode?: string;
-    subjectId?: string;
-    status?: 'active' | 'revoked' | 'expired';
-  } = {}) {
+  listConsentReceipts(query: ConsentReceiptQuery = {}) {
     return this.operatorRequest<ConsentReceipt[]>('GET', `/v1/developer/consent-receipts${queryString(query)}`);
+  }
+
+  exportConsentReceipts(query: ConsentReceiptQuery & { requestedBy?: string } = {}) {
+    return this.operatorRequest<ConsentReceiptExport>('GET', `/v1/developer/consent-receipts/export${queryString(query)}`);
   }
 
   getConsentReceipt(consentId: string) {

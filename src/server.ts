@@ -2364,6 +2364,17 @@ app.get('/v1/developer/consent-receipts', requireOperatorDiscoveryAccess, (req, 
   });
 });
 
+app.get('/v1/developer/consent-receipts/export', requireOperatorDiscoveryAccess, (req, res) => {
+  const serviceCode = String(req.query.serviceCode || '').trim() || undefined;
+  const subjectId = String(req.query.subjectId || '').trim() || undefined;
+  const status = String(req.query.status || '').trim() || undefined;
+  const requestedBy = String(req.query.requestedBy || '').trim() || req.auditContext?.requestId;
+  return res.json({
+    success: true,
+    data: consentReceiptStore.exportAudit({ serviceCode, subjectId, status, requestedBy }),
+  });
+});
+
 app.get('/v1/developer/consent-receipts/:consentId', requireOperatorDiscoveryAccess, (req, res) => {
   try {
     return res.json({

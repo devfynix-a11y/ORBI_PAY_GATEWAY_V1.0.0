@@ -490,6 +490,21 @@ export type ConsentReceipt = ConsentReceiptCreateRequest & {
   revocationReason?: string;
 };
 
+export type ConsentReceiptQuery = {
+  serviceCode?: string;
+  subjectId?: string;
+  status?: 'active' | 'revoked' | 'expired';
+};
+
+export type ConsentReceiptExport = {
+  exportId: string;
+  generatedAt: string;
+  requestedBy?: string;
+  filters: ConsentReceiptQuery;
+  count: number;
+  receipts: ConsentReceipt[];
+};
+
 export type ConnectedConsent = ConsentReceipt & {
   scopeSummary: Array<{
     scope: ConsentScope;

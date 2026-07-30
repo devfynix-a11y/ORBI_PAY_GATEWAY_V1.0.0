@@ -55,6 +55,33 @@ test('consent receipt store persists active and revoked consent evidence', () =>
   }), false);
 });
 
+test('consent receipt store exports audit evidence with filters', () => {
+  const store = new ConsentReceiptStore(path.join(os.tmpdir(), `orbi-consent-${crypto.randomUUID()}.json`));
+  const receipt = store.create({
+    ...createInput(),
+    serviceCode: 'orbi-shop',
+    subjectId: 'user_export',
+    scopes: ['payments:create'],
+  });
+
+  const exportRecord = store.exportAudit({
+    serviceCode: 'orbi-shop',
+    subjectId: 'user_export',
+    status: 'active',
+    requestedBy: 'operator@orbi.example',
+  });
+
+  assert.match(exportRecord.exportId, /^consent_export_/);
+  assert.equal(exportRecord.requestedBy, 'operator@orbi.example');
+  assert.equal(exportRecord.count, 1);
+  assert.equal(exportRecord.receipts[0].consentId, receipt.consentId);
+  assert.deepEqual(exportRecord.filters, {
+    serviceCode: 'orbi-shop',
+    subjectId: 'user_export',
+    status: 'active',
+  });
+});
+
 test('expired consent is not treated as active', () => {
   const store = new ConsentReceiptStore(path.join(os.tmpdir(), `orbi-consent-${crypto.randomUUID()}.json`));
   const receipt = store.create({

@@ -70,6 +70,22 @@ export class ConsentReceiptStore {
       });
   }
 
+  exportAudit(filters: { serviceCode?: string; subjectId?: string; status?: string; requestedBy?: string } = {}) {
+    const receipts = this.list(filters);
+    return {
+      exportId: `consent_export_${crypto.randomUUID()}`,
+      generatedAt: new Date().toISOString(),
+      requestedBy: filters.requestedBy,
+      filters: {
+        serviceCode: filters.serviceCode,
+        subjectId: filters.subjectId,
+        status: filters.status,
+      },
+      count: receipts.length,
+      receipts,
+    };
+  }
+
   get(consentId: string) {
     const receipt = this.state.receipts.find((item) => item.consentId === consentId);
     if (!receipt) throw new Error('CONSENT_RECEIPT_NOT_FOUND');

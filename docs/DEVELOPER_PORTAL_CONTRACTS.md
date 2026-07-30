@@ -403,6 +403,34 @@ revoked -> stop and require explicit fresh consent.
 missing -> stop and start hosted consent.
 ```
 
+Consent audit export is operator/admin-facing and returns an evidence envelope:
+
+```http
+GET /v1/developer/consent-receipts/export?serviceCode=orbi-shop&subjectId=user_001&status=active&requestedBy=operator@orbi.example
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "exportId": "consent_export_...",
+    "generatedAt": "2026-07-30T10:00:00.000Z",
+    "requestedBy": "operator@orbi.example",
+    "filters": {
+      "serviceCode": "orbi-shop",
+      "subjectId": "user_001",
+      "status": "active"
+    },
+    "count": 1,
+    "receipts": []
+  }
+}
+```
+
+Use this export for compliance, support, access-review evidence, and regulator
+preparation. Do not query consent storage directly from portal UI or merchant
+systems.
+
 ## 4.1 Connected Services Consent Center
 
 The Consent Center is user/business-facing. It is not an operator API and it is
