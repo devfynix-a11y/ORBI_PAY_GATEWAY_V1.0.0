@@ -48,6 +48,18 @@ export const config = {
   security: {
     credentialMode: (process.env.PAYMENT_GATEWAY_CREDENTIAL_MODE || 'tokenized') as 'tokenized' | 'direct',
     requireStrongCustomerAuth: boolFromEnv(process.env.PAYMENT_GATEWAY_REQUIRE_STRONG_CUSTOMER_AUTH, true),
+    financialSignatureToleranceSeconds:
+      Number(process.env.PAYMENT_GATEWAY_FINANCIAL_SIGNATURE_TOLERANCE_SECONDS || 300),
+    financialNonceTtlSeconds:
+      Number(process.env.PAYMENT_GATEWAY_FINANCIAL_NONCE_TTL_SECONDS || 600),
+    financialNonceMaxEntries:
+      Number(process.env.PAYMENT_GATEWAY_FINANCIAL_NONCE_MAX_ENTRIES || 100000),
+    financialRateLimitWindowSeconds:
+      Number(process.env.PAYMENT_GATEWAY_FINANCIAL_RATE_LIMIT_WINDOW_SECONDS || 60),
+    financialRateLimitMaxRequests:
+      Number(process.env.PAYMENT_GATEWAY_FINANCIAL_RATE_LIMIT_MAX_REQUESTS || 120),
+    financialRateLimitMaxSubjects:
+      Number(process.env.PAYMENT_GATEWAY_FINANCIAL_RATE_LIMIT_MAX_SUBJECTS || 50000),
   },
   core: {
     baseUrl: process.env.ORBI_CORE_INTERNAL_BASE_URL || 'https://api.orbifinancial.com',

@@ -151,8 +151,10 @@ stable.
 | `PAY_GATEWAY_SIGNATURE_TIMESTAMP_INVALID` | HMAC timestamp is not numeric. | Send Unix timestamp in seconds. |
 | `PAY_GATEWAY_SIGNATURE_TIMESTAMP_STALE` | HMAC timestamp is outside replay tolerance. | Recreate signature with current timestamp. |
 | `PAY_GATEWAY_SIGNATURE_NONCE_REQUIRED` | HMAC nonce is missing or malformed. | Send a unique `x-orbi-nonce`. |
+| `PAY_GATEWAY_SIGNATURE_NONCE_REPLAYED` | HMAC nonce was already used for this service/key. | Generate a new nonce; do not replay signed financial requests. |
 | `PAY_GATEWAY_SIGNATURE_SECRET_MISSING` | Gateway could not resolve a signing secret for this request. | Check service key/auth headers. |
 | `PAY_GATEWAY_SIGNATURE_INVALID` | HMAC signature does not match request body/path. | Do not retry unchanged; rebuild signature over the exact raw body. |
+| `PAY_GATEWAY_RATE_LIMITED` | Service/key exceeded the financial runtime request rate limit. | Back off and retry with the same idempotency key only if the operation is retry-safe. |
 | `CONSENT_SUBJECT_REQUIRED` | Request needs consent but no subject identity was supplied. | Send a stable user, customer, email, phone, or identifier. |
 | `CONSENT_REQUIRED` | Active consent receipt for the requested subject and scope is missing, revoked, or expired. | Start hosted consent/challenge again. |
 

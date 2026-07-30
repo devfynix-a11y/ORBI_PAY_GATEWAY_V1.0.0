@@ -117,6 +117,12 @@ This reference is for maintainability only. It intentionally does not store secr
 | `PAYMENT_GATEWAY_PROVIDER_MANIFEST_JSON` | Runtime | Secret/config | No | Payment gateway only | Inline provider manifest JSON for deployment platforms that do not mount files. |
 | `PAYMENT_GATEWAY_CREDENTIAL_MODE` | Runtime | Non-secret | No | Payment gateway only | Use `tokenized` in production. Direct provider secrets are rejected in production tokenized mode. |
 | `PAYMENT_GATEWAY_REQUIRE_STRONG_CUSTOMER_AUTH` | Runtime | Non-secret | No | Payment gateway only | Requires authenticated SCA/3DS evidence for card-style rails. |
+| `PAYMENT_GATEWAY_FINANCIAL_SIGNATURE_TOLERANCE_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Maximum allowed clock skew for SDK-signed financial requests. Default `300`. |
+| `PAYMENT_GATEWAY_FINANCIAL_NONCE_TTL_SECONDS` | Runtime | Non-secret | No | Payment gateway only | How long a signed request nonce remains blocked against replay. Default `600`. |
+| `PAYMENT_GATEWAY_FINANCIAL_NONCE_MAX_ENTRIES` | Runtime | Non-secret | No | Payment gateway only | Maximum in-memory nonce cache entries per gateway process. Default `100000`. |
+| `PAYMENT_GATEWAY_FINANCIAL_RATE_LIMIT_WINDOW_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Financial request rate limit window per service/key subject. Default `60`. |
+| `PAYMENT_GATEWAY_FINANCIAL_RATE_LIMIT_MAX_REQUESTS` | Runtime | Non-secret | No | Payment gateway only | Maximum financial requests per service/key subject per window. Default `120`. |
+| `PAYMENT_GATEWAY_FINANCIAL_RATE_LIMIT_MAX_SUBJECTS` | Runtime | Non-secret | No | Payment gateway only | Maximum in-memory rate-limit subjects retained per process. Default `50000`. |
 | `<PROVIDER>_API_BASE_URL` | Runtime | Non-secret | No | Payment gateway only | Provider API base URL declared by the provider manifest. |
 | `<PROVIDER>_CREDENTIAL_TOKEN_REF` | Runtime | Secret/config | No | Payment gateway only | Token reference to provider API credentials in vault/HSM/KMS-backed storage. |
 | `<PROVIDER>_WEBHOOK_SECRET_TOKEN_REF` | Runtime | Secret/config | No | Payment gateway only | Token reference to provider webhook verification secret. |

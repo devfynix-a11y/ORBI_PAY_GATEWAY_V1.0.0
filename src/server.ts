@@ -26,6 +26,11 @@ import {
 import { webhookDeliveryStore } from './services/webhookDeliveryStore.js';
 import { verifySignedInternalHeaders } from './security/internalSigner.js';
 import {
+  assertFinancialRateLimit,
+  assertFreshTimestamp,
+  assertNonceNotReplayed,
+} from './security/financialRequestGuard.js';
+import {
   buildApiErrorBody,
   errorCodeFromException,
   httpStatusForGatewayError,
@@ -487,7 +492,20 @@ const timingSafeEqualHex = (left: string, right: string): boolean => {
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
 };
 
-const assertFinancialRequestSignature = (req: express.Request) => {
+const financialCredentialSubject = (
+  service: PayServiceDefinition | undefined,
+  credential: AuthenticatedPayService['credential'] | undefined,
+) => [
+  service?.code || 'unknown-service',
+  credential?.source || 'unknown-source',
+  credential?.environment || 'unknown-environment',
+  credential?.keyId || credential?.fingerprint || 'unknown-key',
+].join(':');
+
+const assertFinancialRequestSignature = (
+  req: express.Request,
+  subject: string,
+) => {
   const signatureHeader = String(req.headers['x-orbi-signature'] || '').trim();
   const timestampHeader = String(req.headers['x-orbi-timestamp'] || '').trim();
   const nonceHeader = String(req.headers['x-orbi-nonce'] || '').trim();
@@ -496,11 +514,7 @@ const assertFinancialRequestSignature = (req: express.Request) => {
   if (!nonceHeader || nonceHeader.length < 12 || nonceHeader.length > 120) {
     throw new Error('PAY_GATEWAY_SIGNATURE_NONCE_REQUIRED');
   }
-  const timestamp = Number(timestampHeader);
-  if (!Number.isFinite(timestamp)) throw new Error('PAY_GATEWAY_SIGNATURE_TIMESTAMP_INVALID');
-  if (Math.abs(Math.floor(Date.now() / 1000) - timestamp) > 300) {
-    throw new Error('PAY_GATEWAY_SIGNATURE_TIMESTAMP_STALE');
-  }
+  assertFreshTimestamp(timestampHeader, config.security.financialSignatureToleranceSeconds);
   const secret = extractServiceApiKey(req);
   if (!secret) throw new Error('PAY_GATEWAY_SIGNATURE_SECRET_MISSING');
   const signature = signatureHeader.replace(/^sha256=/i, '').trim();
@@ -516,6 +530,11 @@ const assertFinancialRequestSignature = (req: express.Request) => {
   ].join('.');
   const expected = crypto.createHmac('sha256', secret).update(canonical).digest('hex');
   if (!timingSafeEqualHex(signature, expected)) throw new Error('PAY_GATEWAY_SIGNATURE_INVALID');
+  assertNonceNotReplayed(subject, nonceHeader, {
+    timestampToleranceSeconds: config.security.financialSignatureToleranceSeconds,
+    nonceTtlSeconds: config.security.financialNonceTtlSeconds,
+    maxNonces: config.security.financialNonceMaxEntries,
+  });
 };
 
 const assertFinancialRuntimeRequest = (
@@ -524,10 +543,17 @@ const assertFinancialRuntimeRequest = (
   payload: Record<string, unknown> = {},
 ) => {
   const environment = requireRuntimeEnvironment(req);
+  const service = res.locals.payService as PayServiceDefinition | undefined;
   const credential = res.locals.payServiceCredential as AuthenticatedPayService['credential'] | undefined;
   assertServiceCredentialEnvironment(credential, environment);
+  const subject = financialCredentialSubject(service, credential);
+  assertFinancialRateLimit(subject, {
+    windowMs: config.security.financialRateLimitWindowSeconds * 1000,
+    maxRequests: config.security.financialRateLimitMaxRequests,
+    maxSubjects: config.security.financialRateLimitMaxSubjects,
+  });
   if (!requestIdempotencyKey(req, payload)) throw new Error('PAY_GATEWAY_IDEMPOTENCY_KEY_REQUIRED');
-  assertFinancialRequestSignature(req);
+  assertFinancialRequestSignature(req, subject);
   return environment;
 };
 
