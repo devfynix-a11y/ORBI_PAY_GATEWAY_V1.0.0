@@ -39,6 +39,8 @@ PAYMENT_GATEWAY_PROVIDER_MODE=live
 PAYMENT_GATEWAY_ALLOWED_BROWSER_ORIGINS=https://pay.orbifinancial.com,https://shop.orbifinancial.com,https://developers.orbifinancial.com
 PAYMENT_GATEWAY_REQUIRE_SIGNED_INTERNAL_INGRESS=true
 PAYMENT_GATEWAY_REQUEST_AUDIT_ENABLED=true
+PAYMENT_GATEWAY_AUDIT_EVENT_SINK_URL=<optional-siem-http-json-endpoint>
+# or PAYMENT_GATEWAY_AUDIT_EVENT_SINK_PATH=/app/audit/events.jsonl
 
 ORBI_CORE_INTERNAL_BASE_URL=http://core:3000
 PAYMENT_GATEWAY_ALLOW_PRIVATE_HTTP_CORE=true
@@ -72,6 +74,8 @@ PAYMENT_GATEWAY_PROVIDER_MODE=sandbox
 PAYMENT_GATEWAY_ALLOWED_BROWSER_ORIGINS=https://sandbox-pay.orbifinancial.com,https://shop.orbifinancial.com,https://developers.orbifinancial.com
 PAYMENT_GATEWAY_REQUIRE_SIGNED_INTERNAL_INGRESS=true
 PAYMENT_GATEWAY_REQUEST_AUDIT_ENABLED=true
+PAYMENT_GATEWAY_AUDIT_EVENT_SINK_URL=<optional-sandbox-siem-http-json-endpoint>
+# or PAYMENT_GATEWAY_AUDIT_EVENT_SINK_PATH=/app/audit/sandbox-events.jsonl
 
 DATABASE_URL=<sandbox-pay-gateway-database-url>
 ORBI_SECRET_ENCRYPTION_KEY=<sandbox-only-secret-encryption-key>

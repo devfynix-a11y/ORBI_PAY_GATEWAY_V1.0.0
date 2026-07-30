@@ -256,6 +256,13 @@ Tasks:
 - Add dashboards for Gateway, Core callbacks, provider readiness, webhook
   delivery, hosted challenges, payment intents, reconciliation, and mTLS.
 - Stream security/audit events to SIEM-compatible sinks.
+  - Current gateway implementation supports non-blocking HTTP JSON sinks through
+    `PAYMENT_GATEWAY_AUDIT_EVENT_SINK_URL` or JSONL sinks through
+    `PAYMENT_GATEWAY_AUDIT_EVENT_SINK_PATH`.
+  - Events redact secrets, API keys, signatures, authorization tokens, OTPs,
+    PINs, and private keys before delivery.
+  - Sink failures are logged as warnings and must not block payment, escrow,
+    webhook, or OAuth runtime flows.
 - Add alerts for callback failures, mTLS expiry, webhook failure spikes,
   auth anomalies, idempotency reuse, and reconciliation mismatches.
 - Define SLOs and error budgets.

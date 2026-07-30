@@ -77,6 +77,7 @@ import { ServiceConsentGuard, subjectIdForConsent } from './services/serviceCons
 import { scopeForPaymentIntent, scopeForPaymentOperation } from './services/serviceScopePolicy.js';
 import { buildDeveloperHealthSummary } from './services/developerHealthService.js';
 import { serviceAccessTokenRevocationStore } from './services/serviceAccessTokenRevocationStore.js';
+import { auditEventSink } from './services/auditEventSink.js';
 import {
   developerDocsCatalog,
   developerSandboxToolsCatalog,
@@ -1002,6 +1003,7 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     if (!config.security.requestAuditEnabled) return;
     if (req.path === '/health' || req.path === '/ready') return;
+    const durationMs = Date.now() - auditContext.startedAtMs;
     logger.info('http.request_completed', {
       requestId: auditContext.requestId,
       traceId: auditContext.traceId,
@@ -1009,9 +1011,28 @@ app.use((req, res, next) => {
       method: req.method,
       path: req.path,
       statusCode: res.statusCode,
-      durationMs: Date.now() - auditContext.startedAtMs,
+      durationMs,
       origin: req.get('origin') || undefined,
       userAgent: req.get('user-agent') || undefined,
+    });
+    void auditEventSink.emit({
+      eventType: 'gateway.http.request_completed',
+      severity: res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warning' : 'info',
+      outcome: res.statusCode >= 400 ? 'failure' : 'success',
+      requestId: auditContext.requestId,
+      traceId: auditContext.traceId,
+      correlationId: auditContext.correlationId,
+      resource: {
+        type: 'http_route',
+        method: req.method,
+        path: req.path,
+      },
+      metadata: {
+        statusCode: res.statusCode,
+        durationMs,
+        origin: req.get('origin') || undefined,
+        userAgent: req.get('user-agent') || undefined,
+      },
     });
   });
 
@@ -1372,6 +1393,27 @@ const serviceTokenHandler = (req: express.Request, res: express.Response) => {
       environment: authenticated.credential.environment,
       scopes: issuedScopes,
     });
+    void auditEventSink.emit({
+      eventType: 'oauth.service_access_token.issued',
+      severity: 'info',
+      outcome: 'success',
+      requestId: res.locals.auditContext?.requestId,
+      traceId: res.locals.auditContext?.traceId,
+      correlationId: res.locals.auditContext?.correlationId,
+      actor: {
+        serviceCode: authenticated.service.code,
+        environment: authenticated.credential.environment,
+      },
+      resource: {
+        type: 'service_access_token',
+        keyId: authenticated.credential.keyId,
+        tokenId: issued.claims.jti,
+      },
+      metadata: {
+        scopes: issued.claims.scopes,
+        expiresAt: new Date(issued.claims.exp * 1000).toISOString(),
+      },
+    });
     return res.json({
       access_token: issued.accessToken,
       token_type: 'Bearer',
@@ -1462,6 +1504,26 @@ const serviceTokenRevocationHandler = async (req: express.Request, res: express.
       },
     });
     const claims = revokeServiceAccessToken(parsed.data.token);
+    void auditEventSink.emit({
+      eventType: 'oauth.service_access_token.revoked',
+      severity: 'warning',
+      outcome: 'success',
+      requestId: res.locals.auditContext?.requestId,
+      traceId: res.locals.auditContext?.traceId,
+      correlationId: res.locals.auditContext?.correlationId,
+      actor: {
+        serviceCode: authenticated.service.code,
+        environment: authenticated.credential.environment,
+      },
+      resource: {
+        type: 'service_access_token',
+        keyId: claims.keyId,
+        tokenId: claims.jti,
+      },
+      metadata: {
+        revokedBy: authenticated.service.code,
+      },
+    });
     return res.json({
       success: true,
       data: {

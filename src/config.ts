@@ -77,6 +77,12 @@ export const config = {
     oauthIssuerUrl:
       process.env.PAYMENT_GATEWAY_OAUTH_ISSUER_URL || process.env.PAYMENT_GATEWAY_PUBLIC_BASE_URL || 'https://pay.orbifinancial.com',
   },
+  observability: {
+    auditEventSinkUrl:
+      process.env.PAYMENT_GATEWAY_AUDIT_EVENT_SINK_URL || process.env.PAYMENT_GATEWAY_SIEM_SINK_URL || '',
+    auditEventSinkPath: process.env.PAYMENT_GATEWAY_AUDIT_EVENT_SINK_PATH || '',
+    auditEventSinkTimeoutMs: Number(process.env.PAYMENT_GATEWAY_AUDIT_EVENT_SINK_TIMEOUT_MS || 1500),
+  },
   core: {
     baseUrl: process.env.ORBI_CORE_INTERNAL_BASE_URL || 'https://api.orbifinancial.com',
     allowPrivateHttp:

@@ -146,10 +146,15 @@ const controls = [
   ),
   control(
     'observability.siem',
-    hasValue('PAYMENT_GATEWAY_AUDIT_EVENT_SINK_URL') || hasValue('PAYMENT_GATEWAY_SIEM_SINK_URL') ? 'pass' : 'attention',
+    hasValue('PAYMENT_GATEWAY_AUDIT_EVENT_SINK_URL') ||
+      hasValue('PAYMENT_GATEWAY_SIEM_SINK_URL') ||
+      hasValue('PAYMENT_GATEWAY_AUDIT_EVENT_SINK_PATH')
+      ? 'pass'
+      : 'attention',
     {
       auditSinkConfigured: hasValue('PAYMENT_GATEWAY_AUDIT_EVENT_SINK_URL'),
       siemSinkConfigured: hasValue('PAYMENT_GATEWAY_SIEM_SINK_URL'),
+      auditJsonlSinkConfigured: hasValue('PAYMENT_GATEWAY_AUDIT_EVENT_SINK_PATH'),
     },
     'Stream security, audit, webhook, and reconciliation events to SIEM-compatible storage.',
   ),
