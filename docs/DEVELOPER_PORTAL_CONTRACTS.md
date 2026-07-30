@@ -467,7 +467,9 @@ Response:
 ```
 
 Revocation is service-scoped: a service cannot introspect or revoke another
-service's token.
+service's token. Revoked token IDs are persisted in the Gateway database so a
+revoked token remains blocked after container restart until its original expiry
+has safely aged out.
 
 Runtime scope enforcement:
 

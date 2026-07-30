@@ -174,6 +174,8 @@ Tasks:
 - Add authorization-code + PKCE for browser/mobile-safe consent.
 - Add client-credentials for server-to-server approved services.
 - Add token introspection and revocation.
+- Persist service access token revocations in Postgres so revoked tokens remain
+  blocked across container restarts.
 - Bind access tokens to service, environment, scopes, consent receipt, and
   risk profile.
 - Keep API keys only as bootstrap credentials for token exchange.
@@ -182,7 +184,7 @@ Acceptance:
 
 ```text
 Runtime financial APIs accept short-lived scoped access tokens, reject expired
-or revoked tokens, and record consent/audit evidence.
+or revoked tokens across restarts, and record consent/audit evidence.
 ```
 
 ### Stage 3: KMS-Compatible Secret Custody

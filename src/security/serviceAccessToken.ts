@@ -70,7 +70,14 @@ export const issueServiceAccessToken = (input: {
   };
 };
 
-export const verifyServiceAccessToken = (token: string): ServiceAccessTokenClaims => {
+export const rememberRevokedServiceAccessTokenIds = (jtis: string[]) => {
+  for (const jti of jtis) {
+    const normalized = String(jti || '').trim();
+    if (normalized) revokedTokenIds.add(normalized);
+  }
+};
+
+export const readServiceAccessTokenClaims = (token: string): ServiceAccessTokenClaims => {
   const value = token.trim();
   if (!isServiceAccessToken(value)) throw new Error('SERVICE_ACCESS_TOKEN_INVALID');
   const tokenBody = value.slice(SERVICE_ACCESS_TOKEN_PREFIX.length);
@@ -94,6 +101,11 @@ export const verifyServiceAccessToken = (token: string): ServiceAccessTokenClaim
   if (parsed.exp <= Math.floor(Date.now() / 1000)) {
     throw new Error('SERVICE_ACCESS_TOKEN_EXPIRED');
   }
+  return parsed;
+};
+
+export const verifyServiceAccessToken = (token: string): ServiceAccessTokenClaims => {
+  const parsed = readServiceAccessTokenClaims(token);
   if (revokedTokenIds.has(parsed.jti)) {
     throw new Error('SERVICE_ACCESS_TOKEN_REVOKED');
   }

@@ -8,6 +8,7 @@ import {
   revokeServiceAccessToken,
   verifyServiceAccessToken,
 } from '../src/security/serviceAccessToken.js';
+import { ServiceAccessTokenRevocationStore } from '../src/services/serviceAccessTokenRevocationStore.js';
 
 test('service access token is signed and verifies stable claims', () => {
   config.security.serviceAccessTokenSecret = 'unit-test-service-access-token-secret';
@@ -57,6 +58,29 @@ test('service access token introspection reports revocation state', () => {
   assert.equal(introspectServiceAccessToken(issued.accessToken).active, true);
   const claims = revokeServiceAccessToken(issued.accessToken);
   assert.equal(claims.serviceCode, 'orbi-shop');
+  assert.equal(introspectServiceAccessToken(issued.accessToken).active, false);
+  assert.throws(() => verifyServiceAccessToken(issued.accessToken), /SERVICE_ACCESS_TOKEN_REVOKED/);
+});
+
+test('service access token revocation store marks tokens revoked', async () => {
+  config.security.serviceAccessTokenSecret = 'unit-test-service-access-token-secret';
+  const store = ServiceAccessTokenRevocationStore.inMemory();
+  const issued = issueServiceAccessToken({
+    serviceCode: 'orbi-shop',
+    keyId: 'key_store_revoke_001',
+    fingerprint: 'abcdef1234567890abcdef12',
+    environment: 'live',
+    scopes: ['payments:create'],
+    ttlSeconds: 120,
+  });
+
+  assert.equal(introspectServiceAccessToken(issued.accessToken).active, true);
+  await store.recordRevocation({
+    claims: verifyServiceAccessToken(issued.accessToken),
+    revokedBy: 'unit-test',
+    reason: 'Exercise persistent revocation path.',
+  });
+
   assert.equal(introspectServiceAccessToken(issued.accessToken).active, false);
   assert.throws(() => verifyServiceAccessToken(issued.accessToken), /SERVICE_ACCESS_TOKEN_REVOKED/);
 });

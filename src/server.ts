@@ -42,6 +42,7 @@ import {
   isServiceAccessToken,
   issueServiceAccessToken,
   introspectServiceAccessToken,
+  readServiceAccessTokenClaims,
   revokeServiceAccessToken,
 } from './security/serviceAccessToken.js';
 import {
@@ -75,6 +76,7 @@ import { portalAccessStore, type PortalRole } from './services/portalAccessStore
 import { ServiceConsentGuard, subjectIdForConsent } from './services/serviceConsentGuard.js';
 import { scopeForPaymentIntent, scopeForPaymentOperation } from './services/serviceScopePolicy.js';
 import { buildDeveloperHealthSummary } from './services/developerHealthService.js';
+import { serviceAccessTokenRevocationStore } from './services/serviceAccessTokenRevocationStore.js';
 import {
   developerDocsCatalog,
   developerSandboxToolsCatalog,
@@ -1437,7 +1439,7 @@ const serviceTokenIntrospectionHandler = (req: express.Request, res: express.Res
   }
 };
 
-const serviceTokenRevocationHandler = (req: express.Request, res: express.Response) => {
+const serviceTokenRevocationHandler = async (req: express.Request, res: express.Response) => {
   const parsed = OAuthTokenControlRequestSchema.safeParse(req.body || {});
   if (!parsed.success) {
     return sendValidationError(res, 'OAUTH_TOKEN_REVOCATION_INVALID', parsed.error.issues);
@@ -1449,6 +1451,16 @@ const serviceTokenRevocationHandler = (req: express.Request, res: express.Respon
     if (!introspected.active || introspected.claims.serviceCode !== authenticated.service.code) {
       return res.status(200).json({ success: true, data: { revoked: false } });
     }
+    const unrevokedClaims = readServiceAccessTokenClaims(parsed.data.token);
+    await serviceAccessTokenRevocationStore.recordRevocation({
+      claims: unrevokedClaims,
+      revokedBy: authenticated.service.code,
+      reason: 'Service access token revoked by OAuth client.',
+      metadata: {
+        requestId: res.locals.auditContext?.requestId,
+        correlationId: res.locals.auditContext?.correlationId,
+      },
+    });
     const claims = revokeServiceAccessToken(parsed.data.token);
     return res.json({
       success: true,
@@ -3074,6 +3086,7 @@ const start = async () => {
   requireGatewayRuntimeSecrets();
   rejectUnsafeDirectSecretsInProduction();
   await developerPortalStore.initialize();
+  await serviceAccessTokenRevocationStore.initialize();
 
   app.listen(config.port, () => {
     logger.info('payment_gateway_started', {

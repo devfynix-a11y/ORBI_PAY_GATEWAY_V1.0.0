@@ -71,8 +71,10 @@ const controls = [
     {
       serviceAccessTokenSecretConfigured: hasValue('PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET'),
       operatorDiscoveryKeyConfigured: hasValue('PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY'),
+      persistentRevocationConfigured:
+        hasValue('PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET') && hasValue('DATABASE_URL'),
     },
-    'Configure service access token secret and keep runtime tokens short-lived.',
+    'Configure service access token secret, keep runtime tokens short-lived, and persist revocations in the Gateway database.',
   ),
   control(
     'secrets.encryption',
