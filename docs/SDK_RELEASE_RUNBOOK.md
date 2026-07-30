@@ -133,6 +133,7 @@ npm run sdk:publish -- -PythonOnly
 3. Confirm webhook verification rejects invalid signatures.
 4. Tag the release in Git.
 5. Update Developer Portal SDK catalog with the published versions.
+6. Update [SDK Changelog](./SDK_CHANGELOG.md) with developer-facing changes.
 
 Never publish SDKs from a machine where production service keys are printed in
 terminal history. Registry tokens must be rotated if accidentally exposed.

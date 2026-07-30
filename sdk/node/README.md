@@ -15,7 +15,7 @@ Vite client bundles.
 ## Install
 
 ```bash
-npm install @orbifinancial/pay-gateway@^0.1.1
+npm install @orbifinancial/pay-gateway@^0.1.3
 ```
 
 Local development from this repo:
