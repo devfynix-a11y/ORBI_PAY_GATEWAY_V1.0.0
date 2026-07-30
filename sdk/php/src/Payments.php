@@ -18,9 +18,9 @@ final class Payments
         return $this->client->createCheckoutPaymentIntent($payload, $options);
     }
 
-    public function getIntent(string $intentId): array
+    public function getIntent(string $intentId, array $options = []): array
     {
-        return $this->client->getPaymentIntent($intentId);
+        return $this->client->getPaymentIntent($intentId, $options);
     }
 
     public function nextAction(array $intent): array

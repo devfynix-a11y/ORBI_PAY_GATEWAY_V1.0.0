@@ -104,8 +104,8 @@ export class OrbiPayGatewayClient {
     }, options);
   }
 
-  getPaymentIntent(intentId: string) {
-    return this.request<PaymentIntent>('GET', `/v1/payment-intents/${encodeURIComponent(intentId)}`);
+  getPaymentIntent(intentId: string, options: OrbiRequestOptions = {}) {
+    return this.request<PaymentIntent>('GET', `/v1/payment-intents/${encodeURIComponent(intentId)}`, undefined, options);
   }
 
   confirmPaymentIntent(intentId: string, payload: Record<string, unknown> = {}, options: OrbiRequestOptions = {}) {
@@ -447,7 +447,7 @@ export class OrbiPayGatewayClient {
     if (options.requestId) headers['x-request-id'] = options.requestId;
     const requestBody = method === 'GET' ? undefined : JSON.stringify(payload || {});
     if (method !== 'GET') headers['content-type'] = 'application/json';
-    if (this.requestSigning && includeServiceKey && this.serviceKey && method !== 'GET') {
+    if (this.requestSigning && includeServiceKey && this.serviceKey) {
       Object.assign(headers, signOrbiRuntimeRequest({
         method,
         path,

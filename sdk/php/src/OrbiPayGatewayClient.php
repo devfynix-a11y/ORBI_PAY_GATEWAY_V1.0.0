@@ -52,9 +52,9 @@ final class OrbiPayGatewayClient
         return $this->createPaymentIntent($payload, $options);
     }
 
-    public function getPaymentIntent(string $intentId): array
+    public function getPaymentIntent(string $intentId, array $options = []): array
     {
-        return $this->request('GET', '/v1/payment-intents/' . rawurlencode($intentId));
+        return $this->request('GET', '/v1/payment-intents/' . rawurlencode($intentId), null, $options);
     }
 
     public function nextAction(array $intent): array
@@ -127,7 +127,7 @@ final class OrbiPayGatewayClient
         if ($method !== 'GET') {
             $headers[] = 'content-type: application/json';
         }
-        if ($this->requestSigning && $method !== 'GET') {
+        if ($this->requestSigning) {
             foreach (self::signRequest($method, $path, $body ?: '', $this->requestSigningSecret ?: $signingSecret) as $key => $value) {
                 $headers[] = $key . ': ' . $value;
             }

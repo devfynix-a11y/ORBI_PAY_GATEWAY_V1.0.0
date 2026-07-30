@@ -553,7 +553,11 @@ const assertFinancialRequestSignature = (
   if (!secret) throw new Error('PAY_GATEWAY_SIGNATURE_SECRET_MISSING');
   const signature = signatureHeader.replace(/^sha256=/i, '').trim();
   if (!/^[a-f0-9]{64}$/i.test(signature)) throw new Error('PAY_GATEWAY_SIGNATURE_INVALID');
-  const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body || {});
+  const rawBody = req.rawBody
+    ? req.rawBody.toString('utf8')
+    : ['GET', 'HEAD'].includes(req.method.toUpperCase())
+      ? ''
+      : JSON.stringify(req.body || {});
   const bodyHash = crypto.createHash('sha256').update(rawBody).digest('hex');
   const canonical = [
     timestampHeader,
@@ -606,6 +610,16 @@ const assertSignedRuntimeRequest = (
     maxSubjects: config.security.financialRateLimitMaxSubjects,
   });
   assertFinancialRequestSignature(req, subject);
+  return environment;
+};
+
+const assertSignedRuntimeMutationRequest = (
+  req: express.Request,
+  res: express.Response,
+  payload: Record<string, unknown> = {},
+) => {
+  const environment = assertSignedRuntimeRequest(req, res);
+  if (!requestIdempotencyKey(req, payload)) throw new Error('PAY_GATEWAY_IDEMPOTENCY_KEY_REQUIRED');
   return environment;
 };
 
@@ -1375,6 +1389,7 @@ app.post('/v1/payment-intents', requirePayServiceAccess, async (req, res) => {
 app.get('/v1/payment-intents/:intentId', requirePayServiceAccess, (req, res) => {
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    assertSignedRuntimeRequest(req, res);
     const intent = paymentIntentStore.get(service.code, String(req.params.intentId || ''));
     serviceConsentGuard.assertServiceScopeGranted(service, scopeForPaymentIntent(intent));
     return res.json({ success: true, data: sanitizePaymentIntent(intent) });
@@ -1485,6 +1500,7 @@ const queryPaySafeBalancesForService = async (req: express.Request, res: express
 
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    assertSignedRuntimeRequest(req, res);
     const subjectId = subjectIdForConsent(parsed.data);
     serviceConsentGuard.assertScopedConsent(service, 'balance:read', {
       subjectId,
@@ -1566,7 +1582,7 @@ app.post('/v1/business/registrations', requirePayServiceAccess, async (req, res)
 
   try {
     const service = res.locals.payService as PayServiceDefinition;
-    assertSignedRuntimeRequest(req, res);
+    assertSignedRuntimeMutationRequest(req, res, parsed.data as Record<string, unknown>);
     serviceConsentGuard.assertServiceScopeGranted(service, 'business_registration:create');
     const body = parsed.data;
     const coreResult = await orbiCoreClient.submitBusinessRegistration({
@@ -1605,7 +1621,7 @@ app.post('/v1/payment-profiles', requirePayServiceAccess, async (req, res) => {
   try {
     const service = res.locals.payService as PayServiceDefinition;
     const body = parsed.data;
-    assertSignedRuntimeRequest(req, res);
+    assertSignedRuntimeMutationRequest(req, res, body as Record<string, unknown>);
     serviceConsentGuard.assertServiceScopeGranted(service, 'payment_profile:create');
     const subjectId = subjectIdForConsent(body);
     serviceConsentGuard.assertActiveConsent(service, {
@@ -1646,6 +1662,7 @@ app.post('/v1/payment-profiles', requirePayServiceAccess, async (req, res) => {
 app.get('/v1/merchant/paysafe/balance', requirePayServiceAccess, async (req, res) => {
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    assertSignedRuntimeRequest(req, res);
     serviceConsentGuard.assertServiceScopeGranted(service, 'balance:read');
     const merchantContext = requireServiceMerchantContext(service);
     const coreResult = await orbiCoreClient.queryPaySafeBalances({
@@ -1668,6 +1685,7 @@ app.get('/v1/merchant/paysafe/balance', requirePayServiceAccess, async (req, res
 app.get('/v1/merchant/orders/:orderId/payment-status', requirePayServiceAccess, async (req, res) => {
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    assertSignedRuntimeRequest(req, res);
     serviceConsentGuard.assertServiceScopeGranted(service, 'escrow:read');
     const merchantContext = requireServiceMerchantContext(service);
     const orderId = String(req.params.orderId || '').trim();
@@ -1696,6 +1714,7 @@ app.get('/v1/merchant/settlements', requirePayServiceAccess, async (req, res) =>
 
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    assertSignedRuntimeRequest(req, res);
     serviceConsentGuard.assertServiceScopeGranted(service, 'balance:read');
     const merchantContext = requireServiceMerchantContext(service);
     const coreResult = await orbiCoreClient.queryMerchantSettlements({

@@ -75,8 +75,8 @@ class OrbiPayGatewayClient:
     def create_checkout_payment_intent(self, payload: Json, **options: Any) -> Json:
         return self.create_payment_intent({**payload, "confirm": payload.get("confirm", True)}, **options)
 
-    def get_payment_intent(self, intent_id: str) -> Json:
-        return self._request("GET", f"/v1/payment-intents/{intent_id}")
+    def get_payment_intent(self, intent_id: str, **options: Any) -> Json:
+        return self._request("GET", f"/v1/payment-intents/{intent_id}", None, options)
 
     def confirm_payment_intent(self, intent_id: str, payload: Json | None = None, **options: Any) -> Json:
         return self._request("POST", f"/v1/payment-intents/{intent_id}/confirm", payload or {}, options)
@@ -139,7 +139,7 @@ class OrbiPayGatewayClient:
             headers["x-request-id"] = options["request_id"]
         if method != "GET":
             headers["content-type"] = "application/json"
-        if self.request_signing and self.service_key and method != "GET":
+        if self.request_signing and self.service_key:
             headers.update(_sign_request(method, path, body or "", self.request_signing_secret or signing_secret))
         status, response = self.fetch(f"{self.base_url}{path}", method, headers, body)
         if status >= 400 and not isinstance(response, dict):
@@ -217,8 +217,8 @@ class _Payments:
     def checkout(self, payload: Json, **options: Any) -> Json:
         return self.client.create_checkout_payment_intent(payload, **options)
 
-    def get_intent(self, intent_id: str) -> Json:
-        return self.client.get_payment_intent(intent_id)
+    def get_intent(self, intent_id: str, **options: Any) -> Json:
+        return self.client.get_payment_intent(intent_id, **options)
 
     def confirm_intent(self, intent_id: str, payload: Json | None = None, **options: Any) -> Json:
         return self.client.confirm_payment_intent(intent_id, payload, **options)

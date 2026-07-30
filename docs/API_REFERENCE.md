@@ -123,19 +123,21 @@ x-orbi-nonce: <unique-nonce>
 Content-Type: application/json
 ```
 
-Financial runtime requests must include `x-orbi-environment` and a stable
-`Idempotency-Key`. Demo requests use sandbox keys. Production requests use live
-keys. A sandbox key cannot execute production requests, and a live key cannot be
-used as a demo key.
+Financial runtime requests must include `x-orbi-environment`. Financial
+mutations must also include a stable `Idempotency-Key`. Demo requests use
+sandbox keys. Production requests use live keys. A sandbox key cannot execute
+production requests, and a live key cannot be used as a demo key.
 
-Financial POST requests are HMAC signed. The canonical string is:
+Financial runtime requests, including sensitive reads and all mutations, are
+HMAC signed. The canonical string is:
 
 ```text
 <timestamp>.<nonce>.<METHOD>.<path-with-query>.<sha256-hex-raw-body>
 ```
 
 The SDK signs this automatically. Raw HTTP integrations must send
-`x-orbi-signature`, `x-orbi-timestamp`, and `x-orbi-nonce`.
+`x-orbi-signature`, `x-orbi-timestamp`, and `x-orbi-nonce`. For signed GET/HEAD
+requests, the raw body is an empty string.
 
 ```json
 {

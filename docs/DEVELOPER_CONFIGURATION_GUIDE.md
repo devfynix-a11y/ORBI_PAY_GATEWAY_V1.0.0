@@ -71,7 +71,7 @@ ORBI_PAY_WEBHOOK_SECRET=orbi_whsec_live_xxx
 ## 3. Required Request Headers
 
 The official SDK exchanges the service key for a short-lived access token and
-sends these automatically for financial POST requests.
+sends these automatically for signed runtime requests.
 
 ```http
 content-type: application/json
@@ -98,8 +98,9 @@ createOrbi({
 New production integrations should use `authMode: 'access_token'`.
 
 Identity lookup, business registration, payment profile, and financial runtime
-POST requests must declare the environment and include a valid SDK signature.
-Financial commit routes also require a stable idempotency key.
+requests must declare the environment and include a valid SDK signature.
+Sensitive reads are signed with an empty body. Business registration, payment
+profile, and financial mutation routes also require a stable idempotency key.
 
 Use one stable idempotency key per business operation:
 

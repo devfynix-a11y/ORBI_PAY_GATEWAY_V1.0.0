@@ -72,6 +72,31 @@ class PythonSdkTest(unittest.TestCase):
         self.assertNotIn("x-orbi-pay-service-key", calls[1]["headers"])
         self.assertIn("x-orbi-signature", calls[1]["headers"])
 
+    def test_sensitive_runtime_read_is_signed(self):
+        captured = {}
+
+        def fake_fetch(url, method, headers, body):
+            captured.update({"url": url, "method": method, "headers": headers, "body": body})
+            return 200, {"success": True, "data": {"id": "pi_1", "status": "processing"}}
+
+        orbi = Orbi(
+            base_url="https://sandbox-pay.orbifinancial.com",
+            service_key="sk_test",
+            environment="Demo",
+            fetch=fake_fetch,
+        )
+        response = orbi.payments.get_intent("pi_1", request_id="req-read-1")
+
+        self.assertTrue(response["success"])
+        self.assertEqual(captured["url"], "https://sandbox-pay.orbifinancial.com/v1/payment-intents/pi_1")
+        self.assertEqual(captured["method"], "GET")
+        self.assertIsNone(captured["body"])
+        self.assertEqual(captured["headers"]["x-orbi-environment"], "demo")
+        self.assertEqual(captured["headers"]["x-request-id"], "req-read-1")
+        self.assertIn("x-orbi-signature", captured["headers"])
+        self.assertIn("x-orbi-timestamp", captured["headers"])
+        self.assertIn("x-orbi-nonce", captured["headers"])
+
     def test_payment_next_action_redirects_hosted_challenge(self):
         orbi = Orbi(base_url="https://sandbox-pay.orbifinancial.com", service_key="sk_test")
         action = orbi.payments.next_action({

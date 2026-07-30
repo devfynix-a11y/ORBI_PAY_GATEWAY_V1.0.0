@@ -64,6 +64,44 @@ test('client exchanges service key for access token and signs runtime request wi
   assert.match((calls[1].init.headers as Record<string, string>)['x-orbi-nonce'], /^[0-9a-f-]{36}$/);
 });
 
+test('client signs sensitive runtime read requests', async () => {
+  const calls: Array<{ url: string; init: RequestInit }> = [];
+  const client = new OrbiPayGatewayClient({
+    baseUrl: 'https://pay.example',
+    serviceKey: 'svc_test_key',
+    environment: 'Demo',
+    fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init || {} });
+      return new Response(JSON.stringify({
+        success: true,
+        data: {
+          id: 'pi_123',
+          serviceCode: 'merchant',
+          operation: 'collection',
+          reference: 'ORDER-1',
+          amount: 1000,
+          currency: 'TZS',
+          status: 'processing',
+          checkoutUrl: 'https://pay.example/checkout/pi_123',
+          createdAt: '2026-07-23T00:00:00.000Z',
+          updatedAt: '2026-07-23T00:00:00.000Z',
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch,
+  });
+
+  const response = await client.getPaymentIntent('pi_123', { requestId: 'req-read-1' });
+
+  assert.equal(response.success, true);
+  assert.equal(calls[0].url, 'https://pay.example/v1/payment-intents/pi_123');
+  assert.equal(calls[0].init.body, undefined);
+  assert.equal((calls[0].init.headers as Record<string, string>)['x-orbi-environment'], 'demo');
+  assert.equal((calls[0].init.headers as Record<string, string>)['x-request-id'], 'req-read-1');
+  assert.match((calls[0].init.headers as Record<string, string>)['x-orbi-signature'], /^sha256=[a-f0-9]{64}$/);
+  assert.match((calls[0].init.headers as Record<string, string>)['x-orbi-timestamp'], /^\d+$/);
+  assert.match((calls[0].init.headers as Record<string, string>)['x-orbi-nonce'], /^[0-9a-f-]{36}$/);
+});
+
 test('client can use explicit api_key auth mode for legacy integrations', async () => {
   const calls: Array<{ url: string; init: RequestInit }> = [];
   const client = new OrbiPayGatewayClient({

@@ -49,7 +49,8 @@ export class Orbi {
       this.client.createPaymentIntent(payload, options),
     checkout: (payload: PaymentIntentCreateRequest, options: OrbiRequestOptions = {}) =>
       this.client.createCheckoutPaymentIntent(payload, options),
-    getIntent: (intentId: string) => this.client.getPaymentIntent(intentId),
+    getIntent: (intentId: string, options?: Parameters<OrbiPayGatewayClient['getPaymentIntent']>[1]) =>
+      this.client.getPaymentIntent(intentId, options),
     confirmIntent: (intentId: string, payload: Record<string, unknown> = {}, options: OrbiRequestOptions = {}) =>
       this.client.confirmPaymentIntent(intentId, payload, options),
     nextAction: (intent: Parameters<OrbiPayGatewayClient['getPaymentIntentNextAction']>[0]) =>

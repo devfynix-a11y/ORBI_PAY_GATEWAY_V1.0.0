@@ -205,7 +205,7 @@ setup: active service, approved scopes, allowlisted URLs, merchant metadata,
 and a live merchant ID env var inside Gateway. If merchant metadata or merchant
 env is missing, Gateway/Core must fail closed.
 
-The Node SDK also signs financial POST requests automatically with:
+The Node SDK also signs financial runtime requests automatically with:
 
 ```text
 x-orbi-signature: sha256=<hmac>
@@ -218,6 +218,9 @@ Canonical payload:
 ```text
 <timestamp>.<nonce>.<METHOD>.<path-with-query>.<sha256-hex-raw-body>
 ```
+
+Signed GET/HEAD requests use an empty raw body hash. Financial mutations should
+always include a stable `idempotencyKey`.
 
 The current gateway verifier uses the service key as the request signing
 secret. `requestSigningSecret` is reserved for the next Developer Portal phase,
