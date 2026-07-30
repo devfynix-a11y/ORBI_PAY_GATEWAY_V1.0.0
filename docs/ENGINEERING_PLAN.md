@@ -98,6 +98,194 @@ The gateway hardening sequence must be executed step by step:
 8. SaaS control-plane readiness. Developer Portal must persist onboarding and
    scope queues in Postgres, scope developer sessions to owned services only,
    and keep operator/admin approvals separated from developer self-service.
+9. Bank-grade enterprise readiness. Complete live mTLS, OAuth/OIDC consent
+   authority, KMS-compatible secret custody, reconciliation evidence, SIEM
+   monitoring, security testing, and bank/provider certification packs.
+```
+
+## Bank-Grade Enterprise Readiness Plan
+
+This plan is the Gateway-side execution order for connecting ORBI to large
+banks, sponsored participant rails, clearing partners, and enterprise BaaS
+customers.
+
+Do not skip evidence. A control is considered complete only when code,
+configuration, tests, operational runbook, and audit evidence exist.
+
+### Stage 1: Live mTLS Cutover
+
+Goal:
+
+```text
+Add certificate-backed trust between Gateway and Core while keeping HMAC
+worker signatures permanently enabled.
+```
+
+Tasks:
+
+- Verify live certificate material exists outside the repo.
+- Run `npm run mtls:readiness`.
+- Enable live mTLS during a maintenance window.
+- Smoke `/health`, `/ready`, signed Core callback denial/allow paths, and
+  provider event callback paths.
+- Document rollback to HMAC-only if transport cutover fails.
+
+Acceptance:
+
+```text
+Gateway readiness reports `mtlsEnabled=true` for live, Core still rejects
+unsigned callbacks, and HMAC remains mandatory.
+```
+
+### Stage 2: OAuth2/OIDC Service Authorization
+
+Goal:
+
+```text
+Move developer/service authorization from simple service keys toward
+OAuth2/OIDC-grade access tokens and explicit consent.
+```
+
+Tasks:
+
+- Define OAuth2 client registration through Developer Portal approval.
+- Add authorization-code + PKCE for browser/mobile-safe consent.
+- Add client-credentials for server-to-server approved services.
+- Add token introspection and revocation.
+- Bind access tokens to service, environment, scopes, consent receipt, and
+  risk profile.
+- Keep API keys only as bootstrap credentials for token exchange.
+
+Acceptance:
+
+```text
+Runtime financial APIs accept short-lived scoped access tokens, reject expired
+or revoked tokens, and record consent/audit evidence.
+```
+
+### Stage 3: KMS-Compatible Secret Custody
+
+Goal:
+
+```text
+Make live secrets recoverable, rotatable, and auditable without exposing them
+to code, browsers, logs, or manual SQL.
+```
+
+Tasks:
+
+- Define secret owners for service keys, webhook secrets, worker signing,
+  mTLS keys, provider credentials, and SDK release tokens.
+- Store encrypted live secrets in the official secrets storage layer.
+- Add rotation runbooks and dual-control approvals.
+- Add emergency revoke/break-glass runbook.
+- Add backup/restore proof for encrypted secrets.
+
+Acceptance:
+
+```text
+No live financial secret depends on local JSON fallback or undocumented
+operator memory, and every secret has custody, rotation, and recovery evidence.
+```
+
+### Stage 4: Reconciliation Evidence Layer
+
+Goal:
+
+```text
+Prove every external payment state against Core ledger truth and webhook
+delivery truth.
+```
+
+Tasks:
+
+- Export daily Gateway/Core/provider reconciliation files.
+- Correlate merchant order, payment intent, hosted challenge, PaySafe escrow,
+  Core ledger transaction, provider proof, webhook delivery, and final status.
+- Add exception queues for stuck, duplicated, mismatched, reversed, and
+  disputed records.
+- Add signed report hashes.
+
+Acceptance:
+
+```text
+Operators can reconstruct a payment from merchant request to ledger movement
+and webhook delivery without manual database inspection.
+```
+
+### Stage 5: Observability And SIEM
+
+Goal:
+
+```text
+Detect security, reliability, and reconciliation issues before customers or
+partners report them.
+```
+
+Tasks:
+
+- Add dashboards for Gateway, Core callbacks, provider readiness, webhook
+  delivery, hosted challenges, payment intents, reconciliation, and mTLS.
+- Stream security/audit events to SIEM-compatible sinks.
+- Add alerts for callback failures, mTLS expiry, webhook failure spikes,
+  auth anomalies, idempotency reuse, and reconciliation mismatches.
+- Define SLOs and error budgets.
+
+Acceptance:
+
+```text
+Production incidents have dashboards, alerts, trace IDs, owner, severity, and
+runbook links.
+```
+
+### Stage 6: Security Testing And Release Gates
+
+Goal:
+
+```text
+Make every release prove security posture before it reaches live.
+```
+
+Tasks:
+
+- Add threat model for Gateway, Developer Portal, SDK, hosted challenge,
+  webhook replay, and merchant callbacks.
+- Add dependency/SAST scans.
+- Add DAST smoke checks for public routes.
+- Add penetration-test checklist.
+- Add release gate script that checks tests, OpenAPI, SDK metadata, mTLS
+  readiness, runtime controls, and migration safety.
+
+Acceptance:
+
+```text
+Live release cannot proceed without passing automated tests and a documented
+operator approval gate.
+```
+
+### Stage 7: Bank/Provider Certification Pack
+
+Goal:
+
+```text
+Prepare ORBI evidence for a bank, clearing partner, or regulated enterprise
+technical review.
+```
+
+Tasks:
+
+- Produce ISO 20022 samples for `pacs.008`, `pacs.002`, and `pacs.004`.
+- Produce OpenAPI and SDK integration package.
+- Produce sandbox/live separation evidence.
+- Produce webhook signing and replay evidence.
+- Produce consent receipt and revocation evidence.
+- Produce reconciliation and incident-response evidence.
+
+Acceptance:
+
+```text
+ORBI can hand a partner a complete technical pack without exposing secrets or
+requiring ad-hoc engineering explanations.
 ```
 
 ## Provider Adapter Roadmap
