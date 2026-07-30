@@ -207,6 +207,32 @@ webhooks:receive
 
 Scope approvals must be auditable and revocable.
 
+Runtime scope enforcement:
+
+```text
+POST /v1/identity/resolve                         -> identity:resolve
+POST /v1/business/registrations                   -> business_registration:create
+POST /v1/payment-profiles                         -> payment_profile:create + active subject consent
+POST /v1/payment-intents (collection/refund)      -> payments:create
+POST /v1/payment-intents (payout)                 -> withdrawal:request
+GET  /v1/payment-intents/:intentId                -> matching intent operation scope
+POST /v1/payment-intents/:intentId/confirm        -> matching intent operation scope
+POST /v1/paysafe/escrows                          -> escrow:create
+POST /v1/paysafe/escrows/:id/release              -> escrow:release:request
+POST /v1/paysafe/escrows/:id/refund               -> escrow:refund:request
+POST /v1/paysafe/escrows/:id/dispute              -> escrow:dispute:create
+GET  /v1/paysafe/users/:userId/balance            -> balance:read + active subject consent
+GET  /v1/paysafe/balances                         -> balance:read + active subject consent
+GET  /v1/merchant/paysafe/balance                 -> balance:read
+GET  /v1/merchant/orders/:orderId/payment-status  -> escrow:read
+GET  /v1/merchant/settlements                     -> balance:read
+```
+
+Denied runtime scope checks return `PAY_SERVICE_SCOPE_NOT_GRANTED` with HTTP
+403. A granted scope does not bypass operation allowlists, currency allowlists,
+idempotency, signature/nonce controls, Core policy, consent receipts, or risk
+checks.
+
 Developer Portal should render scope labels from the consent scope catalog:
 
 ```http
@@ -852,7 +878,7 @@ Build the portal in this order:
 3. Add sandbox service key generation.
 4. Add live key approval and rotation.
 5. Add redirect/webhook allowlist enforcement in runtime routes.
-6. Add scope enforcement beyond operation/currency checks.
+6. Add scope enforcement beyond operation/currency checks. [done]
 7. Add webhook delivery logs and replay controls.
 8. Add SDK/docs browser.
 ```

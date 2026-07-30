@@ -935,6 +935,26 @@ Service registration should grant the minimum scopes needed by that service.
 Merchant identity is not enough to move money; action scopes and Core policy
 must both allow the operation.
 
+Runtime gateway enforcement:
+
+```text
+identity:resolve              Required before identity lookup.
+business_registration:create  Required before business registration submission.
+payment_profile:create        Required before creating payment profiles.
+payments:create               Required for collection/refund payment intents.
+withdrawal:request            Required for payout payment intents.
+escrow:create                 Required for new PaySafe escrow holds.
+escrow:release:request        Required for PaySafe release requests.
+escrow:refund:request         Required for PaySafe refund requests.
+escrow:dispute:create         Required for PaySafe disputes.
+escrow:read                   Required for merchant escrow/order status reads.
+balance:read                  Required for balance and settlement reads.
+```
+
+`PAY_SERVICE_SCOPE_NOT_GRANTED` is a permission denial, not a transient gateway
+failure. Developers must request the missing scope in the Developer Portal and
+wait for operator approval before retrying in live mode.
+
 ## 15. Reference ORBI Business Auth Client
 
 For the reference ORBI Shop business account-link flow:

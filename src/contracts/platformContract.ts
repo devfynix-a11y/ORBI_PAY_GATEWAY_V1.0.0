@@ -45,7 +45,15 @@ export const httpStatusForGatewayError = (error: string, fallback = 502): number
   ) {
     return 400;
   }
-  if (error.includes('AUTH_FAILED') || error.includes('ACCESS_DENIED') || error.includes('SIGNATURE')) return 403;
+  if (
+    error.includes('AUTH_FAILED') ||
+    error.includes('ACCESS_DENIED') ||
+    error.includes('SIGNATURE') ||
+    error.includes('SCOPE_NOT_GRANTED') ||
+    error === 'CONSENT_REQUIRED'
+  ) {
+    return 403;
+  }
   if (error.includes('NOT_FOUND')) return 404;
   if (error.includes('ALREADY_FINALIZED')) return 409;
   return fallback;

@@ -56,6 +56,7 @@ import { consentReceiptStore } from './services/consentReceiptStore.js';
 import { developerPortalStore } from './services/developerPortalStore.js';
 import { portalAccessStore, type PortalRole } from './services/portalAccessStore.js';
 import { ServiceConsentGuard, subjectIdForConsent } from './services/serviceConsentGuard.js';
+import { scopeForPaymentIntent, scopeForPaymentOperation } from './services/serviceScopePolicy.js';
 import { buildDeveloperHealthSummary } from './services/developerHealthService.js';
 import {
   developerDocsCatalog,
@@ -1195,6 +1196,7 @@ const createPaymentIntentForService = async (
     const gatewayEnvironment = assertFinancialRuntimeRequest(req, res, payload as Record<string, unknown>);
     const idempotencyKey = requestIdempotencyKey(req, payload as Record<string, unknown>);
     const idempotencyFingerprint = idempotencyKey ? paymentIntentFingerprint({ ...payload, currency }) : undefined;
+    serviceConsentGuard.assertServiceScopeGranted(service, scopeForPaymentOperation(payload.operation, payload.metadata));
     assertServicePaymentAllowed(service, payload.operation, currency);
     const returnUrl = serviceReturnUrl(payload as Record<string, unknown>);
     assertDeveloperPortalUrlAllowlists(service, payload as Record<string, unknown>, returnUrl);
@@ -1268,9 +1270,11 @@ app.get('/v1/payment-intents/:intentId', requirePayServiceAccess, (req, res) => 
   try {
     const service = res.locals.payService as PayServiceDefinition;
     const intent = paymentIntentStore.get(service.code, String(req.params.intentId || ''));
+    serviceConsentGuard.assertServiceScopeGranted(service, scopeForPaymentIntent(intent));
     return res.json({ success: true, data: sanitizePaymentIntent(intent) });
   } catch (e: any) {
-    return sendApiError(res, 404, errorCodeFromException(e, 'PAYMENT_INTENT_NOT_FOUND'));
+    const error = errorCodeFromException(e, 'PAYMENT_INTENT_NOT_FOUND');
+    return sendApiError(res, error === 'PAYMENT_INTENT_NOT_FOUND' ? 404 : httpStatusForGatewayError(error), error);
   }
 });
 
@@ -1279,6 +1283,7 @@ app.post('/v1/payment-intents/:intentId/confirm', requirePayServiceAccess, async
     const service = res.locals.payService as PayServiceDefinition;
     assertFinancialRuntimeRequest(req, res, req.body as Record<string, unknown>);
     const intent = paymentIntentStore.get(service.code, String(req.params.intentId || ''));
+    serviceConsentGuard.assertServiceScopeGranted(service, scopeForPaymentIntent(intent));
     if (!['requires_confirmation', 'pending', 'failed'].includes(intent.status)) {
       return sendApiError(res, 409, 'PAYMENT_INTENT_ALREADY_FINALIZED');
     }
@@ -1454,6 +1459,7 @@ app.post('/v1/business/registrations', requirePayServiceAccess, async (req, res)
 
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    serviceConsentGuard.assertServiceScopeGranted(service, 'business_registration:create');
     const body = parsed.data;
     const coreResult = await orbiCoreClient.submitBusinessRegistration({
       serviceCode: service.code,
@@ -1531,6 +1537,7 @@ app.post('/v1/payment-profiles', requirePayServiceAccess, async (req, res) => {
 app.get('/v1/merchant/paysafe/balance', requirePayServiceAccess, async (req, res) => {
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    serviceConsentGuard.assertServiceScopeGranted(service, 'balance:read');
     const merchantContext = requireServiceMerchantContext(service);
     const coreResult = await orbiCoreClient.queryPaySafeBalances({
       serviceCode: service.code,
@@ -1552,6 +1559,7 @@ app.get('/v1/merchant/paysafe/balance', requirePayServiceAccess, async (req, res
 app.get('/v1/merchant/orders/:orderId/payment-status', requirePayServiceAccess, async (req, res) => {
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    serviceConsentGuard.assertServiceScopeGranted(service, 'escrow:read');
     const merchantContext = requireServiceMerchantContext(service);
     const orderId = String(req.params.orderId || '').trim();
     if (!orderId) return sendApiError(res, 400, 'ORDER_ID_REQUIRED');
@@ -1579,6 +1587,7 @@ app.get('/v1/merchant/settlements', requirePayServiceAccess, async (req, res) =>
 
   try {
     const service = res.locals.payService as PayServiceDefinition;
+    serviceConsentGuard.assertServiceScopeGranted(service, 'balance:read');
     const merchantContext = requireServiceMerchantContext(service);
     const coreResult = await orbiCoreClient.queryMerchantSettlements({
       serviceCode: service.code,
