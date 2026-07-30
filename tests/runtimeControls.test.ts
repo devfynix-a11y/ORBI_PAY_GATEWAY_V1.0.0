@@ -6,6 +6,7 @@ import {
   isInternalGatewayPath,
   isOriginAllowed,
   isProductionBrowserOrigin,
+  isProductionPublicHttpsUrl,
   parseOriginAllowlist,
 } from '../src/security/runtimeControls.js';
 
@@ -34,6 +35,15 @@ test('production browser origins must be public https domains', () => {
   assert.equal(isProductionBrowserOrigin('https://127.0.0.1:5173'), false);
   assert.equal(isProductionBrowserOrigin('https://192.168.1.10'), false);
   assert.equal(isProductionBrowserOrigin('https://*.merchant.example.com'), false);
+});
+
+test('production callback urls must be public https urls', () => {
+  assert.equal(isProductionPublicHttpsUrl('https://www.tag.co.tz/orbi/callback'), true);
+  assert.equal(isProductionPublicHttpsUrl('https://merchant.example.com/api/orbi/webhooks?version=1'), true);
+  assert.equal(isProductionPublicHttpsUrl('http://merchant.example.com/api/orbi/webhooks'), false);
+  assert.equal(isProductionPublicHttpsUrl('https://localhost/orbi/callback'), false);
+  assert.equal(isProductionPublicHttpsUrl('https://10.0.0.5/orbi/callback'), false);
+  assert.equal(isProductionPublicHttpsUrl('https://*.merchant.example.com/orbi/callback'), false);
 });
 
 test('internal gateway paths require signed worker header set', () => {

@@ -112,6 +112,11 @@ Sandbox may use local development origins such as `http://localhost:5173`.
 Live access must use public HTTPS domains only. Live browser origins must not
 use `localhost`, private IP addresses, plain HTTP, or wildcard domains.
 
+The same live safety rule applies to `redirectUrls` and `webhookUrls`: public
+HTTPS only. Localhost callbacks, private-network callbacks, plain HTTP, and
+wildcard hosts are sandbox-only because live callbacks affect money movement,
+consent continuation, and webhook delivery truth.
+
 Allowed `businessType` values:
 
 ```text
@@ -462,6 +467,7 @@ No localhost for live.
 HTTPS required for live.
 Browser origin is the website origin allowed to call or embed ORBI-hosted flows,
 for example `https://www.tag.co.tz`.
+Redirect and webhook URLs must also be public HTTPS URLs in live.
 Return URL is UX continuation, not payment truth.
 Webhook URL is server-to-server payment truth.
 ```

@@ -46,22 +46,33 @@ const privateIpv4Ranges = [
   /^192\.168\./,
 ];
 
-export const isProductionBrowserOrigin = (origin: string): boolean => {
+const isUnsafeProductionHostname = (hostname: string): boolean => {
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) return true;
+  if (hostname.includes('*')) return true;
+  if (hostname === '0.0.0.0' || hostname === '::1' || hostname === '[::1]') return true;
+  if (privateIpv4Ranges.some((range) => range.test(hostname))) return true;
+  if (!hostname.includes('.')) return true;
+  return false;
+};
+
+export const isProductionPublicHttpsUrl = (value: string): boolean => {
   try {
-    const url = new URL(origin);
+    const url = new URL(value);
     const hostname = url.hostname.toLowerCase();
 
     if (url.protocol !== 'https:') return false;
-    if (hostname === 'localhost' || hostname.endsWith('.localhost')) return false;
-    if (hostname.includes('*')) return false;
-    if (hostname === '0.0.0.0' || hostname === '::1' || hostname === '[::1]') return false;
-    if (privateIpv4Ranges.some((range) => range.test(hostname))) return false;
-    if (!hostname.includes('.')) return false;
+    if (isUnsafeProductionHostname(hostname)) return false;
 
     return true;
   } catch {
     return false;
   }
+};
+
+export const isProductionBrowserOrigin = (origin: string): boolean => {
+  if (!isProductionPublicHttpsUrl(origin)) return false;
+  const url = new URL(origin);
+  return `${url.protocol}//${url.host}` === origin;
 };
 
 export const isInternalGatewayPath = (path: string): boolean =>

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ApiSuccessResponseSchema } from './platformContract.js';
-import { isProductionBrowserOrigin } from '../security/runtimeControls.js';
+import { isProductionBrowserOrigin, isProductionPublicHttpsUrl } from '../security/runtimeControls.js';
 
 export const DeveloperPortalEnvironmentSchema = z.enum(['sandbox', 'live']);
 
@@ -83,6 +83,22 @@ export const DeveloperServiceApplicationSchema = z
         code: 'custom',
         message: 'Live browser origins must use public HTTPS domains. Localhost, private IPs, and wildcards are sandbox-only.',
         path: ['browserOrigins', index],
+      });
+    });
+    value.redirectUrls.forEach((url, index) => {
+      if (isProductionPublicHttpsUrl(url)) return;
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Live redirect URLs must use public HTTPS domains. Localhost, private IPs, plain HTTP, and wildcards are sandbox-only.',
+        path: ['redirectUrls', index],
+      });
+    });
+    value.webhookUrls.forEach((url, index) => {
+      if (isProductionPublicHttpsUrl(url)) return;
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Live webhook URLs must use public HTTPS domains. Localhost, private IPs, plain HTTP, and wildcards are sandbox-only.',
+        path: ['webhookUrls', index],
       });
     });
   });
@@ -170,6 +186,22 @@ export const DeveloperAllowlistUpdateSchema = z
         code: 'custom',
         message: 'Live browser origins must use public HTTPS domains. Localhost, private IPs, and wildcards are sandbox-only.',
         path: ['browserOrigins', index],
+      });
+    });
+    value.redirectUrls?.forEach((url, index) => {
+      if (isProductionPublicHttpsUrl(url)) return;
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Live redirect URLs must use public HTTPS domains. Localhost, private IPs, plain HTTP, and wildcards are sandbox-only.',
+        path: ['redirectUrls', index],
+      });
+    });
+    value.webhookUrls?.forEach((url, index) => {
+      if (isProductionPublicHttpsUrl(url)) return;
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Live webhook URLs must use public HTTPS domains. Localhost, private IPs, plain HTTP, and wildcards are sandbox-only.',
+        path: ['webhookUrls', index],
       });
     });
   });

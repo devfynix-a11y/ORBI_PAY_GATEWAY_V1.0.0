@@ -68,6 +68,42 @@ test('developer service live applications reject unsafe browser origins', () => 
   );
 });
 
+test('developer service live applications reject unsafe redirect and webhook urls', () => {
+  assert.throws(() =>
+    DeveloperServiceApplicationSchema.parse({
+      legalName: 'Unsafe Callback Limited',
+      displayName: 'Unsafe Callback',
+      contactEmail: 'ops@unsafe.example',
+      businessType: 'merchant',
+      countryCode: 'TZ',
+      requestedEnvironments: ['live'],
+      requestedScopes: ['payments:create', 'webhooks:receive'],
+      browserOrigins: ['https://merchant.example.com'],
+      redirectUrls: ['http://merchant.example.com/orbi/return'],
+      webhookUrls: ['https://127.0.0.1/orbi/webhooks'],
+      useCases: ['Production payment checkout'],
+      termsAccepted: true,
+    }),
+  );
+
+  assert.doesNotThrow(() =>
+    DeveloperServiceApplicationSchema.parse({
+      legalName: 'Local Sandbox Callback Limited',
+      displayName: 'Local Sandbox Callback',
+      contactEmail: 'ops@localsandbox.example',
+      businessType: 'merchant',
+      countryCode: 'TZ',
+      requestedEnvironments: ['sandbox'],
+      requestedScopes: ['payments:create', 'webhooks:receive'],
+      browserOrigins: ['http://localhost:5173'],
+      redirectUrls: ['http://localhost:5173/orbi/return'],
+      webhookUrls: ['http://localhost:5173/orbi/webhooks'],
+      useCases: ['Sandbox callback testing'],
+      termsAccepted: true,
+    }),
+  );
+});
+
 test('developer service profile response is stable for dashboard cards', () => {
   assert.doesNotThrow(() =>
     DeveloperServiceProfileResponseSchema.parse({
@@ -130,6 +166,15 @@ test('allowlist updates must include browser origin, redirect, or webhook urls',
     DeveloperAllowlistUpdateSchema.parse({
       browserOrigins: ['https://*.merchant.example.com'],
       reason: 'Wildcard origins are not accepted for live browser requests.',
+      environment: 'live',
+    }),
+  );
+
+  assert.throws(() =>
+    DeveloperAllowlistUpdateSchema.parse({
+      redirectUrls: ['http://merchant.example.com/orbi/return'],
+      webhookUrls: ['https://192.168.1.10/orbi/webhooks'],
+      reason: 'Unsafe live callback URLs are blocked by production policy.',
       environment: 'live',
     }),
   );
