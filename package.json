@@ -12,6 +12,7 @@
     "secrets:migrate-service-registry": "tsx src/tools/migrateServiceRegistrySecrets.ts",
     "test": "tsx --test --test-force-exit tests/**/*.test.ts",
     "check": "npm run build && npm test",
+    "mtls:readiness": "node scripts/check-mtls-readiness.mjs",
     "smoke:runtime-controls": "node scripts/smoke-runtime-controls.mjs",
     "openapi:check": "tsx --test --test-force-exit tests/openApiSpec.test.ts",
     "sdk:metadata:check": "node scripts/check-sdk-release-metadata.mjs",

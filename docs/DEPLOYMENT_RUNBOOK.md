@@ -160,6 +160,7 @@ If Core is behind a public reverse proxy, use a private DNS name or private IP r
 npm install
 npm run check
 npm run build
+npm run mtls:readiness -- /path/to/pay-gateway.env
 PAYMENT_GATEWAY_SMOKE_BASE_URL=https://pay.orbifinancial.com npm run smoke:runtime-controls
 npm start
 ```
@@ -208,6 +209,38 @@ Sandbox service profiles may use local development origins such as
 `http://localhost:5173`. Live service profiles must use public HTTPS domains,
 for example `https://www.tag.co.tz`. Live origins must not use `localhost`,
 private IP addresses, plain HTTP, or wildcard domains.
+
+## mTLS Activation Gate
+
+Gateway-to-Core mTLS must be enabled only after both sides are ready:
+
+```env
+PAYMENT_GATEWAY_INTERNAL_MTLS_ENABLED=true
+PAYMENT_GATEWAY_INTERNAL_MTLS_CERT_PATH=/opt/orbi/mtls/pay-gateway-client.crt
+PAYMENT_GATEWAY_INTERNAL_MTLS_KEY_PATH=/opt/orbi/mtls/pay-gateway-client.key
+PAYMENT_GATEWAY_INTERNAL_MTLS_CA_PATH=/opt/orbi/mtls/orbi-internal-ca.crt
+PAYMENT_GATEWAY_INTERNAL_MTLS_REJECT_UNAUTHORIZED=true
+ORBI_CORE_INTERNAL_BASE_URL=https://core.internal.orbifinancial.com
+```
+
+Production mTLS is fail-closed. If mTLS is enabled, Gateway refuses to start
+unless the client certificate, private key, CA certificate, strict certificate
+verification, and HTTPS Core target are all present.
+
+Run readiness before deployment:
+
+```bash
+npm run mtls:readiness -- /path/to/pay-gateway.env
+```
+
+The self-hosted Gateway compose mounts:
+
+```text
+/opt/orbi/mtls
+```
+
+from the host certificate directory. Keep private keys outside Git and mount
+the directory read-only.
 
 ## Docker
 

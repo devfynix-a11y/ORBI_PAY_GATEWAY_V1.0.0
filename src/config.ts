@@ -1,5 +1,6 @@
 import fs from 'fs';
 import dotenv from 'dotenv';
+import { validateMtlsPolicy } from './security/mtlsPolicy.js';
 
 dotenv.config();
 
@@ -152,11 +153,17 @@ export const requireGatewayRuntimeSecrets = () => {
     throw new Error('PAYMENT_GATEWAY_ALLOWED_BROWSER_ORIGINS is required for production browser access control.');
   }
 
-  if (config.env === 'production' && config.mtls.enabled) {
-    if (!config.mtls.cert || !config.mtls.key || !config.mtls.ca) {
-      throw new Error(
-        'PAYMENT_GATEWAY_INTERNAL_MTLS_CERT_PATH, PAYMENT_GATEWAY_INTERNAL_MTLS_KEY_PATH, and PAYMENT_GATEWAY_INTERNAL_MTLS_CA_PATH are required when mTLS is enabled.',
-      );
-    }
+  const mtlsErrors = validateMtlsPolicy({
+    env: config.env,
+    enabled: config.mtls.enabled,
+    hasCert: Boolean(config.mtls.cert),
+    hasKey: Boolean(config.mtls.key),
+    hasCa: Boolean(config.mtls.ca),
+    rejectUnauthorized: config.mtls.rejectUnauthorized,
+    coreBaseUrl: config.core.baseUrl,
+  });
+
+  if (mtlsErrors.length > 0) {
+    throw new Error(mtlsErrors.join(' '));
   }
 };
