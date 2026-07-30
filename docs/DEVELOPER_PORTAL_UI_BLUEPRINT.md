@@ -158,9 +158,11 @@ Data sources:
 ```text
 POST /v1/developer/services/:serviceCode/api-keys/issue
 POST /v1/developer/services/:serviceCode/api-key-rotations
+POST /v1/developer/services/:serviceCode/api-keys/:keyId/revoke
 POST /v1/developer/api-key-rotations/:rotationId/decision
 POST /v1/developer/services/:serviceCode/webhook-secrets/issue
 POST /v1/developer/services/:serviceCode/webhook-secret-rotations
+POST /v1/developer/services/:serviceCode/webhook-secrets/:secretId/revoke
 POST /v1/developer/webhook-secret-rotations/:rotationId/decision
 ```
 
@@ -171,6 +173,8 @@ One-time secrets are shown once.
 Only fingerprints remain visible afterward.
 Copy action requires operator acknowledgement.
 Never log or persist raw secret in portal UI state.
+Issue, rotate, revoke, and cutover actions require MFA-verified operator/admin
+session, explicit confirmation, and a clear reason.
 ```
 
 ### Scopes And Consent
@@ -304,6 +308,25 @@ Merchant operator: own service configuration, webhook logs, profile docs.
 ORBI operator: approve services, issue/rotate keys, replay webhooks.
 Compliance/risk reviewer: read-only services, consent receipts, audit events.
 ```
+
+Sensitive operator actions:
+
+```text
+Approve service application
+Suspend/archive service
+Issue API key
+Request/complete API key rotation
+Revoke API key
+Issue webhook signing secret
+Request/complete webhook secret rotation
+Revoke webhook signing secret
+Replay webhook delivery
+Reset sandbox simulator
+Create/update portal users
+```
+
+These actions must show a confirmation dialog, collect a reason, and require an
+MFA-verified operator/admin session. The UI should not submit them silently.
 
 ## 6. UX Principles
 

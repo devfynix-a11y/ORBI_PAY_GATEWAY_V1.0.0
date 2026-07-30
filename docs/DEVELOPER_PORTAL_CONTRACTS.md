@@ -1012,6 +1012,22 @@ These endpoints are operator-only during bootstrap. They require:
 x-orbi-pay-operator-key: <PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY>
 ```
 
+Developer Portal BFF calls also require a signed portal session:
+
+```http
+Authorization: Bearer <portal-session-token>
+```
+
+Sensitive operator/admin actions require all of the following:
+
+```text
+MFA-verified session.
+confirmationAccepted: true.
+Clear reason or rotationReason.
+Permission matching the action.
+Audit event written before forwarding the action.
+```
+
 Submit service application:
 
 ```http

@@ -31,6 +31,8 @@ type PortalSessionClaims = {
   liveAccess: boolean;
   serviceCodes: string[];
   permissions: string[];
+  mfaVerified: boolean;
+  mfaRequired: boolean;
   iat: number;
   exp: number;
 };
@@ -114,6 +116,10 @@ const publicAccount = (account: PortalAccount) => ({
 
 const permissionsForAccount = (account: Pick<PortalAccount, 'role' | 'permissions'>): string[] =>
   [...new Set([...(ROLE_PERMISSIONS[roleFrom(account.role)] || []), ...uniqueStrings(account.permissions)])];
+
+const portalMfaRequiredFor = (account: Pick<PortalAccount, 'role' | 'mfaRequired'>): boolean =>
+  Boolean(account.mfaRequired) ||
+  (config.portal.operatorMfaRequired && ROLE_ORDER[roleFrom(account.role)] >= ROLE_ORDER.operator);
 
 const hashPassword = (password: string, salt: string, iterations: number): string =>
   crypto.pbkdf2Sync(password, salt, iterations, 32, 'sha256').toString('base64url');
@@ -238,6 +244,15 @@ export class PortalAccessStore {
     return session;
   }
 
+  requireMfa(req: express.Request, minRole: PortalRole = 'operator') {
+    const session = this.requireSession(req, minRole);
+    if (!session.ok) return session;
+    if (!session.claims.mfaVerified) {
+      return { ok: false as const, status: 403, error: 'MFA is required for this sensitive action.' };
+    }
+    return session;
+  }
+
   async mfaSetup(req: express.Request) {
     const session = this.requireSession(req, 'developer');
     if (!session.ok) return session;
@@ -263,6 +278,8 @@ export class PortalAccessStore {
   async createUser(req: express.Request, input: Record<string, unknown>) {
     const session = this.requirePermission(req, 'portal:manage_users', 'admin');
     if (!session.ok) return session;
+    const sensitive = this.requireSensitiveWrite(req, 'portal.user.create');
+    if (!sensitive.ok) return sensitive;
     const password = String(input.password || '').trim();
     if (password.length < 12) return { ok: false as const, status: 400, error: 'Password must contain at least 12 characters.' };
     const role = roleFrom(input.role);
@@ -271,7 +288,7 @@ export class PortalAccessStore {
     const userId = `portal_user_${crypto.randomUUID()}`;
     const totpSecret = input.totpSecret
       ? String(input.totpSecret).trim().replace(/\s+/g, '').toUpperCase()
-      : Boolean(input.mfaRequired)
+      : (Boolean(input.mfaRequired) || ROLE_ORDER[role] >= ROLE_ORDER.operator)
         ? randomBase32(20)
         : null;
     const result = await this.db().query(
@@ -292,7 +309,7 @@ export class PortalAccessStore {
         hashPassword(password, salt, iterations),
         iterations,
         totpSecret,
-        Boolean(input.mfaRequired),
+        Boolean(input.mfaRequired) || ROLE_ORDER[role] >= ROLE_ORDER.operator,
       ],
     );
     const account = this.accountFromRow(result.rows[0]);
@@ -313,6 +330,8 @@ export class PortalAccessStore {
   async updateUser(req: express.Request, userId: string, input: Record<string, unknown>) {
     const session = this.requirePermission(req, 'portal:manage_users', 'admin');
     if (!session.ok) return session;
+    const sensitive = this.requireSensitiveWrite(req, 'portal.user.update');
+    if (!sensitive.ok) return sensitive;
     const current = await this.db().query('select * from public.pay_gateway_portal_users where user_id = $1 limit 1', [userId]);
     if (!current.rows[0]) return { ok: false as const, status: 404, error: 'Portal user not found.' };
     const existing = this.accountFromRow(current.rows[0]);
@@ -336,7 +355,9 @@ export class PortalAccessStore {
         input.permissions === undefined ? existing.permissions || [] : uniqueStrings(input.permissions),
         input.liveAccess === undefined ? Boolean(existing.liveAccess) : Boolean(input.liveAccess),
         input.serviceCodes === undefined ? existing.serviceCodes || [] : uniqueStrings(input.serviceCodes),
-        input.mfaRequired === undefined ? Boolean(existing.mfaRequired) : Boolean(input.mfaRequired),
+        input.mfaRequired === undefined
+          ? Boolean(existing.mfaRequired) || ROLE_ORDER[role] >= ROLE_ORDER.operator
+          : Boolean(input.mfaRequired) || ROLE_ORDER[role] >= ROLE_ORDER.operator,
         input.enabled === undefined ? existing.enabled !== false : Boolean(input.enabled),
       ],
     );
@@ -410,6 +431,8 @@ export class PortalAccessStore {
       liveAccess: Boolean(claims.liveAccess),
       serviceCodes: Array.isArray(claims.serviceCodes) ? claims.serviceCodes : [],
       permissions: Array.isArray(claims.permissions) ? claims.permissions : [],
+      mfaRequired: Boolean(claims.mfaRequired),
+      mfaVerified: Boolean(claims.mfaVerified),
     };
   }
 
@@ -424,6 +447,8 @@ export class PortalAccessStore {
       liveAccess: Boolean(account.liveAccess),
       serviceCodes: Array.isArray(account.serviceCodes) ? account.serviceCodes : [],
       permissions: permissionsForAccount(account),
+      mfaVerified: portalMfaRequiredFor(account) ? Boolean(account.totpSecret) : true,
+      mfaRequired: portalMfaRequiredFor(account),
       iat: now,
       exp: now + config.portal.sessionTtlSeconds,
     });
@@ -444,7 +469,7 @@ export class PortalAccessStore {
   }
 
   private verifyTotp(account: PortalAccount, code: unknown) {
-    if (!account.mfaRequired) return true;
+    if (!portalMfaRequiredFor(account)) return true;
     if (!account.totpSecret) return false;
     const clean = String(code || '').trim();
     if (!/^\d{6}$/.test(clean)) return false;
@@ -487,9 +512,21 @@ export class PortalAccessStore {
         admin.passwordHash,
         admin.passwordIterations,
         admin.totpSecret || null,
-        admin.mfaRequired,
+        portalMfaRequiredFor({ role: roleFrom(admin.role), mfaRequired: admin.mfaRequired }),
       ],
     );
+  }
+
+  private requireSensitiveWrite(req: express.Request, action: string) {
+    const mfa = this.requireMfa(req, 'admin');
+    if (!mfa.ok) return mfa;
+    if (!req.body?.confirmationAccepted) {
+      return { ok: false as const, status: 409, error: 'Confirmation is required before this admin action can continue.' };
+    }
+    if (!String(req.body?.reason || '').trim()) {
+      return { ok: false as const, status: 400, error: 'A clear reason is required for this admin action.' };
+    }
+    return { ok: true as const, claims: mfa.claims, action };
   }
 
   private accountFromRow(row: any): PortalAccount {

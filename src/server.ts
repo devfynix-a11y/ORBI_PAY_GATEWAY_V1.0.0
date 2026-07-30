@@ -1873,6 +1873,10 @@ app.post('/v1/portal/gateway', requireOperatorDiscoveryAccess, async (req, res) 
   const session = portalAccessStore.requirePermission(req, rule.permission, minRole);
   if (!session.ok) return res.status(session.status).json({ success: false, error: session.error });
 
+  if ('confirmation' in rule && rule.confirmation) {
+    const mfa = portalAccessStore.requireMfa(req, minRole);
+    if (!mfa.ok) return res.status(mfa.status).json({ success: false, error: mfa.error });
+  }
   if ('confirmation' in rule && rule.confirmation && !req.body?.confirmationAccepted) {
     return res.status(409).json({ success: false, error: 'Confirmation is required before this admin action can continue.' });
   }
