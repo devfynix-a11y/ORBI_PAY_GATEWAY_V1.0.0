@@ -11,9 +11,13 @@ registry credentials are ready.
 | Python | `orbi-pay-gateway` | `sdk/python` | Live on PyPI, test-covered |
 | PHP | `orbifinancial/pay-gateway` | `sdk/php` | Live on Packagist, Composer-ready |
 
-## Required Secrets
+## Release-Only Credentials
 
-Set these only in the release shell or CI secret store:
+These are package registry publishing credentials only. They are not Gateway,
+Developer Portal, sandbox, live, Docker, or Vercel project variables.
+
+Set them only in the temporary SDK release shell or in a locked CI release
+secret store:
 
 ```env
 NPM_TOKEN=...
@@ -109,6 +113,7 @@ npm run sdk:publish -- -DryRun
 Publish Node and Python:
 
 ```powershell
+# Release shell only. Do not add these to project runtime env files.
 $env:NPM_TOKEN="npm_..."
 $env:PYPI_API_TOKEN="pypi-..."
 npm run sdk:publish
