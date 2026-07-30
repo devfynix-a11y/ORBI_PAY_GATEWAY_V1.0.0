@@ -29,6 +29,9 @@ class OrbiPayGatewayConfig:
     service_key: str | None = None
     operator_key: str | None = None
     environment: str | None = None
+    auth_mode: str = "api_key"
+    access_token_scopes: list[str] | None = None
+    access_token_refresh_skew_seconds: int = 60
     request_signing: bool = True
     request_signing_secret: str | None = None
     fetch: Fetch | None = None
@@ -41,6 +44,9 @@ class OrbiPayGatewayClient:
         service_key: str | None = None,
         operator_key: str | None = None,
         environment: str | None = None,
+        auth_mode: str = "api_key",
+        access_token_scopes: list[str] | None = None,
+        access_token_refresh_skew_seconds: int = 60,
         request_signing: bool = True,
         request_signing_secret: str | None = None,
         fetch: Fetch | None = None,
@@ -49,9 +55,15 @@ class OrbiPayGatewayClient:
         self.service_key = service_key or ""
         self.operator_key = operator_key
         self.environment = environment
+        self.auth_mode = auth_mode
+        self.access_token_scopes = access_token_scopes or []
+        self.access_token_refresh_skew_seconds = max(5, access_token_refresh_skew_seconds)
         self.request_signing = request_signing
         self.request_signing_secret = request_signing_secret
         self.fetch = fetch or _default_fetch
+        self._access_token: str | None = None
+        self._access_token_expires_at = 0.0
+        self._access_token_scope = ""
         if not self.base_url:
             raise ValueError("ORBI_PAY_GATEWAY_BASE_URL_REQUIRED")
         if not self.service_key and not self.operator_key:
@@ -112,9 +124,10 @@ class OrbiPayGatewayClient:
             raise ValueError("ORBI_PAY_GATEWAY_SERVICE_KEY_REQUIRED")
         options = options or {}
         body = None if method == "GET" else json.dumps(payload or {}, separators=(",", ":"))
+        auth_headers, signing_secret = self._service_authorization()
         headers = {
             "accept": "application/json",
-            "x-orbi-pay-service-key": self.service_key,
+            **auth_headers,
             **(options.get("headers") or {}),
         }
         environment = _normalize_environment(options.get("environment") or self.environment)
@@ -127,11 +140,45 @@ class OrbiPayGatewayClient:
         if method != "GET":
             headers["content-type"] = "application/json"
         if self.request_signing and self.service_key and method != "GET":
-            headers.update(_sign_request(method, path, body or "", self.request_signing_secret or self.service_key))
+            headers.update(_sign_request(method, path, body or "", self.request_signing_secret or signing_secret))
         status, response = self.fetch(f"{self.base_url}{path}", method, headers, body)
         if status >= 400 and not isinstance(response, dict):
             raise OrbiPayGatewayError(f"ORBI_PAY_GATEWAY_HTTP_{status}", status, response)
         return response
+
+    def _service_authorization(self) -> tuple[dict[str, str], str]:
+        if self.auth_mode == "api_key":
+            return {"x-orbi-pay-service-key": self.service_key}, self.service_key
+        if self.auth_mode != "access_token":
+            raise ValueError("ORBI_PAY_GATEWAY_AUTH_MODE_INVALID")
+        token = self._get_service_access_token()
+        return {"authorization": f"Bearer {token}"}, token
+
+    def _get_service_access_token(self) -> str:
+        scope = " ".join(self.access_token_scopes)
+        if (
+            self._access_token
+            and self._access_token_scope == scope
+            and self._access_token_expires_at - self.access_token_refresh_skew_seconds > time.time()
+        ):
+            return self._access_token
+        body = json.dumps({
+            "grant_type": "client_credentials",
+            "client_secret": self.service_key,
+            **({"scope": scope} if scope else {}),
+        }, separators=(",", ":"))
+        status, response = self.fetch(
+            f"{self.base_url}/oauth/token",
+            "POST",
+            {"accept": "application/json", "content-type": "application/json"},
+            body,
+        )
+        if status >= 400 or not response.get("access_token"):
+            raise OrbiPayGatewayError(str(response.get("error") or f"ORBI_PAY_GATEWAY_TOKEN_HTTP_{status}"), status, response)
+        self._access_token = str(response["access_token"])
+        self._access_token_scope = scope
+        self._access_token_expires_at = time.time() + int(response.get("expires_in") or 900)
+        return self._access_token
 
 
 class Orbi:

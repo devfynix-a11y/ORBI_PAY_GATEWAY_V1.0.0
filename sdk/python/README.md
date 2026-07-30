@@ -21,6 +21,7 @@ from orbi_pay_gateway import Orbi
 orbi = Orbi(
     base_url=os.environ["ORBI_PAY_GATEWAY_BASE_URL"],
     service_key=os.environ["ORBI_PAY_SERVICE_KEY"],
+    auth_mode="access_token",
     environment=os.environ.get("ORBI_PAY_ENVIRONMENT", "Demo"),
 )
 
@@ -42,6 +43,11 @@ action = orbi.payments.next_action(intent["data"])
 if action["type"] == "redirect_to_hosted_challenge":
     print(action["url"])
 ```
+
+`auth_mode="access_token"` is recommended for new production integrations. The
+SDK exchanges your server-side service key for a short-lived ORBI access token,
+caches it, and signs financial requests with that token. Use
+`auth_mode="api_key"` only for controlled legacy migration.
 
 ## Verify payment updates
 

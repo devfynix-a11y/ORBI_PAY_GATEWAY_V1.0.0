@@ -38,6 +38,40 @@ class PythonSdkTest(unittest.TestCase):
         self.assertIn("x-orbi-signature", captured["headers"])
         self.assertEqual(json.loads(captured["body"])["operation"], "collection")
 
+    def test_transfers_send_can_use_access_token_mode(self):
+        calls = []
+
+        def fake_fetch(url, method, headers, body):
+            calls.append({"url": url, "method": method, "headers": headers, "body": body})
+            if url.endswith("/oauth/token"):
+                return 200, {
+                    "access_token": "orbi_at_python_test",
+                    "token_type": "Bearer",
+                    "expires_in": 900,
+                    "scope": "payments:create",
+                }
+            return 200, {"success": True, "data": {"id": "pi_1", "status": "requires_action"}}
+
+        orbi = Orbi(
+            base_url="https://sandbox-pay.orbifinancial.com",
+            service_key="sk_test",
+            environment="Demo",
+            auth_mode="access_token",
+            access_token_scopes=["payments:create"],
+            fetch=fake_fetch,
+        )
+        response = orbi.transfers.send(
+            {"reference": "ORDER-1", "amount": 5000, "currency": "TZS"},
+            idempotency_key="payment-intent:ORDER-1",
+        )
+
+        self.assertTrue(response["success"])
+        self.assertEqual(calls[0]["url"], "https://sandbox-pay.orbifinancial.com/oauth/token")
+        self.assertIn('"client_secret":"sk_test"', calls[0]["body"])
+        self.assertEqual(calls[1]["headers"]["authorization"], "Bearer orbi_at_python_test")
+        self.assertNotIn("x-orbi-pay-service-key", calls[1]["headers"])
+        self.assertIn("x-orbi-signature", calls[1]["headers"])
+
     def test_payment_next_action_redirects_hosted_challenge(self):
         orbi = Orbi(base_url="https://sandbox-pay.orbifinancial.com", service_key="sk_test")
         action = orbi.payments.next_action({
