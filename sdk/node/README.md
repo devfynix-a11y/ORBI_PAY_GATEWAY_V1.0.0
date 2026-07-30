@@ -5,7 +5,7 @@ Official TypeScript/Node.js SDK for ORBI Pay Gateway.
 Status:
 
 ```text
-bootstrap
+live on npm
 ```
 
 This SDK targets server-side merchant, marketplace, SACCOS, organization, and
@@ -14,10 +14,8 @@ Vite client bundles.
 
 ## Install
 
-When published:
-
 ```bash
-npm install @orbifinancial/pay-gateway
+npm install @orbifinancial/pay-gateway@^0.1.1
 ```
 
 Local development from this repo:
