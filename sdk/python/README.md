@@ -49,6 +49,22 @@ SDK exchanges your server-side service key for a short-lived ORBI access token,
 caches it, and signs financial requests with that token. Use
 `auth_mode="api_key"` only for controlled legacy migration.
 
+## OAuth metadata and token control
+
+Use SDK helpers instead of hand-building OAuth calls:
+
+```python
+metadata = orbi.oauth.metadata()
+print(metadata["token_endpoint"])
+
+state = orbi.oauth.introspect(access_token)
+if not state["active"]:
+    # Request a fresh token before making financial requests.
+    pass
+
+orbi.oauth.revoke(access_token)
+```
+
 ## Verify payment updates
 
 ```python

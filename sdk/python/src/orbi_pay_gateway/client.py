@@ -69,6 +69,43 @@ class OrbiPayGatewayClient:
         if not self.service_key and not self.operator_key:
             raise ValueError("ORBI_PAY_GATEWAY_CREDENTIAL_REQUIRED")
 
+    def get_oauth_metadata(self) -> Json:
+        status, response = self.fetch(
+            f"{self.base_url}/.well-known/oauth-authorization-server",
+            "GET",
+            {"accept": "application/json"},
+            None,
+        )
+        if status >= 400:
+            raise OrbiPayGatewayError(str(response.get("error") or f"ORBI_PAY_GATEWAY_OAUTH_METADATA_HTTP_{status}"), status, response)
+        return response
+
+    def introspect_access_token(self, token: str) -> Json:
+        status, response = self.fetch(
+            f"{self.base_url}/oauth/introspect",
+            "POST",
+            {"accept": "application/json", "content-type": "application/json"},
+            json.dumps({"token": token, "client_secret": self.service_key}, separators=(",", ":")),
+        )
+        if status >= 400:
+            raise OrbiPayGatewayError(str(response.get("error") or f"ORBI_PAY_GATEWAY_OAUTH_INTROSPECT_HTTP_{status}"), status, response)
+        return response
+
+    def revoke_access_token(self, token: str) -> Json:
+        status, response = self.fetch(
+            f"{self.base_url}/oauth/revoke",
+            "POST",
+            {"accept": "application/json", "content-type": "application/json"},
+            json.dumps({"token": token, "client_secret": self.service_key}, separators=(",", ":")),
+        )
+        if status >= 400:
+            raise OrbiPayGatewayError(str(response.get("error") or f"ORBI_PAY_GATEWAY_OAUTH_REVOKE_HTTP_{status}"), status, response)
+        if self._access_token == token:
+            self._access_token = None
+            self._access_token_scope = ""
+            self._access_token_expires_at = 0.0
+        return response
+
     def create_payment_intent(self, payload: Json, **options: Any) -> Json:
         return self._request("POST", "/v1/payment-intents", payload, options)
 
@@ -193,6 +230,21 @@ class Orbi:
         self.paysafe = _PaySafe(self.client)
         self.identity = _Identity(self.client)
         self.payment_profiles = _PaymentProfiles(self.client)
+        self.oauth = _OAuth(self.client)
+
+
+class _OAuth:
+    def __init__(self, client: OrbiPayGatewayClient):
+        self.client = client
+
+    def metadata(self) -> Json:
+        return self.client.get_oauth_metadata()
+
+    def introspect(self, token: str) -> Json:
+        return self.client.introspect_access_token(token)
+
+    def revoke(self, token: str) -> Json:
+        return self.client.revoke_access_token(token)
 
 
 class _Transfers:

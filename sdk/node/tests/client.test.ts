@@ -68,6 +68,57 @@ test('client exchanges service key for access token and signs runtime request wi
   assert.match((calls[1].init.headers as Record<string, string>)['x-orbi-nonce'], /^[0-9a-f-]{36}$/);
 });
 
+test('client supports OAuth metadata, introspection, and revocation helpers', async () => {
+  const calls: Array<{ url: string; init: RequestInit }> = [];
+  const orbi = createOrbi({
+    baseUrl: 'https://pay.example',
+    serviceKey: 'svc_test_key',
+    fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init || {} });
+      const value = String(url);
+      if (value.endsWith('/.well-known/oauth-authorization-server')) {
+        return new Response(JSON.stringify({
+          issuer: 'https://pay.example',
+          token_endpoint: 'https://pay.example/oauth/token',
+          introspection_endpoint: 'https://pay.example/oauth/introspect',
+          revocation_endpoint: 'https://pay.example/oauth/revoke',
+          grant_types_supported: ['client_credentials'],
+          token_endpoint_auth_methods_supported: ['client_secret_post'],
+          scopes_supported: ['payments:create'],
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (value.endsWith('/oauth/introspect')) {
+        return new Response(JSON.stringify({
+          active: true,
+          service_code: 'merchant',
+          scope: 'payments:create',
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        success: true,
+        data: {
+          revoked: true,
+          serviceCode: 'merchant',
+          environment: 'sandbox',
+          revokedAt: '2026-07-30T00:00:00.000Z',
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch,
+  });
+
+  const metadata = await orbi.oauth.metadata();
+  const state = await orbi.oauth.introspect('orbi_at_test');
+  const revoked = await orbi.oauth.revoke('orbi_at_test');
+
+  assert.equal(metadata.issuer, 'https://pay.example');
+  assert.equal(state.active, true);
+  assert.equal(revoked.success, true);
+  assert.equal(calls[0].url, 'https://pay.example/.well-known/oauth-authorization-server');
+  assert.equal(calls[1].url, 'https://pay.example/oauth/introspect');
+  assert.match(String(calls[1].init.body), /"client_secret":"svc_test_key"/);
+  assert.equal(calls[2].url, 'https://pay.example/oauth/revoke');
+});
+
 test('client signs sensitive runtime read requests', async () => {
   const calls: Array<{ url: string; init: RequestInit }> = [];
   const client = new OrbiPayGatewayClient({

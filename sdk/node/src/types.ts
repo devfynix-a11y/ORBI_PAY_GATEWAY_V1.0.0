@@ -42,6 +42,44 @@ export type OrbiApiFailure = {
 
 export type OrbiApiResponse<T> = OrbiApiSuccess<T> | OrbiApiFailure;
 
+export type OAuthAuthorizationServerMetadata = {
+  issuer: string;
+  token_endpoint: string;
+  introspection_endpoint: string;
+  revocation_endpoint: string;
+  service_documentation?: string;
+  grant_types_supported: string[];
+  token_endpoint_auth_methods_supported: string[];
+  revocation_endpoint_auth_methods_supported?: string[];
+  introspection_endpoint_auth_methods_supported?: string[];
+  scopes_supported: string[];
+  response_types_supported?: string[];
+  code_challenge_methods_supported?: string[];
+  token_endpoint_auth_signing_alg_values_supported?: string[];
+};
+
+export type OAuthTokenIntrospection = {
+  active: boolean;
+  iss?: string;
+  aud?: string;
+  typ?: string;
+  sub?: string;
+  service_code?: string;
+  environment?: string;
+  scope?: string;
+  key_id?: string;
+  iat?: number;
+  exp?: number;
+  jti?: string;
+};
+
+export type OAuthTokenRevocationResult = {
+  revoked: boolean;
+  serviceCode?: string;
+  environment?: string;
+  revokedAt?: string;
+};
+
 export type PaymentCustomer = {
   type?: 'user' | 'guest' | 'external_customer';
   name?: string;

@@ -317,6 +317,40 @@ Developer Portal API keys are long-lived credentials. Runtime integrations shoul
 exchange them for short-lived service access tokens before calling financial
 routes.
 
+Discovery:
+
+```http
+GET /.well-known/oauth-authorization-server
+GET /v1/.well-known/oauth-authorization-server
+```
+
+Response:
+
+```json
+{
+  "issuer": "https://pay.orbifinancial.com",
+  "token_endpoint": "https://pay.orbifinancial.com/oauth/token",
+  "introspection_endpoint": "https://pay.orbifinancial.com/oauth/introspect",
+  "revocation_endpoint": "https://pay.orbifinancial.com/oauth/revoke",
+  "grant_types_supported": ["client_credentials"],
+  "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+  "scopes_supported": ["identity:resolve", "payments:create", "escrow:create"]
+}
+```
+
+SDK-first usage:
+
+```ts
+const metadata = await orbi.oauth.metadata();
+const tokenState = await orbi.oauth.introspect(accessToken);
+await orbi.oauth.revoke(accessToken);
+```
+
+Raw OAuth endpoints are documented for certified server-to-server integrations
+and SDK authors. Merchant application code should prefer the official SDK so
+token exchange, request signatures, idempotency headers, and audit correlation
+remain consistent.
+
 ```http
 POST /oauth/token
 content-type: application/x-www-form-urlencoded

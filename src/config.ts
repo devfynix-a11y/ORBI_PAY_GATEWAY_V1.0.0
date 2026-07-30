@@ -70,6 +70,8 @@ export const config = {
       process.env.PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET || '',
     serviceAccessTokenTtlSeconds:
       Number(process.env.PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_TTL_SECONDS || 900),
+    oauthIssuerUrl:
+      process.env.PAYMENT_GATEWAY_OAUTH_ISSUER_URL || process.env.PAYMENT_GATEWAY_PUBLIC_BASE_URL || 'https://pay.orbifinancial.com',
   },
   core: {
     baseUrl: process.env.ORBI_CORE_INTERNAL_BASE_URL || 'https://api.orbifinancial.com',

@@ -41,6 +41,61 @@ final class OrbiPayGatewayClient
         }
     }
 
+    public function getOAuthMetadata(): array
+    {
+        [$status, $response] = $this->sendHttpRequest(
+            'GET',
+            '/.well-known/oauth-authorization-server',
+            ['accept: application/json'],
+            null
+        );
+        if ($status >= 400) {
+            throw new RuntimeException((string)($response['error'] ?? ('ORBI_PAY_GATEWAY_OAUTH_METADATA_HTTP_' . $status)));
+        }
+        return $response;
+    }
+
+    public function introspectAccessToken(string $token): array
+    {
+        $body = json_encode([
+            'token' => $token,
+            'client_secret' => $this->serviceKey,
+        ], JSON_UNESCAPED_SLASHES);
+        [$status, $response] = $this->sendHttpRequest(
+            'POST',
+            '/oauth/introspect',
+            ['accept: application/json', 'content-type: application/json'],
+            $body ?: '{}'
+        );
+        if ($status >= 400) {
+            throw new RuntimeException((string)($response['error'] ?? ('ORBI_PAY_GATEWAY_OAUTH_INTROSPECT_HTTP_' . $status)));
+        }
+        return $response;
+    }
+
+    public function revokeAccessToken(string $token): array
+    {
+        $body = json_encode([
+            'token' => $token,
+            'client_secret' => $this->serviceKey,
+        ], JSON_UNESCAPED_SLASHES);
+        [$status, $response] = $this->sendHttpRequest(
+            'POST',
+            '/oauth/revoke',
+            ['accept: application/json', 'content-type: application/json'],
+            $body ?: '{}'
+        );
+        if ($status >= 400) {
+            throw new RuntimeException((string)($response['error'] ?? ('ORBI_PAY_GATEWAY_OAUTH_REVOKE_HTTP_' . $status)));
+        }
+        if ($this->accessToken === $token) {
+            $this->accessToken = null;
+            $this->accessTokenScope = '';
+            $this->accessTokenExpiresAt = 0.0;
+        }
+        return $response;
+    }
+
     public function createPaymentIntent(array $payload, array $options = []): array
     {
         return $this->request('POST', '/v1/payment-intents', $payload, $options);

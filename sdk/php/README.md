@@ -43,6 +43,22 @@ SDK exchanges your server-side service key for a short-lived ORBI access token,
 caches it, and signs financial requests with that token. Use
 `authMode => api_key` only for controlled legacy migration.
 
+## OAuth metadata and token control
+
+Use SDK helpers instead of hand-building OAuth calls:
+
+```php
+$metadata = $orbi->oauth()->metadata();
+echo $metadata['token_endpoint'];
+
+$state = $orbi->oauth()->introspect($accessToken);
+if (!$state['active']) {
+    // Request a fresh token before making financial requests.
+}
+
+$orbi->oauth()->revoke($accessToken);
+```
+
 ## Verify payment updates
 
 ```php

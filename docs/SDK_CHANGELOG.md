@@ -1,5 +1,12 @@
 # ORBI Pay Gateway SDK Changelog
 
+## 0.1.4
+
+- Added SDK-first OAuth metadata helpers for Node, Python, and PHP.
+- Added access token introspection and revocation helpers so developers do not
+  need to hand-build token lifecycle HTTP calls.
+- Added Gateway OAuth authorization server metadata discovery endpoint.
+
 ## 0.1.3
 
 - Added optional `correlationId` and `traceId` request options across official

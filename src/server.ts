@@ -62,6 +62,7 @@ import {
   DeveloperSecretIssueRequestSchema,
   DeveloperScopeDecisionSchema,
   DeveloperScopeRequestSchema,
+  DeveloperScopeSchema,
   DeveloperServiceApplicationSchema,
   DeveloperServiceStatusUpdateSchema,
   DeveloperSecretRevokeRequestSchema,
@@ -520,6 +521,27 @@ const tokenRequestClientSecret = (req: express.Request, body: { client_secret?: 
     }
   }
   return body.client_secret || req.get('x-orbi-pay-service-key') || req.get('x-api-key') || '';
+};
+
+const gatewayIssuerUrl = () => String(config.security.oauthIssuerUrl || config.publicBaseUrl).replace(/\/+$/, '');
+
+const oauthAuthorizationServerMetadata = () => {
+  const issuer = gatewayIssuerUrl();
+  return {
+    issuer,
+    token_endpoint: `${issuer}/oauth/token`,
+    introspection_endpoint: `${issuer}/oauth/introspect`,
+    revocation_endpoint: `${issuer}/oauth/revoke`,
+    service_documentation: `${issuer}/docs`,
+    grant_types_supported: ['client_credentials'],
+    token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
+    revocation_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
+    introspection_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
+    scopes_supported: DeveloperScopeSchema.options,
+    response_types_supported: [],
+    code_challenge_methods_supported: [],
+    token_endpoint_auth_signing_alg_values_supported: ['HS256'],
+  };
 };
 
 const requestedOAuthScopes = (scope: z.infer<typeof OAuthTokenRequestSchema>['scope']): string[] => {
@@ -1303,6 +1325,13 @@ app.get('/v1/service-profile', requirePayServiceAccess, (_req, res) => {
   const service = res.locals.payService as PayServiceDefinition;
   res.json({ success: true, data: payServiceRegistry.publicView(service) });
 });
+
+const oauthAuthorizationServerMetadataHandler = (_req: express.Request, res: express.Response) => {
+  res.json(oauthAuthorizationServerMetadata());
+};
+
+app.get('/.well-known/oauth-authorization-server', oauthAuthorizationServerMetadataHandler);
+app.get('/v1/.well-known/oauth-authorization-server', oauthAuthorizationServerMetadataHandler);
 
 const serviceTokenHandler = (req: express.Request, res: express.Response) => {
   const parsed = OAuthTokenRequestSchema.safeParse(req.body || {});

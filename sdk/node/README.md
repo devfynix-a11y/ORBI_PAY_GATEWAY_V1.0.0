@@ -15,7 +15,7 @@ Vite client bundles.
 ## Install
 
 ```bash
-npm install @orbifinancial/pay-gateway@^0.1.3
+npm install @orbifinancial/pay-gateway@^0.1.4
 ```
 
 Local development from this repo:
@@ -53,6 +53,22 @@ const orbi = createOrbi({
   serviceKey: process.env.ORBI_PAY_SERVICE_KEY!,
   authMode: 'api_key',
 });
+```
+
+## OAuth Metadata And Token Control
+
+Use SDK helpers instead of hand-building OAuth calls:
+
+```ts
+const metadata = await orbi.oauth.metadata();
+console.log(metadata.token_endpoint);
+
+const state = await orbi.oauth.introspect(accessToken);
+if (!state.active) {
+  // Request a fresh token before making financial requests.
+}
+
+await orbi.oauth.revoke(accessToken);
 ```
 
 ## CLI

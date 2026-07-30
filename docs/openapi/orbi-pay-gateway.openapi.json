@@ -40,6 +40,50 @@
     }
   ],
   "paths": {
+    "/.well-known/oauth-authorization-server": {
+      "get": {
+        "tags": ["Runtime"],
+        "summary": "Read OAuth authorization server metadata",
+        "operationId": "getOAuthAuthorizationServerMetadata",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OAuth metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "issuer",
+                    "token_endpoint",
+                    "introspection_endpoint",
+                    "revocation_endpoint",
+                    "grant_types_supported",
+                    "token_endpoint_auth_methods_supported",
+                    "scopes_supported"
+                  ],
+                  "properties": {
+                    "issuer": { "type": "string", "format": "uri" },
+                    "token_endpoint": { "type": "string", "format": "uri" },
+                    "introspection_endpoint": { "type": "string", "format": "uri" },
+                    "revocation_endpoint": { "type": "string", "format": "uri" },
+                    "service_documentation": { "type": "string", "format": "uri" },
+                    "grant_types_supported": { "type": "array", "items": { "type": "string" } },
+                    "token_endpoint_auth_methods_supported": { "type": "array", "items": { "type": "string" } },
+                    "revocation_endpoint_auth_methods_supported": { "type": "array", "items": { "type": "string" } },
+                    "introspection_endpoint_auth_methods_supported": { "type": "array", "items": { "type": "string" } },
+                    "scopes_supported": { "type": "array", "items": { "type": "string" } },
+                    "response_types_supported": { "type": "array", "items": { "type": "string" } },
+                    "code_challenge_methods_supported": { "type": "array", "items": { "type": "string" } },
+                    "token_endpoint_auth_signing_alg_values_supported": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/payment-intents": {
       "post": {
         "tags": ["Runtime"],

@@ -82,6 +82,12 @@ export class Orbi {
       this.client.linkPaymentProfile(payload, options),
   };
 
+  readonly oauth = {
+    metadata: () => this.client.getOAuthAuthorizationServerMetadata(),
+    introspect: (token: string) => this.client.introspectAccessToken(token),
+    revoke: (token: string) => this.client.revokeAccessToken(token),
+  };
+
   readonly consents = {
     createReceipt: (payload: ConsentReceiptCreateRequest, options: OrbiRequestOptions = {}) =>
       this.client.createConsentReceipt(payload, options),

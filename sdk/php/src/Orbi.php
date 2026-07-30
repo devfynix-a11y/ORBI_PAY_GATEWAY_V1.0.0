@@ -42,4 +42,9 @@ final class Orbi
     {
         return new PaymentProfiles($this->client);
     }
+
+    public function oauth(): OAuth
+    {
+        return new OAuth($this->client);
+    }
 }

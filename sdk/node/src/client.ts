@@ -26,6 +26,9 @@ import type {
   DeveloperServiceRecord,
   IdentityResolveRequest,
   OrbiApiResponse,
+  OAuthAuthorizationServerMetadata,
+  OAuthTokenIntrospection,
+  OAuthTokenRevocationResult,
   OrbiPayGatewayConfig,
   OrbiRequestOptions,
   OrbiRuntimeEnvironment,
@@ -94,6 +97,65 @@ export class OrbiPayGatewayClient {
     this.fetchImpl = config.fetchImpl || fetch;
     if (!this.baseUrl) throw new Error('ORBI_PAY_GATEWAY_BASE_URL_REQUIRED');
     if (!this.serviceKey && !this.operatorKey) throw new Error('ORBI_PAY_GATEWAY_CREDENTIAL_REQUIRED');
+  }
+
+  async getOAuthAuthorizationServerMetadata(): Promise<OAuthAuthorizationServerMetadata> {
+    const response = await this.fetchImpl(`${this.baseUrl}/.well-known/oauth-authorization-server`, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+    });
+    const text = await response.text();
+    const body = text ? JSON.parse(text) : {};
+    if (!response.ok) {
+      const error = typeof body?.error === 'string' ? body.error : `ORBI_PAY_GATEWAY_OAUTH_METADATA_HTTP_${response.status}`;
+      throw new OrbiPayGatewayError(error, response.status, body);
+    }
+    return body as OAuthAuthorizationServerMetadata;
+  }
+
+  async introspectAccessToken(token: string): Promise<OAuthTokenIntrospection> {
+    const response = await this.fetchImpl(`${this.baseUrl}/oauth/introspect`, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        token,
+        client_secret: this.serviceKey,
+      }),
+    });
+    const text = await response.text();
+    const body = text ? JSON.parse(text) : {};
+    if (!response.ok) {
+      const error = typeof body?.error === 'string' ? body.error : `ORBI_PAY_GATEWAY_OAUTH_INTROSPECT_HTTP_${response.status}`;
+      throw new OrbiPayGatewayError(error, response.status, body);
+    }
+    return body as OAuthTokenIntrospection;
+  }
+
+  async revokeAccessToken(token: string): Promise<OrbiApiResponse<OAuthTokenRevocationResult>> {
+    const response = await this.fetchImpl(`${this.baseUrl}/oauth/revoke`, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        token,
+        client_secret: this.serviceKey,
+      }),
+    });
+    const text = await response.text();
+    const body = text ? JSON.parse(text) : {};
+    if (!response.ok) {
+      const error = typeof body?.error === 'string' ? body.error : `ORBI_PAY_GATEWAY_OAUTH_REVOKE_HTTP_${response.status}`;
+      throw new OrbiPayGatewayError(error, response.status, body);
+    }
+    if (this.accessTokenCache?.token === token) {
+      this.accessTokenCache = undefined;
+    }
+    return body as OrbiApiResponse<OAuthTokenRevocationResult>;
   }
 
   createPaymentIntent(payload: PaymentIntentCreateRequest, options: OrbiRequestOptions = {}) {
