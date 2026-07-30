@@ -32,6 +32,10 @@
     {
       "name": "Developer Control Plane",
       "description": "Operator/developer portal APIs for consent, webhooks, health, docs, and SDK metadata."
+    },
+    {
+      "name": "Operator Control Plane",
+      "description": "Operations queue APIs for incident triage, assignment, and resolution."
     }
   ],
   "security": [
@@ -814,6 +818,137 @@
           "400": { "$ref": "#/components/responses/Error" }
         }
       }
+    },
+    "/v1/operator/incidents": {
+      "get": {
+        "tags": ["Operator Control Plane"],
+        "summary": "List operator incidents",
+        "operationId": "listOperatorIncidents",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": { "enum": ["open", "acknowledged", "assigned", "resolved"] }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": { "enum": ["warning", "critical"] }
+          },
+          {
+            "name": "incidentType",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 120 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operator incident list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiSuccess" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": { "$ref": "#/components/schemas/OperatorIncident" }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/operator/incidents/{incidentId}": {
+      "get": {
+        "tags": ["Operator Control Plane"],
+        "summary": "Read operator incident",
+        "operationId": "getOperatorIncident",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IncidentId" }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/OperatorIncidentSuccess" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/operator/incidents/{incidentId}/acknowledge": {
+      "post": {
+        "tags": ["Operator Control Plane"],
+        "summary": "Acknowledge operator incident",
+        "operationId": "acknowledgeOperatorIncident",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IncidentId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OperatorIncidentAcknowledgeRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/OperatorIncidentSuccess" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/operator/incidents/{incidentId}/assign": {
+      "post": {
+        "tags": ["Operator Control Plane"],
+        "summary": "Assign operator incident",
+        "operationId": "assignOperatorIncident",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IncidentId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OperatorIncidentAssignRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/OperatorIncidentSuccess" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/operator/incidents/{incidentId}/resolve": {
+      "post": {
+        "tags": ["Operator Control Plane"],
+        "summary": "Resolve operator incident",
+        "operationId": "resolveOperatorIncident",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IncidentId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OperatorIncidentResolveRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/OperatorIncidentSuccess" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
     }
   },
   "components": {
@@ -902,6 +1037,12 @@
       },
       "TransferId": {
         "name": "transferId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "minLength": 1 }
+      },
+      "IncidentId": {
+        "name": "incidentId",
         "in": "path",
         "required": true,
         "schema": { "type": "string", "minLength": 1 }
@@ -1037,6 +1178,24 @@
                   "type": "object",
                   "properties": {
                     "data": { "$ref": "#/components/schemas/WebhookDeliveryRecord" }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "OperatorIncidentSuccess": {
+        "description": "Operator incident response.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ApiSuccess" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/OperatorIncident" }
                   }
                 }
               ]
@@ -1365,6 +1524,62 @@
           "replayOf": { "type": "string" },
           "createdAt": { "type": "string" },
           "updatedAt": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "OperatorIncidentAcknowledgeRequest": {
+        "type": "object",
+        "required": ["acknowledgedBy"],
+        "properties": {
+          "acknowledgedBy": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "note": { "type": "string", "maxLength": 1000 }
+        }
+      },
+      "OperatorIncidentAssignRequest": {
+        "type": "object",
+        "required": ["assignedTo"],
+        "properties": {
+          "assignedTo": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "assignedBy": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "note": { "type": "string", "maxLength": 1000 }
+        }
+      },
+      "OperatorIncidentResolveRequest": {
+        "type": "object",
+        "required": ["resolvedBy", "resolution"],
+        "properties": {
+          "resolvedBy": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "resolution": { "type": "string", "minLength": 3, "maxLength": 2000 }
+        }
+      },
+      "OperatorIncident": {
+        "type": "object",
+        "required": ["incidentId", "incidentType", "severity", "status", "title", "message", "resource", "metadata", "createdAt", "updatedAt"],
+        "properties": {
+          "incidentId": { "type": "string" },
+          "sourceAlertId": { "type": "string" },
+          "incidentType": { "type": "string" },
+          "severity": { "enum": ["warning", "critical"] },
+          "status": { "enum": ["open", "acknowledged", "assigned", "resolved"] },
+          "title": { "type": "string" },
+          "message": { "type": "string" },
+          "resource": { "type": "object", "additionalProperties": true },
+          "metadata": { "type": "object", "additionalProperties": true },
+          "runbook": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "steps": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "assignedTo": { "type": "string" },
+          "acknowledgedBy": { "type": "string" },
+          "acknowledgedAt": { "type": "string", "format": "date-time" },
+          "resolvedBy": { "type": "string" },
+          "resolvedAt": { "type": "string", "format": "date-time" },
+          "resolution": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
         },
         "additionalProperties": true
       }

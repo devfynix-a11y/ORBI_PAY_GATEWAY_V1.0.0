@@ -68,6 +68,11 @@ test('openapi spec covers developer control plane endpoints', () => {
     '/v1/developer/sdk-catalog',
     '/v1/developer/consent-scopes',
     '/v1/developer/consent-status',
+    '/v1/operator/incidents',
+    '/v1/operator/incidents/{incidentId}',
+    '/v1/operator/incidents/{incidentId}/acknowledge',
+    '/v1/operator/incidents/{incidentId}/assign',
+    '/v1/operator/incidents/{incidentId}/resolve',
   ];
 
   for (const path of requiredDeveloperPaths) {
@@ -84,6 +89,10 @@ test('openapi spec exposes SDK-facing response schemas', () => {
     'ConsentScopeCatalogEntry',
     'ConsentStatusResult',
     'WebhookDeliveryRecord',
+    'OperatorIncident',
+    'OperatorIncidentAcknowledgeRequest',
+    'OperatorIncidentAssignRequest',
+    'OperatorIncidentResolveRequest',
     'ApiError',
   ];
 

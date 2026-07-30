@@ -78,7 +78,7 @@ import { scopeForPaymentIntent, scopeForPaymentOperation } from './services/serv
 import { buildDeveloperHealthSummary } from './services/developerHealthService.js';
 import { serviceAccessTokenRevocationStore } from './services/serviceAccessTokenRevocationStore.js';
 import { auditEventSink } from './services/auditEventSink.js';
-import { operatorIncidentStore } from './services/operatorIncidentStore.js';
+import { operatorIncidentStore, type OperatorIncident } from './services/operatorIncidentStore.js';
 import { reconciliationEvidenceService } from './services/reconciliationEvidenceService.js';
 import { reconciliationEvidenceScheduler } from './services/reconciliationEvidenceScheduler.js';
 import {
@@ -2158,6 +2158,32 @@ const OperatorIncidentResolveSchema = z.object({
   resolution: z.string().min(3).max(2000),
 });
 
+const emitOperatorIncidentAudit = (
+  action: 'acknowledged' | 'assigned' | 'resolved',
+  incident: OperatorIncident,
+  actor: string,
+) => {
+  void auditEventSink.emit({
+    eventType: `operator.incident.${action}`,
+    severity: incident.severity === 'critical' ? 'critical' : 'warning',
+    outcome: 'success',
+    actor: { requestedBy: actor },
+    resource: {
+      type: 'operator_incident',
+      id: incident.incidentId,
+    },
+    metadata: {
+      incidentType: incident.incidentType,
+      status: incident.status,
+      sourceAlertId: incident.sourceAlertId,
+      assignedTo: incident.assignedTo,
+      acknowledgedBy: incident.acknowledgedBy,
+      resolvedBy: incident.resolvedBy,
+      resolution: incident.resolution,
+    },
+  });
+};
+
 app.get('/v1/operator/incidents', requireOperatorDiscoveryAccess, async (req, res) => {
   const parsed = OperatorIncidentQuerySchema.safeParse(req.query);
   if (!parsed.success) return sendValidationError(res, 'OPERATOR_INCIDENT_QUERY_INVALID', parsed.error.issues);
@@ -2177,9 +2203,11 @@ app.post('/v1/operator/incidents/:incidentId/acknowledge', requireOperatorDiscov
   const parsed = OperatorIncidentAcknowledgeSchema.safeParse(req.body || {});
   if (!parsed.success) return sendValidationError(res, 'OPERATOR_INCIDENT_ACKNOWLEDGE_INVALID', parsed.error.issues);
   try {
+    const incident = await operatorIncidentStore.acknowledge(String(req.params.incidentId || ''), parsed.data);
+    emitOperatorIncidentAudit('acknowledged', incident, parsed.data.acknowledgedBy);
     return res.json({
       success: true,
-      data: await operatorIncidentStore.acknowledge(String(req.params.incidentId || ''), parsed.data),
+      data: incident,
     });
   } catch (error: any) {
     return sendApiError(res, error?.message === 'OPERATOR_INCIDENT_NOT_FOUND' ? 404 : 400, errorCodeFromException(error, 'OPERATOR_INCIDENT_ACKNOWLEDGE_FAILED'));
@@ -2190,9 +2218,11 @@ app.post('/v1/operator/incidents/:incidentId/assign', requireOperatorDiscoveryAc
   const parsed = OperatorIncidentAssignSchema.safeParse(req.body || {});
   if (!parsed.success) return sendValidationError(res, 'OPERATOR_INCIDENT_ASSIGN_INVALID', parsed.error.issues);
   try {
+    const incident = await operatorIncidentStore.assign(String(req.params.incidentId || ''), parsed.data);
+    emitOperatorIncidentAudit('assigned', incident, parsed.data.assignedBy || parsed.data.assignedTo);
     return res.json({
       success: true,
-      data: await operatorIncidentStore.assign(String(req.params.incidentId || ''), parsed.data),
+      data: incident,
     });
   } catch (error: any) {
     return sendApiError(res, error?.message === 'OPERATOR_INCIDENT_NOT_FOUND' ? 404 : 400, errorCodeFromException(error, 'OPERATOR_INCIDENT_ASSIGN_FAILED'));
@@ -2203,9 +2233,11 @@ app.post('/v1/operator/incidents/:incidentId/resolve', requireOperatorDiscoveryA
   const parsed = OperatorIncidentResolveSchema.safeParse(req.body || {});
   if (!parsed.success) return sendValidationError(res, 'OPERATOR_INCIDENT_RESOLVE_INVALID', parsed.error.issues);
   try {
+    const incident = await operatorIncidentStore.resolve(String(req.params.incidentId || ''), parsed.data);
+    emitOperatorIncidentAudit('resolved', incident, parsed.data.resolvedBy);
     return res.json({
       success: true,
-      data: await operatorIncidentStore.resolve(String(req.params.incidentId || ''), parsed.data),
+      data: incident,
     });
   } catch (error: any) {
     return sendApiError(res, error?.message === 'OPERATOR_INCIDENT_NOT_FOUND' ? 404 : 400, errorCodeFromException(error, 'OPERATOR_INCIDENT_RESOLVE_FAILED'));
