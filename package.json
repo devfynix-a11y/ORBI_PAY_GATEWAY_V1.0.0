@@ -13,6 +13,7 @@
     "test": "tsx --test --test-force-exit tests/**/*.test.ts",
     "check": "npm run build && npm test",
     "mtls:readiness": "node scripts/check-mtls-readiness.mjs",
+    "bank-grade:readiness": "node scripts/check-bank-grade-readiness.mjs",
     "smoke:runtime-controls": "node scripts/smoke-runtime-controls.mjs",
     "openapi:check": "tsx --test --test-force-exit tests/openApiSpec.test.ts",
     "sdk:metadata:check": "node scripts/check-sdk-release-metadata.mjs",

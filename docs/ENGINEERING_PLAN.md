@@ -112,6 +112,28 @@ customers.
 Do not skip evidence. A control is considered complete only when code,
 configuration, tests, operational runbook, and audit evidence exist.
 
+Use the readiness gate before bank-review work, live cutovers, and major
+partner pilots:
+
+```powershell
+npm run bank-grade:readiness -- --env-file="D:\FYNIX\ORBI\SECREATES\ORBI PAY GATEWAY LIVE ENV.txt"
+```
+
+When checking host-mounted mTLS files for a container path such as
+`/opt/orbi/mtls`, pass the host mount directory:
+
+```powershell
+node scripts/check-bank-grade-readiness.mjs --env-file="D:\FYNIX\ORBI\SECREATES\ORBI PAY GATEWAY LIVE ENV.txt" --mtls-host-dir="D:\FYNIX\ORBI\SECREATES\ORBI_MTLS"
+```
+
+For release blocking, run it in strict mode:
+
+```powershell
+node scripts/check-bank-grade-readiness.mjs --env-file="D:\FYNIX\ORBI\SECREATES\ORBI PAY GATEWAY LIVE ENV.txt" --strict
+```
+
+The script prints control status only. It must never print secret values.
+
 ### Stage 1: Live mTLS Cutover
 
 Goal:
