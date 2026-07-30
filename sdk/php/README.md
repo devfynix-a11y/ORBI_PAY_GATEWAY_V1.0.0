@@ -20,6 +20,7 @@ use Orbi\PayGateway\Orbi;
 $orbi = Orbi::create([
     'baseUrl' => getenv('ORBI_PAY_GATEWAY_BASE_URL'),
     'serviceKey' => getenv('ORBI_PAY_SERVICE_KEY'),
+    'authMode' => 'access_token',
     'environment' => getenv('ORBI_PAY_ENVIRONMENT') ?: 'Demo',
 ]);
 
@@ -36,6 +37,11 @@ $intent = $orbi->transfers()->send([
     'idempotencyKey' => 'payment-intent:merchant:ORDER-10001',
 ]);
 ```
+
+`authMode => access_token` is recommended for new production integrations. The
+SDK exchanges your server-side service key for a short-lived ORBI access token,
+caches it, and signs financial requests with that token. Use
+`authMode => api_key` only for controlled legacy migration.
 
 ## Verify payment updates
 

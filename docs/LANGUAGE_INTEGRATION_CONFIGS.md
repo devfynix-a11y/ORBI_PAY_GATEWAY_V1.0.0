@@ -164,7 +164,7 @@ use Orbi\PayGateway\Orbi;
 $orbi = Orbi::create([
     'baseUrl' => env('ORBI_PAY_GATEWAY_BASE_URL'),
     'serviceKey' => env('ORBI_PAY_SERVICE_KEY'),
-    'signingSecret' => env('ORBI_PAY_SIGNING_SECRET'),
+    'authMode' => 'access_token',
     'environment' => env('ORBI_PAY_ENVIRONMENT', 'Demo'),
 ]);
 
@@ -182,19 +182,28 @@ $intent = $orbi->transfers()->send([
 ]);
 ```
 
+`authMode => access_token` is the recommended production mode. The PHP SDK
+exchanges the server-side service key for a short-lived access token and uses it
+for signed financial requests. If your operator gives you a separate signing
+secret, pass it as `requestSigningSecret`.
+
 Verify webhook:
 
 ```php
 use Orbi\PayGateway\Webhooks;
 
-$event = Webhooks::verifyAndParse(
-    $request->getContent(),
-    $request->header('x-orbi-pay-signature', ''),
-    $request->header('x-orbi-pay-timestamp', ''),
-    env('ORBI_PAY_WEBHOOK_SECRET')
-);
+$result = Webhooks::verifyAndParse([
+    'rawBody' => $request->getContent(),
+    'signatureHeader' => $request->header('x-orbi-pay-signature', ''),
+    'timestampHeader' => $request->header('x-orbi-pay-timestamp', ''),
+    'secret' => env('ORBI_PAY_WEBHOOK_SECRET'),
+]);
 
-updateOrderFromOrbiEvent($event);
+if (!($result['ok'] ?? false)) {
+    abort(400, 'Invalid ORBI webhook');
+}
+
+updateOrderFromOrbiEvent($result['event']);
 ```
 
 ## Django / FastAPI

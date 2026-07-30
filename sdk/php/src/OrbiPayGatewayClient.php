@@ -12,8 +12,15 @@ final class OrbiPayGatewayClient
     private string $serviceKey;
     private ?string $operatorKey;
     private ?string $environment;
+    private string $authMode;
+    /** @var string[] */
+    private array $accessTokenScopes;
+    private int $accessTokenRefreshSkewSeconds;
     private bool $requestSigning;
     private ?string $requestSigningSecret;
+    private ?string $accessToken = null;
+    private float $accessTokenExpiresAt = 0.0;
+    private string $accessTokenScope = '';
 
     public function __construct(array $config)
     {
@@ -21,6 +28,9 @@ final class OrbiPayGatewayClient
         $this->serviceKey = (string)($config['serviceKey'] ?? '');
         $this->operatorKey = isset($config['operatorKey']) ? (string)$config['operatorKey'] : null;
         $this->environment = isset($config['environment']) ? (string)$config['environment'] : null;
+        $this->authMode = (string)($config['authMode'] ?? 'api_key');
+        $this->accessTokenScopes = array_values(array_filter(array_map('strval', $config['accessTokenScopes'] ?? [])));
+        $this->accessTokenRefreshSkewSeconds = max(5, (int)($config['accessTokenRefreshSkewSeconds'] ?? 60));
         $this->requestSigning = $config['requestSigning'] ?? true;
         $this->requestSigningSecret = isset($config['requestSigningSecret']) ? (string)$config['requestSigningSecret'] : null;
         if ($this->baseUrl === '') {
@@ -99,9 +109,10 @@ final class OrbiPayGatewayClient
             throw new RuntimeException('ORBI_PAY_GATEWAY_SERVICE_KEY_REQUIRED');
         }
         $body = $method === 'GET' ? '' : json_encode($payload, JSON_UNESCAPED_SLASHES);
+        [$authHeaders, $signingSecret] = $this->serviceAuthorization();
         $headers = [
             'accept: application/json',
-            'x-orbi-pay-service-key: ' . $this->serviceKey,
+            ...$authHeaders,
         ];
         $environment = self::normalizeEnvironment($options['environment'] ?? $this->environment);
         if ($environment) {
@@ -117,11 +128,67 @@ final class OrbiPayGatewayClient
             $headers[] = 'content-type: application/json';
         }
         if ($this->requestSigning && $method !== 'GET') {
-            foreach (self::signRequest($method, $path, $body ?: '', $this->requestSigningSecret ?: $this->serviceKey) as $key => $value) {
+            foreach (self::signRequest($method, $path, $body ?: '', $this->requestSigningSecret ?: $signingSecret) as $key => $value) {
                 $headers[] = $key . ': ' . $value;
             }
         }
 
+        [$status, $decoded] = $this->sendHttpRequest($method, $path, $headers, $body ?: '');
+        if ($status >= 400 && empty($decoded)) {
+            throw new RuntimeException('ORBI_PAY_GATEWAY_HTTP_' . $status);
+        }
+        return $decoded;
+    }
+
+    /**
+     * @return array{0: string[], 1: string}
+     */
+    private function serviceAuthorization(): array
+    {
+        if ($this->authMode === 'api_key') {
+            return [['x-orbi-pay-service-key: ' . $this->serviceKey], $this->serviceKey];
+        }
+        if ($this->authMode !== 'access_token') {
+            throw new RuntimeException('ORBI_PAY_GATEWAY_AUTH_MODE_INVALID');
+        }
+        $token = $this->getServiceAccessToken();
+        return [['authorization: Bearer ' . $token], $token];
+    }
+
+    private function getServiceAccessToken(): string
+    {
+        $scope = implode(' ', $this->accessTokenScopes);
+        if (
+            $this->accessToken &&
+            $this->accessTokenScope === $scope &&
+            $this->accessTokenExpiresAt - $this->accessTokenRefreshSkewSeconds > microtime(true)
+        ) {
+            return $this->accessToken;
+        }
+        $body = json_encode(array_filter([
+            'grant_type' => 'client_credentials',
+            'client_secret' => $this->serviceKey,
+            'scope' => $scope ?: null,
+        ], static fn($value) => $value !== null), JSON_UNESCAPED_SLASHES);
+        $headers = [
+            'accept: application/json',
+            'content-type: application/json',
+        ];
+        [$status, $response] = $this->sendHttpRequest('POST', '/oauth/token', $headers, $body ?: '{}');
+        if ($status >= 400 || empty($response['access_token'])) {
+            throw new RuntimeException((string)($response['error'] ?? ('ORBI_PAY_GATEWAY_TOKEN_HTTP_' . $status)));
+        }
+        $this->accessToken = (string)$response['access_token'];
+        $this->accessTokenScope = $scope;
+        $this->accessTokenExpiresAt = microtime(true) + (int)($response['expires_in'] ?? 900);
+        return $this->accessToken;
+    }
+
+    /**
+     * @return array{0: int, 1: array<string, mixed>}
+     */
+    private function sendHttpRequest(string $method, string $path, array $headers, ?string $body): array
+    {
         $ch = curl_init($this->baseUrl . $path);
         curl_setopt_array($ch, [
             CURLOPT_CUSTOMREQUEST => $method,
@@ -144,10 +211,7 @@ final class OrbiPayGatewayClient
         if (!is_array($decoded)) {
             throw new RuntimeException('ORBI_PAY_GATEWAY_INVALID_JSON_RESPONSE');
         }
-        if ($status >= 400 && empty($decoded)) {
-            throw new RuntimeException('ORBI_PAY_GATEWAY_HTTP_' . $status);
-        }
-        return $decoded;
+        return [$status, $decoded];
     }
 
     private static function normalizeEnvironment(?string $environment): ?string
