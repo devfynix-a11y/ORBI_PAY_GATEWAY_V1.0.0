@@ -3093,6 +3093,7 @@ const start = async () => {
       port: config.port,
       publicBaseUrl: config.publicBaseUrl,
       coreTarget: config.core.baseUrl,
+      coreTransportMode: config.core.internalTransportMode,
       mtlsEnabled: config.mtls.enabled,
     });
   });

@@ -107,6 +107,7 @@ This reference is for maintainability only. It intentionally does not store secr
 | `PAYMENT_GATEWAY_REQUIRE_SIGNED_INTERNAL_INGRESS` | Runtime | Non-secret | No | Payment gateway only | Requires worker-signed headers on Gateway internal ingress routes. Default `true` in production. |
 | `PAYMENT_GATEWAY_REQUEST_AUDIT_ENABLED` | Runtime | Non-secret | No | Payment gateway only | Emits structured request completion logs with request, trace, and correlation IDs. Default `true`. |
 | `ORBI_CORE_INTERNAL_BASE_URL` | Runtime | Non-secret | No | Payment gateway only | Secure Core external root used by the payment gateway for signed callbacks, commonly `https://api.orbifinancial.com`. |
+| `PAYMENT_GATEWAY_INTERNAL_CORE_TRANSPORT_MODE` | Runtime | Non-secret | No | Payment gateway only | Gateway -> Core transport mode. Use `private_http` only for Docker/private Core targets with HMAC signing, `mtls` for certificate-backed internal HTTPS, or `public_https` for HTTPS-only routed deployments. |
 | `ORBI_CORE_TRUSTED_GATEWAY_EVENT_PATH` | Runtime | Non-secret | No | Payment gateway only | Core internal route for normalized trusted provider events. |
 | `PAYMENT_GATEWAY_WORKER_ID` | Runtime | Non-secret | No | Payment gateway only | Internal worker identity sent to Core by the payment gateway. |
 | `PAYMENT_GATEWAY_WORKER_SCOPES` | Runtime | Non-secret | No | Payment gateway only | Comma-separated worker scopes. Must include `gateway:events:write`. |

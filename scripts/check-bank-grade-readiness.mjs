@@ -52,18 +52,47 @@ const mtlsFilesReady = [
   'PAYMENT_GATEWAY_INTERNAL_MTLS_CA_PATH',
 ].every(fileExists);
 const coreBaseUrl = String(process.env.ORBI_CORE_INTERNAL_BASE_URL || '');
+const allowPrivateHttpCore = boolFromEnv('PAYMENT_GATEWAY_ALLOW_PRIVATE_HTTP_CORE');
+const internalTransportMode = String(
+  process.env.PAYMENT_GATEWAY_INTERNAL_CORE_TRANSPORT_MODE ||
+    (mtlsEnabled ? 'mtls' : allowPrivateHttpCore ? 'private_http' : 'public_https'),
+).trim().toLowerCase();
+const coreHost = (() => {
+  try {
+    return new URL(coreBaseUrl).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+})();
+const privateHttpCoreTarget =
+  coreBaseUrl.startsWith('http://') &&
+  (
+    ['core', 'core-sandbox', 'localhost', '127.0.0.1', '::1'].includes(coreHost) ||
+    /^10\./.test(coreHost) ||
+    /^192\.168\./.test(coreHost) ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(coreHost)
+  );
+const hmacWorkerSigningConfigured = hasValue('WORKER_SIGNING_SECRET') || hasValue('WORKER_SECRET');
+const transportReady =
+  internalTransportMode === 'mtls'
+    ? mtlsEnabled && mtlsFilesReady && coreBaseUrl.startsWith('https://') && hmacWorkerSigningConfigured
+    : internalTransportMode === 'private_http'
+      ? allowPrivateHttpCore && privateHttpCoreTarget && hmacWorkerSigningConfigured
+      : coreBaseUrl.startsWith('https://') && hmacWorkerSigningConfigured;
 
 const controls = [
   control(
-    'transport.live_mtls',
-    mtlsEnabled && mtlsFilesReady && coreBaseUrl.startsWith('https://') ? 'pass' : 'attention',
+    'transport.internal_core',
+    transportReady ? 'pass' : 'attention',
     {
+      mode: internalTransportMode,
       mtlsEnabled,
       certFilesReady: mtlsFilesReady,
       coreTargetUsesHttps: coreBaseUrl.startsWith('https://'),
-      hmacWorkerSigningConfigured: hasValue('WORKER_SIGNING_SECRET') || hasValue('WORKER_SECRET'),
+      privateHttpCoreTarget,
+      hmacWorkerSigningConfigured,
     },
-    'Enable live mTLS only during a coordinated maintenance window; keep HMAC mandatory.',
+    'Use private_http only for Docker/private Core targets with HMAC; cut over to mTLS during a coordinated maintenance window.',
   ),
   control(
     'auth.service_access_tokens',

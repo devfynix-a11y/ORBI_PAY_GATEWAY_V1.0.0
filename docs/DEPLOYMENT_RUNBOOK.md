@@ -40,7 +40,9 @@ PAYMENT_GATEWAY_ALLOWED_BROWSER_ORIGINS=https://pay.orbifinancial.com,https://sh
 PAYMENT_GATEWAY_REQUIRE_SIGNED_INTERNAL_INGRESS=true
 PAYMENT_GATEWAY_REQUEST_AUDIT_ENABLED=true
 
-ORBI_CORE_INTERNAL_BASE_URL=https://api.orbifinancial.com
+ORBI_CORE_INTERNAL_BASE_URL=http://core:3000
+PAYMENT_GATEWAY_ALLOW_PRIVATE_HTTP_CORE=true
+PAYMENT_GATEWAY_INTERNAL_CORE_TRANSPORT_MODE=private_http
 ORBI_CORE_TRUSTED_GATEWAY_EVENT_PATH=/api/internal/gateway/provider-events
 ORBI_CORE_CALLBACK_TIMEOUT_MS=7500
 
@@ -49,12 +51,12 @@ PAYMENT_GATEWAY_WORKER_SCOPES=gateway:events:write
 WORKER_SIGNING_SECRET=<same-secret-configured-in-core>
 WORKER_KEY_ID=payment-gateway-v1
 
-PAYMENT_GATEWAY_INTERNAL_MTLS_ENABLED=true
-PAYMENT_GATEWAY_INTERNAL_MTLS_CERT_PATH=/opt/orbi/mtls/pay-gateway-client.crt
-PAYMENT_GATEWAY_INTERNAL_MTLS_KEY_PATH=/opt/orbi/mtls/pay-gateway-client.key
-PAYMENT_GATEWAY_INTERNAL_MTLS_CA_PATH=/opt/orbi/mtls/orbi-internal-ca.crt
-PAYMENT_GATEWAY_INTERNAL_MTLS_REJECT_UNAUTHORIZED=true
+PAYMENT_GATEWAY_INTERNAL_MTLS_ENABLED=false
 ```
+
+`private_http` is allowed only for Docker/private Core targets and only while
+HMAC worker signatures remain configured. Public HTTP Core URLs are rejected.
+Use the mTLS activation gate below for certificate-backed internal HTTPS.
 
 ## Sandbox Environment
 
@@ -76,6 +78,7 @@ ORBI_SECRET_ENCRYPTION_KEY=<sandbox-only-secret-encryption-key>
 
 ORBI_CORE_INTERNAL_BASE_URL=<sandbox-core-internal-url>
 PAYMENT_GATEWAY_ALLOW_PRIVATE_HTTP_CORE=true
+PAYMENT_GATEWAY_INTERNAL_CORE_TRANSPORT_MODE=private_http
 
 PAYMENT_GATEWAY_WORKER_ID=orbi-payment-gateway-sandbox
 PAYMENT_GATEWAY_WORKER_SCOPES=gateway:events:write,gateway:service-payments:write,gateway:service-payments:result,gateway:identity:read,gateway:paysafe-balances:read,gateway:business-registration:write,gateway:payment-profiles:write,gateway:merchant-payments:read,gateway:merchant-settlements:read
@@ -216,6 +219,7 @@ Gateway-to-Core mTLS must be enabled only after both sides are ready:
 
 ```env
 PAYMENT_GATEWAY_INTERNAL_MTLS_ENABLED=true
+PAYMENT_GATEWAY_INTERNAL_CORE_TRANSPORT_MODE=mtls
 PAYMENT_GATEWAY_INTERNAL_MTLS_CERT_PATH=/opt/orbi/mtls/pay-gateway-client.crt
 PAYMENT_GATEWAY_INTERNAL_MTLS_KEY_PATH=/opt/orbi/mtls/pay-gateway-client.key
 PAYMENT_GATEWAY_INTERNAL_MTLS_CA_PATH=/opt/orbi/mtls/orbi-internal-ca.crt

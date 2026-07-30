@@ -146,6 +146,9 @@ worker signatures permanently enabled.
 Tasks:
 
 - Verify live certificate material exists outside the repo.
+- Declare `PAYMENT_GATEWAY_INTERNAL_CORE_TRANSPORT_MODE`.
+- Keep `private_http` limited to Docker/private Core targets such as
+  `http://core:3000` with HMAC worker signatures.
 - Run `npm run mtls:readiness`.
 - Enable live mTLS during a maintenance window.
 - Smoke `/health`, `/ready`, signed Core callback denial/allow paths, and
@@ -155,8 +158,10 @@ Tasks:
 Acceptance:
 
 ```text
-Gateway readiness reports `mtlsEnabled=true` for live, Core still rejects
-unsigned callbacks, and HMAC remains mandatory.
+Gateway readiness reports internal Core transport as pass. During the current
+self-hosted phase this may be `private_http` + HMAC on Docker private networks;
+the bank-grade cutover target is `mtls` + HMAC with Core still rejecting
+unsigned callbacks.
 ```
 
 ### Stage 2: OAuth2/OIDC Service Authorization

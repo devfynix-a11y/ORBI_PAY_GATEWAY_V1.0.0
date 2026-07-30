@@ -1,6 +1,10 @@
 import fs from 'fs';
 import dotenv from 'dotenv';
 import { validateMtlsPolicy } from './security/mtlsPolicy.js';
+import {
+  validateInternalCoreTransportPolicy,
+  type InternalCoreTransportMode,
+} from './security/internalCoreTransportPolicy.js';
 
 dotenv.config();
 
@@ -77,6 +81,14 @@ export const config = {
     baseUrl: process.env.ORBI_CORE_INTERNAL_BASE_URL || 'https://api.orbifinancial.com',
     allowPrivateHttp:
       boolFromEnv(process.env.PAYMENT_GATEWAY_ALLOW_PRIVATE_HTTP_CORE, false),
+    internalTransportMode: (
+      process.env.PAYMENT_GATEWAY_INTERNAL_CORE_TRANSPORT_MODE ||
+      (boolFromEnv(process.env.PAYMENT_GATEWAY_INTERNAL_MTLS_ENABLED, false)
+        ? 'mtls'
+        : boolFromEnv(process.env.PAYMENT_GATEWAY_ALLOW_PRIVATE_HTTP_CORE, false)
+          ? 'private_http'
+          : 'public_https')
+    ) as InternalCoreTransportMode,
     trustedGatewayEventPath:
       process.env.ORBI_CORE_TRUSTED_GATEWAY_EVENT_PATH || '/api/internal/gateway/provider-events',
     trustedServicePaymentRequestPath:
@@ -123,14 +135,6 @@ export const requireGatewayRuntimeSecrets = () => {
     throw new Error('WORKER_SIGNING_SECRET is required for production payment gateway callbacks.');
   }
 
-  if (
-    config.env === 'production' &&
-    !config.core.baseUrl.startsWith('https://') &&
-    !config.core.allowPrivateHttp
-  ) {
-    throw new Error('ORBI_CORE_INTERNAL_BASE_URL must use https:// in production.');
-  }
-
   if (config.env === 'production' && !config.operatorDiscoveryApiKey) {
     throw new Error('PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY is required for production discovery endpoints.');
   }
@@ -167,5 +171,22 @@ export const requireGatewayRuntimeSecrets = () => {
 
   if (mtlsErrors.length > 0) {
     throw new Error(mtlsErrors.join(' '));
+  }
+
+  const transportErrors = validateInternalCoreTransportPolicy({
+    env: config.env,
+    mode: config.core.internalTransportMode,
+    coreBaseUrl: config.core.baseUrl,
+    allowPrivateHttp: config.core.allowPrivateHttp,
+    workerSigningConfigured: Boolean(config.worker.signingSecret),
+    mtlsEnabled: config.mtls.enabled,
+    hasCert: Boolean(config.mtls.cert),
+    hasKey: Boolean(config.mtls.key),
+    hasCa: Boolean(config.mtls.ca),
+    rejectUnauthorized: config.mtls.rejectUnauthorized,
+  });
+
+  if (transportErrors.length > 0) {
+    throw new Error(transportErrors.join(' '));
   }
 };
