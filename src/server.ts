@@ -64,6 +64,7 @@ import {
   DeveloperServiceStatusUpdateSchema,
   DeveloperSecretRevokeRequestSchema,
   DeveloperWebhookSecretRotationRequestSchema,
+  DeveloperWebhookReplayRequestSchema,
 } from './contracts/developerPortalContract.js';
 import { consentReceiptStore } from './services/consentReceiptStore.js';
 import { developerPortalStore } from './services/developerPortalStore.js';
@@ -2567,6 +2568,7 @@ app.get('/v1/developer/webhook-deliveries', requireOperatorDiscoveryAccess, (req
 
 app.post('/v1/developer/webhook-deliveries/:deliveryId/replay', requireOperatorDiscoveryAccess, async (req, res) => {
   try {
+    const replayRequest = DeveloperWebhookReplayRequestSchema.parse(req.body || {});
     const replay = webhookDeliveryStore.nextReplayAttempt(String(req.params.deliveryId || ''));
     let service: PayServiceDefinition;
     try {
@@ -2600,6 +2602,10 @@ app.post('/v1/developer/webhook-deliveries/:deliveryId/replay', requireOperatorD
       statusCode: delivery.statusCode,
       error: delivery.error,
       replayOf: replay.original.deliveryId,
+      replayReason: replayRequest.reason,
+      replayRequestedBy: replayRequest.requestedBy,
+      replayRequestId: req.auditContext?.requestId,
+      replayMetadata: replayRequest.metadata,
     });
     return res.status(delivery.delivered ? 200 : 502).json({ success: delivery.delivered, data: record });
   } catch (e: any) {

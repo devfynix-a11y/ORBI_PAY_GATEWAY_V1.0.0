@@ -46,6 +46,7 @@ import type {
   WebhookDeliveryQuery,
   WebhookDeliveryRecord,
   WebhookReplayFailedOptions,
+  WebhookReplayOptions,
 } from './types.js';
 
 export class OrbiPayGatewayError extends Error {
@@ -386,11 +387,15 @@ export class OrbiPayGatewayClient {
     return this.operatorRequest<WebhookDeliveryRecord[]>('GET', `/v1/developer/webhook-deliveries${queryString(query)}`);
   }
 
-  replayWebhookDelivery(deliveryId: string, options: OrbiRequestOptions = {}) {
+  replayWebhookDelivery(deliveryId: string, options: WebhookReplayOptions = {}) {
     return this.operatorRequest<WebhookDeliveryRecord>(
       'POST',
       `/v1/developer/webhook-deliveries/${encodeURIComponent(deliveryId)}/replay`,
-      {},
+      {
+        ...(options.reason ? { reason: options.reason } : {}),
+        ...(options.requestedBy ? { requestedBy: options.requestedBy } : {}),
+        ...(options.metadata ? { metadata: options.metadata } : {}),
+      },
       options,
     );
   }

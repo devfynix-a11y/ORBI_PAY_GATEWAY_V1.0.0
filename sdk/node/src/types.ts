@@ -519,6 +519,10 @@ export type WebhookDeliveryRecord = {
   statusCode?: number;
   error?: string;
   replayOf?: string;
+  replayReason?: string;
+  replayRequestedBy?: string;
+  replayRequestId?: string;
+  replayMetadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 };
@@ -531,6 +535,15 @@ export type WebhookDeliveryQuery = {
 
 export type WebhookReplayFailedOptions = OrbiRequestOptions & {
   limit?: number;
+  reason?: string;
+  requestedBy?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type WebhookReplayOptions = OrbiRequestOptions & {
+  reason?: string;
+  requestedBy?: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type OrbiWebhookEvent =

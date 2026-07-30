@@ -39,7 +39,16 @@ test('webhook delivery store records deliveries and computes replay attempts', (
     status: 'delivered',
     attempt: 2,
     replayOf: failed.deliveryId,
+    replayReason: 'Retry after merchant endpoint recovery.',
+    replayRequestedBy: 'orbi-operator',
+    replayRequestId: 'manual-replay-whdel-001',
+    replayMetadata: { ticketId: 'SUP-1001' },
   });
 
   assert.equal(store.nextReplayAttempt(failed.deliveryId).attempt, 3);
+  const replay = store.list({ status: 'delivered' })[0];
+  assert.equal(replay.replayReason, 'Retry after merchant endpoint recovery.');
+  assert.equal(replay.replayRequestedBy, 'orbi-operator');
+  assert.equal(replay.replayRequestId, 'manual-replay-whdel-001');
+  assert.deepEqual(replay.replayMetadata, { ticketId: 'SUP-1001' });
 });

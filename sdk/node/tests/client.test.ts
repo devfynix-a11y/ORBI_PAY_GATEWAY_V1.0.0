@@ -432,7 +432,12 @@ test('client supports operator consent and webhook replay APIs without service k
     subjectId: 'user_001',
     status: 'active',
   });
-  await client.replayWebhookDelivery('whdel_001', { requestId: 'req-replay-001' });
+  await client.replayWebhookDelivery('whdel_001', {
+    requestId: 'req-replay-001',
+    reason: 'Retry after merchant endpoint recovery.',
+    requestedBy: 'orbi-operator',
+    metadata: { ticketId: 'SUP-1001' },
+  });
 
   assert.equal(
     calls[0].url,
@@ -442,6 +447,11 @@ test('client supports operator consent and webhook replay APIs without service k
   assert.equal((calls[0].init.headers as Record<string, string>)['x-orbi-pay-service-key'], undefined);
   assert.equal(calls[1].url, 'https://pay.example/v1/developer/webhook-deliveries/whdel_001/replay');
   assert.equal((calls[1].init.headers as Record<string, string>)['x-request-id'], 'req-replay-001');
+  assert.deepEqual(JSON.parse(String(calls[1].init.body)), {
+    reason: 'Retry after merchant endpoint recovery.',
+    requestedBy: 'orbi-operator',
+    metadata: { ticketId: 'SUP-1001' },
+  });
 });
 
 test('client replays failed webhook deliveries as an operator batch', async () => {

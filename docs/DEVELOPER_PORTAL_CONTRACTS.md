@@ -858,6 +858,18 @@ GET /v1/developer/webhook-deliveries?status=failed
 POST /v1/developer/webhook-deliveries/:deliveryId/replay
 ```
 
+Replay request body:
+
+```json
+{
+  "reason": "Retry after merchant endpoint recovery.",
+  "requestedBy": "orbi-operator",
+  "metadata": {
+    "ticketId": "SUP-1001"
+  }
+}
+```
+
 Delivery record shape:
 
 ```json
@@ -872,6 +884,10 @@ Delivery record shape:
   "attempt": 1,
   "statusCode": 503,
   "error": "PAY_SERVICE_WEBHOOK_HTTP_503",
+  "replayOf": "whdel_original",
+  "replayReason": "Retry after merchant endpoint recovery.",
+  "replayRequestedBy": "orbi-operator",
+  "replayRequestId": "req-replay-001",
   "createdAt": "2026-07-23T00:00:00.000Z",
   "updatedAt": "2026-07-23T00:00:00.000Z"
 }
@@ -882,6 +898,7 @@ Replay rules:
 ```text
 Replay signs a fresh webhook using the service webhook secret.
 Replay creates a new delivery record with replayOf=<original-delivery-id>.
+Replay stores operator reason, requestedBy, request ID, and metadata as evidence.
 Replay must not mutate ledger, payment intent, or escrow state.
 Replay is for merchant notification recovery only.
 Merchant must dedupe by eventId/resource state and process idempotently.

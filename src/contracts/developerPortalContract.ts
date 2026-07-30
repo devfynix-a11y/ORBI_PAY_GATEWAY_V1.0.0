@@ -242,6 +242,12 @@ export const DeveloperWebhookSecretRotationRequestSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+export const DeveloperWebhookReplayRequestSchema = z.object({
+  reason: z.string().trim().min(10).max(1000).optional(),
+  requestedBy: z.string().trim().min(3).max(180).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
 export const DeveloperPortalEventSchema = z
   .object({
     eventId: z.string().trim().min(1),
