@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ApiSuccessResponseSchema } from './platformContract.js';
+import { isProductionBrowserOrigin } from '../security/runtimeControls.js';
 
 export const DeveloperPortalEnvironmentSchema = z.enum(['sandbox', 'live']);
 
@@ -55,24 +56,36 @@ export const OriginAllowlistSchema = z
     }),
   );
 
-export const DeveloperServiceApplicationSchema = z.object({
-  externalDeveloperId: z.string().trim().min(1).max(160).optional(),
-  legalName: z.string().trim().min(2).max(180),
-  displayName: z.string().trim().min(2).max(120),
-  contactEmail: z.string().trim().email(),
-  contactPhone: z.string().trim().min(6).max(40).optional(),
-  businessType: DeveloperBusinessTypeSchema,
-  countryCode: z.string().trim().min(2).max(3),
-  requestedEnvironments: z.array(DeveloperPortalEnvironmentSchema).min(1).max(2),
-  requestedScopes: z.array(DeveloperScopeSchema).min(1).max(20),
-  browserOrigins: OriginAllowlistSchema,
-  redirectUrls: UrlAllowlistSchema,
-  webhookUrls: UrlAllowlistSchema,
-  useCases: z.array(z.string().trim().min(3).max(240)).min(1).max(12),
-  supportEmail: z.string().trim().email().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  termsAccepted: z.literal(true),
-});
+export const DeveloperServiceApplicationSchema = z
+  .object({
+    externalDeveloperId: z.string().trim().min(1).max(160).optional(),
+    legalName: z.string().trim().min(2).max(180),
+    displayName: z.string().trim().min(2).max(120),
+    contactEmail: z.string().trim().email(),
+    contactPhone: z.string().trim().min(6).max(40).optional(),
+    businessType: DeveloperBusinessTypeSchema,
+    countryCode: z.string().trim().min(2).max(3),
+    requestedEnvironments: z.array(DeveloperPortalEnvironmentSchema).min(1).max(2),
+    requestedScopes: z.array(DeveloperScopeSchema).min(1).max(20),
+    browserOrigins: OriginAllowlistSchema,
+    redirectUrls: UrlAllowlistSchema,
+    webhookUrls: UrlAllowlistSchema,
+    useCases: z.array(z.string().trim().min(3).max(240)).min(1).max(12),
+    supportEmail: z.string().trim().email().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    termsAccepted: z.literal(true),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.requestedEnvironments.includes('live')) return;
+    value.browserOrigins.forEach((origin, index) => {
+      if (isProductionBrowserOrigin(origin)) return;
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Live browser origins must use public HTTPS domains. Localhost, private IPs, and wildcards are sandbox-only.',
+        path: ['browserOrigins', index],
+      });
+    });
+  });
 
 export const DeveloperServiceRecordSchema = z
   .object({
@@ -148,6 +161,17 @@ export const DeveloperAllowlistUpdateSchema = z
   .refine((value) => Boolean(value.browserOrigins?.length || value.redirectUrls?.length || value.webhookUrls?.length), {
     message: 'Provide at least one browser origin, redirect URL, or webhook URL.',
     path: ['browserOrigins'],
+  })
+  .superRefine((value, ctx) => {
+    if (value.environment !== 'live') return;
+    value.browserOrigins?.forEach((origin, index) => {
+      if (isProductionBrowserOrigin(origin)) return;
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Live browser origins must use public HTTPS domains. Localhost, private IPs, and wildcards are sandbox-only.',
+        path: ['browserOrigins', index],
+      });
+    });
   });
 
 export const DeveloperApiKeyRotationRequestSchema = z.object({

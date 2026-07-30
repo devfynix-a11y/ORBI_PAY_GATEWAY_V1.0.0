@@ -11,6 +11,7 @@ Register a service/app.
 Request sandbox and live access.
 Request scopes.
 Manage redirect URL allowlists.
+Manage browser origin allowlists.
 Manage webhook URL allowlists.
 Request API key rotation.
 Request webhook signing secret rotation.
@@ -96,6 +97,20 @@ Service onboarding begins with a service application.
   "termsAccepted": true
 }
 ```
+
+`browserOrigins` are the public website domains allowed to call the Gateway
+from a browser for that service. A developer must provide the domain they will
+use, for example:
+
+```json
+{
+  "browserOrigins": ["https://www.tag.co.tz"]
+}
+```
+
+Sandbox may use local development origins such as `http://localhost:5173`.
+Live access must use public HTTPS domains only. Live browser origins must not
+use `localhost`, private IP addresses, plain HTTP, or wildcard domains.
 
 Allowed `businessType` values:
 

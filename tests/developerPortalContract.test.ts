@@ -32,6 +32,42 @@ test('developer service application captures onboarding controls', () => {
   assert.equal(application.termsAccepted, true);
 });
 
+test('developer service live applications reject unsafe browser origins', () => {
+  assert.throws(() =>
+    DeveloperServiceApplicationSchema.parse({
+      legalName: 'Local Merchant Limited',
+      displayName: 'Local Merchant',
+      contactEmail: 'ops@local.example',
+      businessType: 'merchant',
+      countryCode: 'TZ',
+      requestedEnvironments: ['live'],
+      requestedScopes: ['payments:create'],
+      browserOrigins: ['http://localhost:5173'],
+      redirectUrls: ['https://merchant.example.com/orbi/return'],
+      webhookUrls: ['https://merchant.example.com/orbi/webhooks'],
+      useCases: ['Production payment checkout'],
+      termsAccepted: true,
+    }),
+  );
+
+  assert.doesNotThrow(() =>
+    DeveloperServiceApplicationSchema.parse({
+      legalName: 'Sandbox Merchant Limited',
+      displayName: 'Sandbox Merchant',
+      contactEmail: 'ops@sandbox.example',
+      businessType: 'merchant',
+      countryCode: 'TZ',
+      requestedEnvironments: ['sandbox'],
+      requestedScopes: ['payments:create'],
+      browserOrigins: ['http://localhost:5173'],
+      redirectUrls: ['http://localhost:5173/orbi/return'],
+      webhookUrls: ['http://localhost:5173/orbi/webhooks'],
+      useCases: ['Sandbox payment checkout testing'],
+      termsAccepted: true,
+    }),
+  );
+});
+
 test('developer service profile response is stable for dashboard cards', () => {
   assert.doesNotThrow(() =>
     DeveloperServiceProfileResponseSchema.parse({
@@ -86,6 +122,14 @@ test('allowlist updates must include browser origin, redirect, or webhook urls',
   assert.throws(() =>
     DeveloperAllowlistUpdateSchema.parse({
       reason: 'No URLs submitted here.',
+      environment: 'live',
+    }),
+  );
+
+  assert.throws(() =>
+    DeveloperAllowlistUpdateSchema.parse({
+      browserOrigins: ['https://*.merchant.example.com'],
+      reason: 'Wildcard origins are not accepted for live browser requests.',
       environment: 'live',
     }),
   );

@@ -160,8 +160,13 @@ If Core is behind a public reverse proxy, use a private DNS name or private IP r
 npm install
 npm run check
 npm run build
+PAYMENT_GATEWAY_SMOKE_BASE_URL=https://pay.orbifinancial.com npm run smoke:runtime-controls
 npm start
 ```
+
+For sandbox, run the same smoke against `https://sandbox-pay.orbifinancial.com`.
+The smoke check verifies health, readiness, allowed browser CORS, denied browser
+CORS, and unsigned internal ingress rejection.
 
 ## Release Gate
 
@@ -191,6 +196,18 @@ do not commit it or copy sandbox secrets into Git.
 
 Use `-SkipSandboxGate` only for an explicitly documented incident diagnostic.
 It is not a valid production release path.
+
+## Browser Origin Policy
+
+`PAYMENT_GATEWAY_ALLOWED_BROWSER_ORIGINS` is only for ORBI-owned frontend
+origins that are globally trusted, such as the hosted challenge UI, developer
+portal, and first-party products. Merchant and developer domains must be stored
+on their service profile as `browserOrigins`.
+
+Sandbox service profiles may use local development origins such as
+`http://localhost:5173`. Live service profiles must use public HTTPS domains,
+for example `https://www.tag.co.tz`. Live origins must not use `localhost`,
+private IP addresses, plain HTTP, or wildcard domains.
 
 ## Docker
 

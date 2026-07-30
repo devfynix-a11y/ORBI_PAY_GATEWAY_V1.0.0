@@ -5,6 +5,7 @@ import {
   hasSignedInternalRequestHeaders,
   isInternalGatewayPath,
   isOriginAllowed,
+  isProductionBrowserOrigin,
   parseOriginAllowlist,
 } from '../src/security/runtimeControls.js';
 
@@ -23,6 +24,16 @@ test('runtime origin allowlist supports exact and subdomain matches', () => {
   assert.equal(isOriginAllowed('https://shop.orbifinancial.com', allowlist), true);
   assert.equal(isOriginAllowed('https://portal.trusted.orbifinancial.com', allowlist), true);
   assert.equal(isOriginAllowed('https://evil.example.com', allowlist), false);
+});
+
+test('production browser origins must be public https domains', () => {
+  assert.equal(isProductionBrowserOrigin('https://www.tag.co.tz'), true);
+  assert.equal(isProductionBrowserOrigin('https://merchant.example.com'), true);
+  assert.equal(isProductionBrowserOrigin('http://merchant.example.com'), false);
+  assert.equal(isProductionBrowserOrigin('https://localhost:5173'), false);
+  assert.equal(isProductionBrowserOrigin('https://127.0.0.1:5173'), false);
+  assert.equal(isProductionBrowserOrigin('https://192.168.1.10'), false);
+  assert.equal(isProductionBrowserOrigin('https://*.merchant.example.com'), false);
 });
 
 test('internal gateway paths require signed worker header set', () => {
