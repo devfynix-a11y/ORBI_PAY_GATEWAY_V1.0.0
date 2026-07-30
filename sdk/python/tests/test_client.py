@@ -28,6 +28,9 @@ class PythonSdkTest(unittest.TestCase):
         response = orbi.transfers.send(
             {"reference": "ORDER-1", "amount": 5000, "currency": "TZS"},
             idempotency_key="payment-intent:ORDER-1",
+            request_id="req-order-1",
+            correlation_id="corr-order-1",
+            trace_id="trace-order-1",
         )
 
         self.assertTrue(response["success"])
@@ -35,6 +38,9 @@ class PythonSdkTest(unittest.TestCase):
         self.assertEqual(captured["headers"]["x-orbi-pay-service-key"], "sk_test")
         self.assertEqual(captured["headers"]["x-orbi-environment"], "demo")
         self.assertEqual(captured["headers"]["idempotency-key"], "payment-intent:ORDER-1")
+        self.assertEqual(captured["headers"]["x-request-id"], "req-order-1")
+        self.assertEqual(captured["headers"]["x-correlation-id"], "corr-order-1")
+        self.assertEqual(captured["headers"]["x-trace-id"], "trace-order-1")
         self.assertIn("x-orbi-signature", captured["headers"])
         self.assertEqual(json.loads(captured["body"])["operation"], "collection")
 

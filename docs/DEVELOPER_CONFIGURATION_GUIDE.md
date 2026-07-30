@@ -114,6 +114,22 @@ webhook-replay:<delivery-id>:<attempt>
 If a network timeout happens, retry with the same idempotency key. Do not
 generate a new key unless the customer starts a new operation.
 
+For audit correlation, pass a stable request ID plus optional correlation and
+trace IDs from your platform:
+
+```ts
+await orbi.transfers.send(payload, {
+  idempotencyKey: `payment-intent:${serviceCode}:${order.id}`,
+  requestId: `checkout-request:${order.id}`,
+  correlationId: `checkout:${order.id}`,
+  traceId: req.headers['x-trace-id'] || `trace:${order.id}`,
+});
+```
+
+Use the same `correlationId` across the checkout request, hosted challenge,
+webhook handler, and order update so support can follow one payment without
+manual database investigation.
+
 ## 4. Merchant PaySafe Readiness
 
 For merchant-scoped PaySafe/payment requests, Developer Portal or operator

@@ -137,6 +137,10 @@ class OrbiPayGatewayClient:
             headers["idempotency-key"] = options["idempotency_key"]
         if options.get("request_id"):
             headers["x-request-id"] = options["request_id"]
+        if options.get("correlation_id"):
+            headers["x-correlation-id"] = options["correlation_id"]
+        if options.get("trace_id"):
+            headers["x-trace-id"] = options["trace_id"]
         if method != "GET":
             headers["content-type"] = "application/json"
         if self.request_signing and self.service_key:

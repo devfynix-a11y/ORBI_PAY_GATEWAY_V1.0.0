@@ -445,6 +445,8 @@ export class OrbiPayGatewayClient {
     if (environment) headers['x-orbi-environment'] = environment;
     if (options.idempotencyKey) headers['idempotency-key'] = options.idempotencyKey;
     if (options.requestId) headers['x-request-id'] = options.requestId;
+    if (options.correlationId) headers['x-correlation-id'] = options.correlationId;
+    if (options.traceId) headers['x-trace-id'] = options.traceId;
     const requestBody = method === 'GET' ? undefined : JSON.stringify(payload || {});
     if (method !== 'GET') headers['content-type'] = 'application/json';
     if (this.requestSigning && includeServiceKey && this.serviceKey) {

@@ -16,6 +16,8 @@ export type OrbiRuntimeEnvironment = 'demo' | 'production' | 'Demo' | 'Productio
 export type OrbiRequestOptions = {
   idempotencyKey?: string;
   requestId?: string;
+  correlationId?: string;
+  traceId?: string;
   environment?: OrbiRuntimeEnvironment;
   headers?: Record<string, string>;
   subject?: {

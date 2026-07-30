@@ -124,6 +124,12 @@ final class OrbiPayGatewayClient
         if (!empty($options['requestId'])) {
             $headers[] = 'x-request-id: ' . $options['requestId'];
         }
+        if (!empty($options['correlationId'])) {
+            $headers[] = 'x-correlation-id: ' . $options['correlationId'];
+        }
+        if (!empty($options['traceId'])) {
+            $headers[] = 'x-trace-id: ' . $options['traceId'];
+        }
         if ($method !== 'GET') {
             $headers[] = 'content-type: application/json';
         }

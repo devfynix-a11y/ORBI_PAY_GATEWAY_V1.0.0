@@ -49,6 +49,8 @@ test('client exchanges service key for access token and signs runtime request wi
   }, {
     idempotencyKey: 'idem-order-1',
     requestId: 'req-order-1',
+    correlationId: 'corr-order-1',
+    traceId: 'trace-order-1',
   });
 
   assert.equal(response.success, true);
@@ -59,6 +61,8 @@ test('client exchanges service key for access token and signs runtime request wi
   assert.equal((calls[1].init.headers as Record<string, string>)['x-orbi-pay-service-key'], undefined);
   assert.equal((calls[1].init.headers as Record<string, string>)['idempotency-key'], 'idem-order-1');
   assert.equal((calls[1].init.headers as Record<string, string>)['x-request-id'], 'req-order-1');
+  assert.equal((calls[1].init.headers as Record<string, string>)['x-correlation-id'], 'corr-order-1');
+  assert.equal((calls[1].init.headers as Record<string, string>)['x-trace-id'], 'trace-order-1');
   assert.match((calls[1].init.headers as Record<string, string>)['x-orbi-signature'], /^sha256=[a-f0-9]{64}$/);
   assert.match((calls[1].init.headers as Record<string, string>)['x-orbi-timestamp'], /^\d+$/);
   assert.match((calls[1].init.headers as Record<string, string>)['x-orbi-nonce'], /^[0-9a-f-]{36}$/);
