@@ -95,6 +95,9 @@ The gateway hardening sequence must be executed step by step:
 6. SDK production polish for Node, Python, PHP, and future SDKs.
 7. Open Banking/BaaS compliance support through consent, scopes, revocation,
    access grants, rate limits, and audit exports.
+8. SaaS control-plane readiness. Developer Portal must persist onboarding and
+   scope queues in Postgres, scope developer sessions to owned services only,
+   and keep operator/admin approvals separated from developer self-service.
 ```
 
 ## Provider Adapter Roadmap

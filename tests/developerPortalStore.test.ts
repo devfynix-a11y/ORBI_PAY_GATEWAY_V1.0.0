@@ -27,6 +27,47 @@ test('developer portal store persists service application lifecycle', async () =
   assert.equal(service.browserOrigins.includes('https://shop.orbifinancial.com'), true);
 });
 
+test('developer portal store filters applications and services by owner', async () => {
+  const store = DeveloperPortalStore.inMemory();
+  const first = await store.submitApplication({
+    legalName: 'Alpha Merchant Ltd',
+    displayName: 'Alpha Merchant',
+    contactEmail: 'ops@alpha.example',
+    businessType: 'merchant',
+    countryCode: 'TZ',
+    requestedEnvironments: ['sandbox'],
+    requestedScopes: ['payments:create'],
+    browserOrigins: ['https://alpha.example'],
+    redirectUrls: ['https://alpha.example/orbi/return'],
+    webhookUrls: ['https://alpha.example/api/orbi/webhooks'],
+    useCases: ['Protected checkout'],
+    termsAccepted: true,
+  }, { email: 'developer@alpha.example', userId: 'portal_user_alpha' });
+  const second = await store.submitApplication({
+    legalName: 'Beta Merchant Ltd',
+    displayName: 'Beta Merchant',
+    contactEmail: 'ops@beta.example',
+    businessType: 'merchant',
+    countryCode: 'TZ',
+    requestedEnvironments: ['sandbox'],
+    requestedScopes: ['payments:create'],
+    browserOrigins: ['https://beta.example'],
+    redirectUrls: ['https://beta.example/orbi/return'],
+    webhookUrls: ['https://beta.example/api/orbi/webhooks'],
+    useCases: ['Protected checkout'],
+    termsAccepted: true,
+  }, { email: 'developer@beta.example', userId: 'portal_user_beta' });
+
+  await store.approveApplication(first.applicationId, {});
+  await store.approveApplication(second.applicationId, {});
+
+  const alphaFilter = { ownerEmail: 'developer@alpha.example', serviceCodes: [] };
+  assert.deepEqual(store.listApplications(undefined, alphaFilter).map((item) => item.applicationId), [first.applicationId]);
+  assert.deepEqual(store.listServices(alphaFilter).map((item) => item.serviceCode), ['alpha-merchant']);
+  assert.equal(store.portalUserCanAccessService('alpha-merchant', alphaFilter), true);
+  assert.equal(store.portalUserCanAccessService('beta-merchant', alphaFilter), false);
+});
+
 test('developer portal store records scope, allowlist, key rotation, and events', async () => {
   const store = DeveloperPortalStore.inMemory();
   const application = await store.submitApplication({

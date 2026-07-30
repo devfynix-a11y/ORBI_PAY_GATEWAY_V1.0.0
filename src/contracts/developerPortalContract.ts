@@ -140,6 +140,8 @@ export const DeveloperServiceRecordSchema = z
       .default([]),
     createdAt: z.string().min(1),
     updatedAt: z.string().min(1),
+    ownerPortalUserId: z.string().trim().min(1).optional(),
+    ownerEmail: z.string().trim().email().optional(),
   })
   .passthrough();
 

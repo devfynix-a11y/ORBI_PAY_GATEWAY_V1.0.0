@@ -56,6 +56,7 @@ const ROLE_PERMISSIONS: Record<PortalRole, string[]> = {
   developer: ['developer:request_access', 'developer:read_own'],
   operator: [
     'developer:request_access',
+    'developer:read_own',
     'developer:read_all',
     'developer:approve_applications',
     'developer:manage_scopes',
@@ -66,6 +67,7 @@ const ROLE_PERMISSIONS: Record<PortalRole, string[]> = {
   ],
   admin: [
     'developer:request_access',
+    'developer:read_own',
     'developer:read_all',
     'developer:approve_applications',
     'developer:manage_scopes',

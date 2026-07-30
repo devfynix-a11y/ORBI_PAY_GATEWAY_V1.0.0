@@ -22,6 +22,8 @@ type DeveloperServiceApplication = z.infer<typeof DeveloperServiceApplicationSch
   applicationId: string;
   status: 'pending_review' | 'approved' | 'rejected';
   serviceCode?: string;
+  ownerPortalUserId?: string;
+  ownerEmail?: string;
   submittedAt: string;
   updatedAt: string;
 };
@@ -79,6 +81,16 @@ type StoreOptions = {
   databaseUrl?: string;
 };
 
+type DeveloperOwnerFilter = {
+  serviceCodes?: string[];
+  ownerEmail?: string;
+};
+
+type DeveloperPortalActor = {
+  userId?: string;
+  email?: string;
+};
+
 const emptyState = (): DeveloperPortalState => ({
   applications: [],
   services: [],
@@ -111,6 +123,35 @@ const iso = (value: unknown): string | undefined => {
   return String(value);
 };
 
+const normalizeOwnerEmail = (value: unknown): string | undefined => {
+  const email = String(value || '').trim().toLowerCase();
+  return email || undefined;
+};
+
+const serviceBelongsTo = (service: DeveloperServiceRecord, filter?: DeveloperOwnerFilter): boolean => {
+  if (!filter) return true;
+  const serviceCodes = unique((filter.serviceCodes || []).map(slug).filter(Boolean));
+  const ownerEmail = normalizeOwnerEmail(filter.ownerEmail);
+  if (serviceCodes.includes(service.serviceCode)) return true;
+  if (ownerEmail && normalizeOwnerEmail(service.ownerEmail || service.contactEmail) === ownerEmail) return true;
+  if (ownerEmail && normalizeOwnerEmail((service.metadata as { submittedByPortalEmail?: unknown })?.submittedByPortalEmail) === ownerEmail) {
+    return true;
+  }
+  return false;
+};
+
+const applicationBelongsTo = (application: DeveloperServiceApplication, filter?: DeveloperOwnerFilter): boolean => {
+  if (!filter) return true;
+  const serviceCodes = unique((filter.serviceCodes || []).map(slug).filter(Boolean));
+  const ownerEmail = normalizeOwnerEmail(filter.ownerEmail);
+  if (application.serviceCode && serviceCodes.includes(application.serviceCode)) return true;
+  if (ownerEmail && normalizeOwnerEmail(application.ownerEmail || application.contactEmail) === ownerEmail) return true;
+  if (ownerEmail && normalizeOwnerEmail((application.metadata as { submittedByPortalEmail?: unknown })?.submittedByPortalEmail) === ownerEmail) {
+    return true;
+  }
+  return false;
+};
+
 export class DeveloperPortalStore {
   private state: DeveloperPortalState = emptyState();
   private readonly mode: 'postgres' | 'memory';
@@ -140,13 +181,24 @@ export class DeveloperPortalStore {
     this.initialized = true;
   }
 
-  async submitApplication(application: z.infer<typeof DeveloperServiceApplicationSchema>) {
+  async submitApplication(
+    application: z.infer<typeof DeveloperServiceApplicationSchema>,
+    actor?: DeveloperPortalActor,
+  ) {
     this.assertReady();
     const now = new Date().toISOString();
+    const ownerEmail = normalizeOwnerEmail(actor?.email) || normalizeOwnerEmail(application.contactEmail);
     const record: DeveloperServiceApplication = {
       ...application,
       applicationId: `dev_app_${crypto.randomUUID()}`,
       status: 'pending_review',
+      ownerPortalUserId: actor?.userId,
+      ownerEmail,
+      metadata: {
+        ...(application.metadata || {}),
+        ...(actor?.email ? { submittedByPortalEmail: normalizeOwnerEmail(actor.email) } : {}),
+        ...(actor?.userId ? { submittedByPortalUserId: actor.userId } : {}),
+      },
       submittedAt: now,
       updatedAt: now,
     };
@@ -164,22 +216,31 @@ export class DeveloperPortalStore {
     return record;
   }
 
-  listApplications(status?: string) {
+  listApplications(status?: string, filter?: DeveloperOwnerFilter) {
     this.assertReady();
     const normalized = String(status || '').trim();
-    return normalized
+    const applications = normalized
       ? this.state.applications.filter((application) => application.status === normalized)
       : this.state.applications;
+    return applications.filter((application) => applicationBelongsTo(application, filter));
   }
 
-  listServices() {
+  listServices(filter?: DeveloperOwnerFilter) {
     this.assertReady();
-    return this.state.services.map((service) => this.publicService(service));
+    return this.state.services
+      .filter((service) => serviceBelongsTo(service, filter))
+      .map((service) => this.publicService(service));
   }
 
   getService(serviceCode: string) {
     this.assertReady();
     return this.publicService(this.getMutableService(serviceCode));
+  }
+
+  portalUserCanAccessService(serviceCode: string, filter?: DeveloperOwnerFilter) {
+    this.assertReady();
+    const service = this.getMutableService(serviceCode);
+    return serviceBelongsTo(service, filter);
   }
 
   private getMutableService(serviceCode: string) {
@@ -256,7 +317,13 @@ export class DeveloperPortalStore {
       contactEmail: application.contactEmail,
       contactPhone: application.contactPhone,
       externalDeveloperId: application.externalDeveloperId,
-      metadata: application.metadata || {},
+      ownerPortalUserId: application.ownerPortalUserId,
+      ownerEmail: application.ownerEmail,
+      metadata: {
+        ...(application.metadata || {}),
+        ...(application.ownerEmail ? { ownerEmail: application.ownerEmail } : {}),
+        ...(application.ownerPortalUserId ? { ownerPortalUserId: application.ownerPortalUserId } : {}),
+      },
     };
 
     application.status = 'approved';
@@ -767,12 +834,40 @@ export class DeveloperPortalStore {
 
   private async loadFromDatabase() {
     if (!this.pool) throw new Error('DATABASE_URL_REQUIRED');
-    const [serviceRows, keyRows, secretRows, eventRows] = await Promise.all([
+    const [applicationRows, serviceRows, scopeRequestRows, keyRows, secretRows, eventRows] = await Promise.all([
+      this.pool.query('select * from public.pay_gateway_developer_service_applications order by submitted_at desc'),
       this.pool.query('select * from public.pay_gateway_developer_services order by created_at desc'),
+      this.pool.query('select * from public.pay_gateway_developer_scope_requests order by submitted_at desc'),
       this.pool.query('select * from public.pay_gateway_developer_api_keys order by issued_at asc'),
       this.pool.query('select * from public.pay_gateway_developer_webhook_secrets order by issued_at asc'),
       this.pool.query('select * from public.pay_gateway_developer_secret_events order by occurred_at desc'),
     ]);
+
+    const applications = applicationRows.rows.map((row): DeveloperServiceApplication => ({
+      externalDeveloperId: row.external_developer_id || undefined,
+      legalName: row.legal_name,
+      displayName: row.display_name,
+      contactEmail: row.contact_email,
+      contactPhone: row.contact_phone || undefined,
+      businessType: row.business_type,
+      countryCode: row.country_code,
+      requestedEnvironments: row.requested_environments || [],
+      requestedScopes: row.requested_scopes || [],
+      browserOrigins: row.browser_origins || [],
+      redirectUrls: row.redirect_urls || [],
+      webhookUrls: row.webhook_urls || [],
+      useCases: row.use_cases || [],
+      supportEmail: row.support_email || undefined,
+      metadata: row.metadata || {},
+      termsAccepted: true,
+      applicationId: row.application_id,
+      status: row.status,
+      serviceCode: row.service_code || undefined,
+      ownerPortalUserId: row.owner_portal_user_id || undefined,
+      ownerEmail: row.owner_email || undefined,
+      submittedAt: iso(row.submitted_at) || new Date().toISOString(),
+      updatedAt: iso(row.updated_at) || new Date().toISOString(),
+    }));
 
     const services = serviceRows.rows.map((row): DeveloperServiceRecord => ({
       serviceCode: row.service_code,
@@ -796,7 +891,23 @@ export class DeveloperPortalStore {
       contactEmail: row.contact_email,
       contactPhone: row.contact_phone,
       externalDeveloperId: row.external_developer_id,
+      ownerPortalUserId: row.owner_portal_user_id || undefined,
+      ownerEmail: row.owner_email || undefined,
       metadata: row.metadata || {},
+    }));
+
+    const scopeRequests = scopeRequestRows.rows.map((row): DeveloperScopeRequest => ({
+      requestId: row.request_id,
+      serviceCode: row.service_code,
+      requestedScopes: row.requested_scopes || [],
+      reason: row.reason,
+      environment: row.environment,
+      metadata: row.metadata || {},
+      status: row.status,
+      submittedAt: iso(row.submitted_at) || new Date().toISOString(),
+      decidedAt: iso(row.decided_at),
+      decidedBy: row.decided_by || undefined,
+      decisionReason: row.decision_reason || undefined,
     }));
 
     const byService = new Map(services.map((service) => [service.serviceCode, service]));
@@ -850,7 +961,9 @@ export class DeveloperPortalStore {
 
     this.state = {
       ...emptyState(),
+      applications,
       services,
+      scopeRequests,
       events: eventRows.rows.map((row): DeveloperPortalEvent => ({
         eventId: row.event_id,
         eventType: row.event_type,
@@ -865,8 +978,61 @@ export class DeveloperPortalStore {
   private async ensureDatabaseSchema() {
     if (!this.pool) throw new Error('DATABASE_URL_REQUIRED');
     await this.pool.query(`
+      create table if not exists public.pay_gateway_developer_service_applications (
+        application_id text primary key,
+        external_developer_id text,
+        legal_name text not null,
+        display_name text not null,
+        contact_email text not null,
+        contact_phone text,
+        business_type text not null,
+        country_code text not null,
+        requested_environments text[] not null default '{}',
+        requested_scopes text[] not null default '{}',
+        browser_origins text[] not null default '{}',
+        redirect_urls text[] not null default '{}',
+        webhook_urls text[] not null default '{}',
+        use_cases text[] not null default '{}',
+        support_email text,
+        status text not null default 'pending_review',
+        service_code text,
+        owner_portal_user_id text,
+        owner_email text,
+        metadata jsonb not null default '{}'::jsonb,
+        submitted_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+      create index if not exists pay_gateway_developer_applications_status_idx
+        on public.pay_gateway_developer_service_applications (status, submitted_at desc);
+      create index if not exists pay_gateway_developer_applications_owner_idx
+        on public.pay_gateway_developer_service_applications (owner_email, submitted_at desc);
+
+      create table if not exists public.pay_gateway_developer_scope_requests (
+        request_id text primary key,
+        service_code text not null,
+        requested_scopes text[] not null default '{}',
+        reason text not null,
+        environment text not null,
+        status text not null default 'pending_review',
+        decided_at timestamptz,
+        decided_by text,
+        decision_reason text,
+        metadata jsonb not null default '{}'::jsonb,
+        submitted_at timestamptz not null default now()
+      );
+      create index if not exists pay_gateway_developer_scope_requests_service_idx
+        on public.pay_gateway_developer_scope_requests (service_code, submitted_at desc);
+      create index if not exists pay_gateway_developer_scope_requests_status_idx
+        on public.pay_gateway_developer_scope_requests (status, submitted_at desc);
+
       alter table if exists public.pay_gateway_developer_services
-      add column if not exists browser_origins text[] not null default '{}'
+      add column if not exists browser_origins text[] not null default '{}';
+      alter table if exists public.pay_gateway_developer_services
+      add column if not exists owner_portal_user_id text;
+      alter table if exists public.pay_gateway_developer_services
+      add column if not exists owner_email text;
+      create index if not exists pay_gateway_developer_services_owner_idx
+        on public.pay_gateway_developer_services (owner_email, created_at desc);
     `);
   }
 
@@ -876,7 +1042,9 @@ export class DeveloperPortalStore {
     const client = await this.pool.connect();
     try {
       await client.query('begin');
+      await this.persistApplications(client);
       await this.persistServices(client);
+      await this.persistScopeRequests(client);
       await this.persistSecrets(client);
       await this.persistEvents(client);
       await client.query('commit');
@@ -888,6 +1056,67 @@ export class DeveloperPortalStore {
     }
   }
 
+  private async persistApplications(client: PoolClient) {
+    for (const application of this.state.applications) {
+      await client.query(
+        `insert into public.pay_gateway_developer_service_applications (
+          application_id, external_developer_id, legal_name, display_name,
+          contact_email, contact_phone, business_type, country_code,
+          requested_environments, requested_scopes, browser_origins,
+          redirect_urls, webhook_urls, use_cases, support_email,
+          status, service_code, owner_portal_user_id, owner_email,
+          metadata, submitted_at, updated_at
+        ) values (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
+        ) on conflict (application_id) do update set
+          external_developer_id = excluded.external_developer_id,
+          legal_name = excluded.legal_name,
+          display_name = excluded.display_name,
+          contact_email = excluded.contact_email,
+          contact_phone = excluded.contact_phone,
+          business_type = excluded.business_type,
+          country_code = excluded.country_code,
+          requested_environments = excluded.requested_environments,
+          requested_scopes = excluded.requested_scopes,
+          browser_origins = excluded.browser_origins,
+          redirect_urls = excluded.redirect_urls,
+          webhook_urls = excluded.webhook_urls,
+          use_cases = excluded.use_cases,
+          support_email = excluded.support_email,
+          status = excluded.status,
+          service_code = excluded.service_code,
+          owner_portal_user_id = excluded.owner_portal_user_id,
+          owner_email = excluded.owner_email,
+          metadata = excluded.metadata,
+          updated_at = excluded.updated_at`,
+        [
+          application.applicationId,
+          application.externalDeveloperId || null,
+          application.legalName,
+          application.displayName,
+          application.contactEmail,
+          application.contactPhone || null,
+          application.businessType,
+          application.countryCode,
+          application.requestedEnvironments || [],
+          application.requestedScopes || [],
+          application.browserOrigins || [],
+          application.redirectUrls || [],
+          application.webhookUrls || [],
+          application.useCases || [],
+          application.supportEmail || null,
+          application.status,
+          application.serviceCode || null,
+          application.ownerPortalUserId || null,
+          application.ownerEmail || null,
+          application.metadata || {},
+          application.submittedAt,
+          application.updatedAt,
+        ],
+      );
+    }
+  }
+
   private async persistServices(client: PoolClient) {
     for (const service of this.state.services) {
       await client.query(
@@ -895,9 +1124,9 @@ export class DeveloperPortalStore {
           service_code, display_name, legal_name, business_type, country_code,
           contact_email, contact_phone, status, environments, scopes_granted,
           scopes_pending, browser_origins, redirect_urls, webhook_urls,
-          external_developer_id, metadata, created_at, updated_at
+          external_developer_id, owner_portal_user_id, owner_email, metadata, created_at, updated_at
         ) values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20
         ) on conflict (service_code) do update set
           display_name = excluded.display_name,
           legal_name = excluded.legal_name,
@@ -913,6 +1142,8 @@ export class DeveloperPortalStore {
           redirect_urls = excluded.redirect_urls,
           webhook_urls = excluded.webhook_urls,
           external_developer_id = excluded.external_developer_id,
+          owner_portal_user_id = excluded.owner_portal_user_id,
+          owner_email = excluded.owner_email,
           metadata = excluded.metadata,
           updated_at = excluded.updated_at`,
         [
@@ -931,9 +1162,44 @@ export class DeveloperPortalStore {
           service.redirectUrls || [],
           service.webhookUrls || [],
           service.externalDeveloperId || null,
+          service.ownerPortalUserId || null,
+          service.ownerEmail || null,
           service.metadata || {},
           service.createdAt,
           service.updatedAt,
+        ],
+      );
+    }
+  }
+
+  private async persistScopeRequests(client: PoolClient) {
+    for (const request of this.state.scopeRequests) {
+      await client.query(
+        `insert into public.pay_gateway_developer_scope_requests (
+          request_id, service_code, requested_scopes, reason, environment,
+          status, decided_at, decided_by, decision_reason, metadata, submitted_at
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        on conflict (request_id) do update set
+          requested_scopes = excluded.requested_scopes,
+          reason = excluded.reason,
+          environment = excluded.environment,
+          status = excluded.status,
+          decided_at = excluded.decided_at,
+          decided_by = excluded.decided_by,
+          decision_reason = excluded.decision_reason,
+          metadata = excluded.metadata`,
+        [
+          request.requestId,
+          request.serviceCode,
+          request.requestedScopes || [],
+          request.reason,
+          request.environment,
+          request.status,
+          request.decidedAt || null,
+          request.decidedBy || null,
+          request.decisionReason || null,
+          request.metadata || {},
+          request.submittedAt,
         ],
       );
     }

@@ -43,6 +43,60 @@ The Developer Portal must never expose service API keys, webhook signing
 secrets, OTPs, PINs, wallet authority fields, provider credentials, or Core
 worker secrets to browsers.
 
+## 1.2 SaaS Portal Access Model
+
+The portal has three access levels:
+
+```text
+developer -> sees only their own applications, integrations, events, webhook
+             deliveries, sandbox tools, SDKs, and docs.
+operator  -> reviews applications, approves scopes, manages service status,
+             and handles key/webhook-secret operations.
+admin     -> manages portal users, roles, permissions, and audit logs.
+```
+
+Developer data must be backend-scoped. The browser must never decide which
+service belongs to a developer. Gateway derives ownership from the portal
+session and returns only records linked by:
+
+```text
+serviceCodes on the portal user session
+ownerEmail on the application/service
+submittedByPortalEmail in application/service metadata
+```
+
+The following SaaS control-plane queues are persistent database records and
+must survive container restarts:
+
+```text
+pay_gateway_developer_service_applications
+pay_gateway_developer_scope_requests
+pay_gateway_developer_services
+pay_gateway_developer_api_keys
+pay_gateway_developer_webhook_secrets
+pay_gateway_developer_secret_events
+pay_gateway_portal_audit_events
+```
+
+Developer self-service is allowed for:
+
+```http
+POST /v1/developer/service-applications
+GET  /v1/developer/service-applications
+GET  /v1/developer/services
+GET  /v1/developer/events
+GET  /v1/developer/integration-health
+POST /v1/developer/services/{serviceCode}/scope-requests
+POST /v1/developer/services/{serviceCode}/api-key-rotations
+POST /v1/developer/services/{serviceCode}/webhook-secret-rotations
+```
+
+For developer sessions, `{serviceCode}` must belong to the signed-in developer.
+Otherwise the Gateway returns `PORTAL_GATEWAY_SERVICE_ACCESS_DENIED`.
+
+Operator/admin actions still require operator discovery access, a portal
+session, role permission, and confirmation/MFA for sensitive changes.
+
 ## 1.1 Sandbox And Live Trust Zones
 
 Sandbox and live are separate environments with separate credentials, webhook

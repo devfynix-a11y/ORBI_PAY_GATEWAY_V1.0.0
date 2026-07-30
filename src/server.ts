@@ -1903,6 +1903,14 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/services\/[^/]+\/status$/, permission: 'developer:manage_services', confirmation: true },
   { pattern: /^\/v1\/developer\/sandbox-simulator\/reset$/, permission: 'developer:manage_sandbox', confirmation: true },
   { pattern: /^\/v1\/developer\/service-applications$/, permission: 'developer:request_access', developerAllowed: true },
+  { pattern: /^\/v1\/developer\/services$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
+  { pattern: /^\/v1\/developer\/service-applications$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
+  { pattern: /^\/v1\/developer\/events$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
+  { pattern: /^\/v1\/developer\/integration-health$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/scope-requests$/, permission: 'developer:request_access', developerAllowed: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/api-key-rotations$/, permission: 'developer:request_access', developerAllowed: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/webhook-secret-rotations$/, permission: 'developer:request_access', developerAllowed: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/api-key-rotations$/, permission: 'developer:manage_keys', confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/webhook-secrets\/issue$/, permission: 'developer:manage_keys', confirmation: true },
   { pattern: /^\/v1\/developer\/webhook-deliveries\/[^/]+\/replay$/, permission: 'developer:replay_webhooks', confirmation: true },
@@ -1911,7 +1919,10 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/services\/[^/]+\/webhook-secrets\/[^/]+\/revoke$/, permission: 'developer:manage_keys', confirmation: true },
 ] as const;
 
-const portalRuleForPath = (path: string) => portalOperatorPaths.find((item) => item.pattern.test(path));
+const portalRuleForPath = (path: string) => {
+  const matches = portalOperatorPaths.filter((item) => item.pattern.test(path));
+  return matches.find((item) => 'developerAllowed' in item && item.developerAllowed) || matches[0];
+};
 
 const portalResult = (res: express.Response, result: any) => {
   if (!result.ok) return res.status(result.status || 400).json({ success: false, error: result.error || 'Portal request failed.' });
@@ -1994,6 +2005,66 @@ app.post('/v1/portal/gateway', requireOperatorDiscoveryAccess, async (req, res) 
     return res.status(400).json({ success: false, error: 'A clear reason is required for this admin action.' });
   }
 
+  const ownerFilter = {
+    serviceCodes: session.claims.serviceCodes || [],
+    ownerEmail: session.claims.email,
+  };
+  const serviceCodeMatch = path.match(/^\/v1\/developer\/services\/([^/]+)(?:\/|$)/);
+  const requestedServiceCode = serviceCodeMatch ? decodeURIComponent(serviceCodeMatch[1]) : undefined;
+  const developerScoped = session.claims.role === 'developer';
+
+  if (developerScoped && method === 'GET' && path === '/v1/developer/services') {
+    return res.json({ success: true, data: developerPortalStore.listServices(ownerFilter) });
+  }
+  if (developerScoped && method === 'GET' && requestedServiceCode) {
+    if (!developerPortalStore.portalUserCanAccessService(requestedServiceCode, ownerFilter)) {
+      return sendApiError(res, 403, 'PORTAL_GATEWAY_SERVICE_ACCESS_DENIED');
+    }
+    return res.json({ success: true, data: developerPortalStore.getService(requestedServiceCode) });
+  }
+  if (developerScoped && method === 'GET' && path === '/v1/developer/service-applications') {
+    return res.json({ success: true, data: developerPortalStore.listApplications(undefined, ownerFilter) });
+  }
+  if (developerScoped && method === 'GET' && path === '/v1/developer/events') {
+    const services = developerPortalStore.listServices(ownerFilter);
+    const allowedCodes = new Set(services.map((service) => service.serviceCode));
+    return res.json({
+      success: true,
+      data: developerPortalStore.listEvents().filter((event) => !event.serviceCode || allowedCodes.has(event.serviceCode)),
+    });
+  }
+  if (developerScoped && method === 'GET' && path === '/v1/developer/integration-health') {
+    const summaries = (await Promise.all(
+      developerPortalStore
+        .listServices(ownerFilter)
+        .map((service) => buildDeveloperHealthSummary(service.serviceCode)),
+    )).flat();
+    return res.json({ success: true, data: summaries });
+  }
+  if (developerScoped && method === 'POST' && path === '/v1/developer/service-applications') {
+    try {
+      const payload = DeveloperServiceApplicationSchema.parse(req.body?.body || {});
+      const application = await developerPortalStore.submitApplication(payload, {
+        email: session.claims.email,
+        userId: session.claims.sub,
+      });
+      await portalAccessStore.writeAuditEvent(req, {
+        action: 'portal.developer.service_application.submitted',
+        target: application.applicationId,
+        environment,
+        metadata: { applicationId: application.applicationId, contactEmail: application.contactEmail },
+      });
+      return res.status(201).json({ success: true, data: application });
+    } catch (e: any) {
+      if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_SERVICE_APPLICATION_INVALID', e.issues);
+      const error = errorCodeFromException(e, 'DEVELOPER_SERVICE_APPLICATION_FAILED');
+      return sendApiError(res, httpStatusForGatewayError(error), error);
+    }
+  }
+  if (developerScoped && requestedServiceCode && !developerPortalStore.portalUserCanAccessService(requestedServiceCode, ownerFilter)) {
+    return sendApiError(res, 403, 'PORTAL_GATEWAY_SERVICE_ACCESS_DENIED');
+  }
+
   const requestBody = method === 'GET'
     ? undefined
     : {
@@ -2038,18 +2109,53 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
     : 'public';
   const environment = String(req.query.environment || 'sandbox') === 'live' ? 'live' : 'sandbox';
   const canUseOperator = accessLevel === 'operator' || accessLevel === 'admin';
+  const canUseDeveloper = accessLevel === 'developer';
   const session = canUseOperator
     ? portalAccessStore.requireSession(req, 'operator')
-    : { ok: false as const, status: 401, error: 'Operator session is required.' };
+    : canUseDeveloper
+      ? portalAccessStore.requireSession(req, 'developer')
+      : { ok: false as const, status: 401, error: 'Developer session is required.' };
   const errors: { name: string; error: string }[] = [];
-  if (canUseOperator && !session.ok) errors.push({ name: 'session', error: session.error || 'Sign in to continue.' });
+  if ((canUseOperator || canUseDeveloper) && !session.ok) {
+    errors.push({ name: 'session', error: session.error || 'Sign in to continue.' });
+  }
 
   const operatorAllowed = canUseOperator && session.ok;
+  const developerAllowed = canUseDeveloper && session.ok;
   const adminAllowed = accessLevel === 'admin' && session.ok && session.claims.role === 'admin';
   const adminUsers = adminAllowed ? await portalAccessStore.listUsers(req) : { ok: true as const, data: [] };
   const adminAudit = adminAllowed ? await portalAccessStore.listAuditEvents(req) : { ok: true as const, data: [] };
   if (!adminUsers.ok) errors.push({ name: 'portalUsers', error: adminUsers.error });
   if (!adminAudit.ok) errors.push({ name: 'portalAudit', error: adminAudit.error });
+  const ownerFilter = developerAllowed
+    ? { serviceCodes: session.claims.serviceCodes || [], ownerEmail: session.claims.email }
+    : undefined;
+  const visibleServices = operatorAllowed
+    ? developerPortalStore.listServices()
+    : developerAllowed
+      ? developerPortalStore.listServices(ownerFilter)
+      : [];
+  const visibleApplications = operatorAllowed
+    ? developerPortalStore.listApplications()
+    : developerAllowed
+      ? developerPortalStore.listApplications(undefined, ownerFilter)
+      : [];
+  const visibleServiceCodes = new Set(visibleServices.map((service) => service.serviceCode));
+  const visibleEvents = operatorAllowed
+    ? developerPortalStore.listEvents()
+    : developerAllowed
+      ? developerPortalStore.listEvents().filter((event) => !event.serviceCode || visibleServiceCodes.has(event.serviceCode))
+      : [];
+  const visibleWebhookDeliveries = operatorAllowed
+    ? webhookDeliveryStore.list({})
+    : developerAllowed
+      ? visibleServices.flatMap((service) => webhookDeliveryStore.list({ serviceCode: service.serviceCode }))
+      : [];
+  const visibleHealth = operatorAllowed
+    ? await buildDeveloperHealthSummary()
+    : developerAllowed
+      ? (await Promise.all(visibleServices.map((service) => buildDeveloperHealthSummary(service.serviceCode)))).flat()
+      : undefined;
 
   return res.json({
     success: true,
@@ -2059,18 +2165,18 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
       snapshot: {
         health: { status: 'ok', service: 'orbi-pay-gateway' },
         ready: { status: 'ready', service: 'orbi-pay-gateway' },
-        services: operatorAllowed ? developerPortalStore.listServices() : [],
-        applications: operatorAllowed ? developerPortalStore.listApplications() : [],
-        events: operatorAllowed ? developerPortalStore.listEvents() : [],
-        webhookDeliveries: operatorAllowed ? webhookDeliveryStore.list({}) : [],
-        docs: operatorAllowed ? developerDocsCatalog() : [],
-        sdks: operatorAllowed ? developerSdkCatalog() : [],
-        consentScopes: operatorAllowed ? consentScopeCatalog() : [],
-        environmentProfiles: operatorAllowed
+        services: visibleServices,
+        applications: visibleApplications,
+        events: visibleEvents,
+        webhookDeliveries: visibleWebhookDeliveries,
+        docs: (operatorAllowed || developerAllowed) ? developerDocsCatalog() : [],
+        sdks: (operatorAllowed || developerAllowed) ? developerSdkCatalog() : [],
+        consentScopes: (operatorAllowed || developerAllowed) ? consentScopeCatalog() : [],
+        environmentProfiles: (operatorAllowed || developerAllowed)
           ? { profiles: developerEnvironmentProfiles(), separation: developerEnvironmentSeparationMatrix() }
           : {},
-        sandboxAccounts: operatorAllowed ? sandboxSimulatorStore.listAccounts() : [],
-        integrationHealth: operatorAllowed ? await buildDeveloperHealthSummary() : undefined,
+        sandboxAccounts: (operatorAllowed || developerAllowed) ? sandboxSimulatorStore.listAccounts() : [],
+        integrationHealth: visibleHealth,
         serviceProfile: undefined,
         portalUsers: adminUsers.ok ? adminUsers.data : [],
         portalAudit: adminAudit.ok ? adminAudit.data : [],
