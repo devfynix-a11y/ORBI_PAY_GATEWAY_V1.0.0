@@ -95,7 +95,7 @@ Request:
 ```
 
 Response includes payment intent counts, webhook delivery counts, compact
-records, `reportHash`, and an HMAC-SHA256 signature. If
+records, exception queues, `reportHash`, and an HMAC-SHA256 signature. If
 `PAYMENT_GATEWAY_RECONCILIATION_EXPORT_PATH` is configured, `exportedPath`
 points to the written JSON evidence file.
 

@@ -30,9 +30,12 @@ export type ReconciliationEvidenceReport = {
   summary: {
     paymentIntentCount: number;
     webhookDeliveryCount: number;
+    exceptionCount: number;
     byStatus: Record<string, number>;
     byCurrency: Record<string, { count: number; amount: number }>;
     webhookByStatus: Record<string, number>;
+    exceptionsBySeverity: Record<string, number>;
+    exceptionsByType: Record<string, number>;
   };
   records: {
     paymentIntents: Array<{
@@ -66,6 +69,23 @@ export type ReconciliationEvidenceReport = {
       updatedAt: string;
     }>;
   };
+  exceptions: Array<{
+    id: string;
+    type:
+      | 'payment_intent_stuck'
+      | 'payment_intent_core_submission_failed'
+      | 'webhook_delivery_failed'
+      | 'webhook_delivery_pending'
+      | 'payment_intent_webhook_missing';
+    severity: 'warning' | 'critical';
+    serviceCode: string;
+    intentId?: string;
+    deliveryId?: string;
+    reference?: string;
+    status?: string;
+    ageMinutes?: number;
+    message: string;
+  }>;
   requestedBy?: string;
   requestId?: string;
   reportHash: string;
@@ -83,6 +103,8 @@ type ReconciliationEvidenceServiceOptions = {
   signingSecret?: string;
   signingKeyId?: string;
   environment?: string;
+  stuckIntentMinutes?: number;
+  webhookPendingMinutes?: number;
 };
 
 const stableJson = (value: unknown): string => {
@@ -125,6 +147,8 @@ export class ReconciliationEvidenceService {
   private readonly signingSecret: string;
   private readonly signingKeyId: string;
   private readonly environment: string;
+  private readonly stuckIntentMinutes: number;
+  private readonly webhookPendingMinutes: number;
 
   constructor(options: ReconciliationEvidenceServiceOptions = {}) {
     this.paymentStore = options.paymentStore || paymentIntentStore;
@@ -134,6 +158,8 @@ export class ReconciliationEvidenceService {
       options.signingSecret || config.worker.signingSecret || config.security.serviceAccessTokenSecret || '';
     this.signingKeyId = options.signingKeyId || config.worker.keyId || 'payment-gateway-reconciliation';
     this.environment = options.environment || config.providerMode || 'unknown';
+    this.stuckIntentMinutes = Number(options.stuckIntentMinutes ?? config.reconciliation.stuckIntentMinutes ?? 30);
+    this.webhookPendingMinutes = Number(options.webhookPendingMinutes ?? config.reconciliation.webhookPendingMinutes ?? 10);
   }
 
   generate(input: ReconciliationEvidenceInput = {}): ReconciliationEvidenceReport {
@@ -156,6 +182,8 @@ export class ReconciliationEvidenceService {
     const byStatus: Record<string, number> = {};
     const byCurrency: Record<string, { count: number; amount: number }> = {};
     const webhookByStatus: Record<string, number> = {};
+    const exceptionsBySeverity: Record<string, number> = {};
+    const exceptionsByType: Record<string, number> = {};
 
     for (const intent of paymentIntents) {
       increment(byStatus, intent.status);
@@ -164,6 +192,12 @@ export class ReconciliationEvidenceService {
 
     for (const delivery of webhookDeliveries) {
       increment(webhookByStatus, delivery.status);
+    }
+
+    const exceptions = this.detectExceptions(paymentIntents, webhookDeliveries, to);
+    for (const exception of exceptions) {
+      increment(exceptionsBySeverity, exception.severity);
+      increment(exceptionsByType, exception.type);
     }
 
     const unsigned = {
@@ -179,14 +213,18 @@ export class ReconciliationEvidenceService {
       summary: {
         paymentIntentCount: paymentIntents.length,
         webhookDeliveryCount: webhookDeliveries.length,
+        exceptionCount: exceptions.length,
         byStatus,
         byCurrency,
         webhookByStatus,
+        exceptionsBySeverity,
+        exceptionsByType,
       },
       records: {
         paymentIntents: paymentIntents.map((intent) => this.publicIntentRecord(intent)),
         webhookDeliveries: webhookDeliveries.map((delivery) => this.publicWebhookRecord(delivery)),
       },
+      exceptions,
       ...(input.requestedBy ? { requestedBy: input.requestedBy } : {}),
       ...(input.requestId ? { requestId: input.requestId } : {}),
     };
@@ -251,6 +289,101 @@ export class ReconciliationEvidenceService {
       createdAt: delivery.createdAt,
       updatedAt: delivery.updatedAt,
     };
+  }
+
+  private detectExceptions(paymentIntents: PaymentIntent[], webhookDeliveries: WebhookDeliveryRecord[], to: string) {
+    const reportToMs = Number.isFinite(Date.parse(to)) ? Date.parse(to) : Date.now();
+    const latestWebhookByIntent = new Map<string, WebhookDeliveryRecord>();
+    for (const delivery of webhookDeliveries) {
+      if (!delivery.intentId) continue;
+      const existing = latestWebhookByIntent.get(delivery.intentId);
+      if (!existing || delivery.updatedAt > existing.updatedAt) latestWebhookByIntent.set(delivery.intentId, delivery);
+    }
+
+    const exceptions: ReconciliationEvidenceReport['exceptions'] = [];
+
+    for (const intent of paymentIntents) {
+      const ageMinutes = Math.max(0, Math.floor((reportToMs - Date.parse(intent.updatedAt)) / 60000));
+      const isStuckStatus = ['requires_confirmation', 'requires_action', 'submitted_to_core', 'processing', 'pending']
+        .includes(intent.status);
+      if (isStuckStatus && ageMinutes >= this.stuckIntentMinutes) {
+        exceptions.push({
+          id: `ex_${crypto.createHash('sha256').update(`stuck:${intent.id}`).digest('hex').slice(0, 24)}`,
+          type: 'payment_intent_stuck',
+          severity: 'warning',
+          serviceCode: intent.serviceCode,
+          intentId: intent.id,
+          reference: intent.reference,
+          status: intent.status,
+          ageMinutes,
+          message: 'Payment intent has remained in a non-final state beyond the reconciliation threshold.',
+        });
+      }
+
+      if (intent.coreSubmission && !intent.coreSubmission.submitted) {
+        exceptions.push({
+          id: `ex_${crypto.createHash('sha256').update(`core_failed:${intent.id}`).digest('hex').slice(0, 24)}`,
+          type: 'payment_intent_core_submission_failed',
+          severity: 'critical',
+          serviceCode: intent.serviceCode,
+          intentId: intent.id,
+          reference: intent.reference,
+          status: intent.status,
+          message: 'Payment intent has a failed Core submission and needs operator review.',
+        });
+      }
+
+      if (['completed', 'failed'].includes(intent.status)) {
+        const latestDelivery = latestWebhookByIntent.get(intent.id);
+        if (!latestDelivery || latestDelivery.status !== 'delivered') {
+          exceptions.push({
+            id: `ex_${crypto.createHash('sha256').update(`missing_webhook:${intent.id}`).digest('hex').slice(0, 24)}`,
+            type: 'payment_intent_webhook_missing',
+            severity: 'warning',
+            serviceCode: intent.serviceCode,
+            intentId: intent.id,
+            reference: intent.reference,
+            status: intent.status,
+            message: 'Payment intent is final but no delivered webhook evidence exists in the report window.',
+          });
+        }
+      }
+    }
+
+    for (const delivery of webhookDeliveries) {
+      const ageMinutes = Math.max(0, Math.floor((reportToMs - Date.parse(delivery.updatedAt)) / 60000));
+      if (delivery.status === 'failed') {
+        exceptions.push({
+          id: `ex_${crypto.createHash('sha256').update(`webhook_failed:${delivery.deliveryId}`).digest('hex').slice(0, 24)}`,
+          type: 'webhook_delivery_failed',
+          severity: 'critical',
+          serviceCode: delivery.serviceCode,
+          intentId: delivery.intentId,
+          deliveryId: delivery.deliveryId,
+          status: delivery.status,
+          ageMinutes,
+          message: 'Webhook delivery failed and should be replayed or investigated.',
+        });
+      }
+      if (delivery.status === 'pending' && ageMinutes >= this.webhookPendingMinutes) {
+        exceptions.push({
+          id: `ex_${crypto.createHash('sha256').update(`webhook_pending:${delivery.deliveryId}`).digest('hex').slice(0, 24)}`,
+          type: 'webhook_delivery_pending',
+          severity: 'warning',
+          serviceCode: delivery.serviceCode,
+          intentId: delivery.intentId,
+          deliveryId: delivery.deliveryId,
+          status: delivery.status,
+          ageMinutes,
+          message: 'Webhook delivery has remained pending beyond the reconciliation threshold.',
+        });
+      }
+    }
+
+    return exceptions.sort((a, b) => {
+      const severityRank = { critical: 0, warning: 1 };
+      return severityRank[a.severity] - severityRank[b.severity] || a.type.localeCompare(b.type);
+    });
   }
 }
 

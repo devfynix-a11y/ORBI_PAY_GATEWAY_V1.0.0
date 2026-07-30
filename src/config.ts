@@ -86,6 +86,8 @@ export const config = {
   reconciliation: {
     exportPath: process.env.PAYMENT_GATEWAY_RECONCILIATION_EXPORT_PATH || '',
     exportBucket: process.env.PAYMENT_GATEWAY_RECONCILIATION_BUCKET || '',
+    stuckIntentMinutes: Number(process.env.PAYMENT_GATEWAY_RECONCILIATION_STUCK_INTENT_MINUTES || 30),
+    webhookPendingMinutes: Number(process.env.PAYMENT_GATEWAY_RECONCILIATION_WEBHOOK_PENDING_MINUTES || 10),
   },
   core: {
     baseUrl: process.env.ORBI_CORE_INTERNAL_BASE_URL || 'https://api.orbifinancial.com',

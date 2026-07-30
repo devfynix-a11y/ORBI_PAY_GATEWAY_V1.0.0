@@ -57,6 +57,7 @@ test('reconciliation evidence summarizes payment intents and webhook delivery st
 
   assert.equal(evidence.summary.paymentIntentCount, 1);
   assert.equal(evidence.summary.webhookDeliveryCount, 1);
+  assert.equal(evidence.summary.exceptionCount, 0);
   assert.equal(evidence.summary.byStatus.completed, 1);
   assert.equal(evidence.summary.byCurrency.TZS.amount, 5000);
   assert.equal(evidence.summary.webhookByStatus.delivered, 1);
@@ -82,4 +83,45 @@ test('reconciliation evidence export writes signed report file', async () => {
   assert.equal(saved.reportId, result.report.reportId);
   assert.equal(saved.requestedBy, 'unit-test');
   assert.match(saved.reportHash, /^[a-f0-9]{64}$/);
+});
+
+test('reconciliation evidence reports stuck intents and webhook exceptions', async () => {
+  const paymentStore = new PaymentIntentStore();
+  const webhookStore = new WebhookDeliveryStore(path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'orbi-wh-ex-')), 'store.json'));
+  const stuckIntent = paymentStore.create({
+    service,
+    operation: 'collection',
+    reference: 'ORDER-STUCK',
+    amount: 12000,
+    currency: 'TZS',
+  });
+  webhookStore.record({
+    eventId: 'evt_failed_001',
+    serviceCode: service.code,
+    intentId: stuckIntent.id,
+    eventType: 'payment.pending',
+    status: 'failed',
+    attempt: 1,
+    statusCode: 500,
+  });
+
+  const evidence = new ReconciliationEvidenceService({
+    paymentStore,
+    webhookStore,
+    signingSecret: 'unit-test-reconciliation-secret',
+    signingKeyId: 'unit-test-key',
+    environment: 'sandbox',
+    stuckIntentMinutes: 0,
+    webhookPendingMinutes: 0,
+  }).generate({ serviceCode: service.code });
+
+  assert.equal(evidence.summary.exceptionCount, 2);
+  assert.equal(evidence.summary.exceptionsByType.payment_intent_stuck, 1);
+  assert.equal(evidence.summary.exceptionsByType.webhook_delivery_failed, 1);
+  assert.equal(evidence.summary.exceptionsBySeverity.critical, 1);
+  assert.equal(evidence.summary.exceptionsBySeverity.warning, 1);
+  assert.deepEqual(
+    evidence.exceptions.map((item) => item.type).sort(),
+    ['payment_intent_stuck', 'webhook_delivery_failed'],
+  );
 });

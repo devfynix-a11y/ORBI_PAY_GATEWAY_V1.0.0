@@ -237,6 +237,12 @@ Tasks:
   Core ledger transaction, provider proof, webhook delivery, and final status.
 - Add exception queues for stuck, duplicated, mismatched, reversed, and
   disputed records.
+  - Current Gateway evidence reports include exception queues for stuck payment
+    intents, failed Core submissions, failed/pending webhooks, and final intents
+    without delivered webhook evidence.
+  - Thresholds are configurable with
+    `PAYMENT_GATEWAY_RECONCILIATION_STUCK_INTENT_MINUTES` and
+    `PAYMENT_GATEWAY_RECONCILIATION_WEBHOOK_PENDING_MINUTES`.
 - Add signed report hashes.
   - Current reports include a SHA-256 `reportHash` plus HMAC-SHA256 signature
     using the gateway worker signing key id.
