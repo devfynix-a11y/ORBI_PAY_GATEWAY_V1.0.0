@@ -83,6 +83,10 @@ export const config = {
     auditEventSinkPath: process.env.PAYMENT_GATEWAY_AUDIT_EVENT_SINK_PATH || '',
     auditEventSinkTimeoutMs: Number(process.env.PAYMENT_GATEWAY_AUDIT_EVENT_SINK_TIMEOUT_MS || 1500),
   },
+  reconciliation: {
+    exportPath: process.env.PAYMENT_GATEWAY_RECONCILIATION_EXPORT_PATH || '',
+    exportBucket: process.env.PAYMENT_GATEWAY_RECONCILIATION_BUCKET || '',
+  },
   core: {
     baseUrl: process.env.ORBI_CORE_INTERNAL_BASE_URL || 'https://api.orbifinancial.com',
     allowPrivateHttp:

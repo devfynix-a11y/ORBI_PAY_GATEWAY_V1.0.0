@@ -103,6 +103,18 @@ export class PaymentIntentStore {
     return intent;
   }
 
+  list(filters: { serviceCode?: string; from?: string; to?: string } = {}): PaymentIntent[] {
+    const fromMs = filters.from ? Date.parse(filters.from) : Number.NEGATIVE_INFINITY;
+    const toMs = filters.to ? Date.parse(filters.to) : Number.POSITIVE_INFINITY;
+    return Array.from(this.intents.values())
+      .filter((intent) => {
+        if (filters.serviceCode && intent.serviceCode !== filters.serviceCode) return false;
+        const createdAtMs = Date.parse(intent.createdAt);
+        return createdAtMs >= fromMs && createdAtMs <= toMs;
+      })
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
   markProcessing(intent: PaymentIntent): PaymentIntent {
     return this.update(intent, { status: 'processing' });
   }

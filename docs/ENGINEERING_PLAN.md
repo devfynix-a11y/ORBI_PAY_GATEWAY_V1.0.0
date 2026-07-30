@@ -229,11 +229,17 @@ delivery truth.
 Tasks:
 
 - Export daily Gateway/Core/provider reconciliation files.
+  - Current Gateway implementation exposes signed internal evidence export via
+    `GET/POST /v1/internal/reconciliation/evidence/export`.
+  - If `PAYMENT_GATEWAY_RECONCILIATION_EXPORT_PATH` is configured, the report is
+    also written as a JSON file for operator retention.
 - Correlate merchant order, payment intent, hosted challenge, PaySafe escrow,
   Core ledger transaction, provider proof, webhook delivery, and final status.
 - Add exception queues for stuck, duplicated, mismatched, reversed, and
   disputed records.
 - Add signed report hashes.
+  - Current reports include a SHA-256 `reportHash` plus HMAC-SHA256 signature
+    using the gateway worker signing key id.
 
 Acceptance:
 

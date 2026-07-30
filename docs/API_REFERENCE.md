@@ -73,6 +73,32 @@ GET /ready
 Returns Core callback target, mTLS mode, provider mode, and provider adapter readiness. Secrets are never returned.
 Provider readiness includes `protocolCapabilities` so operators can see whether a rail is `generic-live`, `certified-live`, or intentionally `fail-closed`.
 
+## Internal Reconciliation Evidence
+
+```http
+POST /v1/internal/reconciliation/evidence/export
+```
+
+Exports a signed Gateway reconciliation evidence report for operator retention.
+This route is internal-only and must be called with signed worker headers. It is
+not a merchant/browser SDK endpoint.
+
+Request:
+
+```json
+{
+  "from": "2026-07-30T00:00:00.000Z",
+  "to": "2026-07-30T23:59:59.999Z",
+  "serviceCode": "orbi-shop",
+  "requestedBy": "nightly-reconciliation-job"
+}
+```
+
+Response includes payment intent counts, webhook delivery counts, compact
+records, `reportHash`, and an HMAC-SHA256 signature. If
+`PAYMENT_GATEWAY_RECONCILIATION_EXPORT_PATH` is configured, `exportedPath`
+points to the written JSON evidence file.
+
 ## Trusted Services
 
 Trusted ORBI products such as ORBI Shop use scoped service credentials instead of provider credentials.

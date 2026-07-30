@@ -78,6 +78,7 @@ import { scopeForPaymentIntent, scopeForPaymentOperation } from './services/serv
 import { buildDeveloperHealthSummary } from './services/developerHealthService.js';
 import { serviceAccessTokenRevocationStore } from './services/serviceAccessTokenRevocationStore.js';
 import { auditEventSink } from './services/auditEventSink.js';
+import { reconciliationEvidenceService } from './services/reconciliationEvidenceService.js';
 import {
   developerDocsCatalog,
   developerSandboxToolsCatalog,
@@ -1125,6 +1126,62 @@ app.get('/ready', async (_req, res) => {
     },
   });
 });
+
+const ReconciliationEvidenceExportRequestSchema = z.object({
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  serviceCode: z.string().trim().min(1).max(80).optional(),
+  requestedBy: z.string().trim().min(1).max(160).optional(),
+});
+
+const reconciliationEvidenceExportHandler = async (req: express.Request, res: express.Response) => {
+  try {
+    const rawInput = req.method === 'GET' ? req.query : req.body || {};
+    const parsed = ReconciliationEvidenceExportRequestSchema.parse(rawInput);
+    const requestedBy = parsed.requestedBy || String(req.get('x-worker-id') || req.auditContext?.requestId || '');
+    const result = await reconciliationEvidenceService.export({
+      ...parsed,
+      requestedBy,
+      requestId: req.auditContext?.requestId,
+    });
+    void auditEventSink.emit({
+      eventType: 'reconciliation.evidence.exported',
+      severity: 'info',
+      outcome: 'success',
+      requestId: req.auditContext?.requestId,
+      traceId: req.auditContext?.traceId,
+      correlationId: req.auditContext?.correlationId,
+      actor: { requestedBy },
+      resource: {
+        type: 'reconciliation_evidence_report',
+        id: result.report.reportId,
+      },
+      metadata: {
+        serviceCode: parsed.serviceCode,
+        from: result.report.window.from,
+        to: result.report.window.to,
+        paymentIntentCount: result.report.summary.paymentIntentCount,
+        webhookDeliveryCount: result.report.summary.webhookDeliveryCount,
+        exportedPath: result.path,
+      },
+    });
+    return res.json({
+      success: true,
+      data: {
+        ...result.report,
+        exportedPath: result.path,
+      },
+    });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'RECONCILIATION_EVIDENCE_EXPORT_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error, 400), error);
+  }
+};
+
+app.get('/internal/reconciliation/evidence/export', reconciliationEvidenceExportHandler);
+app.post('/internal/reconciliation/evidence/export', reconciliationEvidenceExportHandler);
+app.get('/v1/internal/reconciliation/evidence/export', reconciliationEvidenceExportHandler);
+app.post('/v1/internal/reconciliation/evidence/export', reconciliationEvidenceExportHandler);
 
 const escapeHtml = (value: unknown): string =>
   String(value ?? '')

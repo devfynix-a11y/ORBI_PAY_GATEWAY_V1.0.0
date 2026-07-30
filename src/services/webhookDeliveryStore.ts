@@ -51,11 +51,15 @@ export class WebhookDeliveryStore {
     return record;
   }
 
-  list(filters: { serviceCode?: string; intentId?: string; status?: string } = {}) {
+  list(filters: { serviceCode?: string; intentId?: string; status?: string; from?: string; to?: string } = {}) {
+    const fromMs = filters.from ? Date.parse(filters.from) : Number.NEGATIVE_INFINITY;
+    const toMs = filters.to ? Date.parse(filters.to) : Number.POSITIVE_INFINITY;
     return this.state.deliveries.filter((record) => {
       if (filters.serviceCode && record.serviceCode !== filters.serviceCode) return false;
       if (filters.intentId && record.intentId !== filters.intentId) return false;
       if (filters.status && record.status !== filters.status) return false;
+      const createdAtMs = Date.parse(record.createdAt);
+      if (createdAtMs < fromMs || createdAtMs > toMs) return false;
       return true;
     });
   }
