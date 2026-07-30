@@ -88,6 +88,10 @@ export const config = {
     exportBucket: process.env.PAYMENT_GATEWAY_RECONCILIATION_BUCKET || '',
     stuckIntentMinutes: Number(process.env.PAYMENT_GATEWAY_RECONCILIATION_STUCK_INTENT_MINUTES || 30),
     webhookPendingMinutes: Number(process.env.PAYMENT_GATEWAY_RECONCILIATION_WEBHOOK_PENDING_MINUTES || 10),
+    scheduleEnabled: boolFromEnv(process.env.PAYMENT_GATEWAY_RECONCILIATION_SCHEDULE_ENABLED, false),
+    scheduleIntervalMinutes: Number(process.env.PAYMENT_GATEWAY_RECONCILIATION_SCHEDULE_INTERVAL_MINUTES || 1440),
+    scheduleWindowHours: Number(process.env.PAYMENT_GATEWAY_RECONCILIATION_SCHEDULE_WINDOW_HOURS || 24),
+    scheduleRunOnStart: boolFromEnv(process.env.PAYMENT_GATEWAY_RECONCILIATION_SCHEDULE_RUN_ON_START, false),
   },
   core: {
     baseUrl: process.env.ORBI_CORE_INTERNAL_BASE_URL || 'https://api.orbifinancial.com',

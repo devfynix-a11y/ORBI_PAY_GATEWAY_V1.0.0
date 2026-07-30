@@ -79,6 +79,7 @@ import { buildDeveloperHealthSummary } from './services/developerHealthService.j
 import { serviceAccessTokenRevocationStore } from './services/serviceAccessTokenRevocationStore.js';
 import { auditEventSink } from './services/auditEventSink.js';
 import { reconciliationEvidenceService } from './services/reconciliationEvidenceService.js';
+import { reconciliationEvidenceScheduler } from './services/reconciliationEvidenceScheduler.js';
 import {
   developerDocsCatalog,
   developerSandboxToolsCatalog,
@@ -3206,6 +3207,7 @@ const start = async () => {
   rejectUnsafeDirectSecretsInProduction();
   await developerPortalStore.initialize();
   await serviceAccessTokenRevocationStore.initialize();
+  reconciliationEvidenceScheduler.start();
 
   app.listen(config.port, () => {
     logger.info('payment_gateway_started', {

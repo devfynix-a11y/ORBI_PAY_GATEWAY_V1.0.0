@@ -233,6 +233,9 @@ Tasks:
     `GET/POST /v1/internal/reconciliation/evidence/export`.
   - If `PAYMENT_GATEWAY_RECONCILIATION_EXPORT_PATH` is configured, the report is
     also written as a JSON file for operator retention.
+  - Self-hosted runtime can schedule exports with
+    `PAYMENT_GATEWAY_RECONCILIATION_SCHEDULE_ENABLED`, interval minutes, and
+    lookback window hours.
 - Correlate merchant order, payment intent, hosted challenge, PaySafe escrow,
   Core ledger transaction, provider proof, webhook delivery, and final status.
 - Add exception queues for stuck, duplicated, mismatched, reversed, and
