@@ -117,6 +117,30 @@ HTTPS only. Localhost callbacks, private-network callbacks, plain HTTP, and
 wildcard hosts are sandbox-only because live callbacks affect money movement,
 consent continuation, and webhook delivery truth.
 
+Live services must also complete domain verification before they are considered
+operationally healthy. Operators should record verified domains on the service
+metadata:
+
+```json
+{
+  "metadata": {
+    "domainVerification": {
+      "method": "dns_txt",
+      "verifiedDomains": [
+        "www.tag.co.tz",
+        "api.tag.co.tz"
+      ],
+      "verifiedAt": "2026-07-30T10:00:00.000Z",
+      "verifiedBy": "orbi-operator"
+    }
+  }
+}
+```
+
+Every hostname used by `browserOrigins`, `redirectUrls`, and `webhookUrls` must
+appear in `metadata.domainVerification.verifiedDomains`. If any live hostname is
+missing, integration health reports `DOMAIN_VERIFICATION_PENDING`.
+
 Allowed `businessType` values:
 
 ```text

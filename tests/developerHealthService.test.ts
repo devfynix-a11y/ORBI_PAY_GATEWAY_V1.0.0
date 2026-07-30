@@ -57,3 +57,46 @@ test('developer health summary reports warnings and webhook failure rate', async
     (webhookDeliveryStore as any).list = originalDeliveryList;
   }
 });
+
+test('developer health summary flags live allowlists without verified domains', async () => {
+  const devStore = DeveloperPortalStore.inMemory();
+  const deliveryStore = new WebhookDeliveryStore(path.join(os.tmpdir(), `orbi-wh-health-${crypto.randomUUID()}.json`));
+  const originalListServices = developerPortalStore.listServices;
+  const originalGetService = developerPortalStore.getService;
+  const originalDeliveryList = webhookDeliveryStore.list;
+
+  try {
+    (developerPortalStore as any).listServices = devStore.listServices.bind(devStore);
+    (developerPortalStore as any).getService = devStore.getService.bind(devStore);
+    (webhookDeliveryStore as any).list = deliveryStore.list.bind(deliveryStore);
+
+    const application = await devStore.submitApplication({
+      legalName: 'Tag Limited',
+      displayName: 'Tag',
+      contactEmail: 'ops@tag.example',
+      businessType: 'merchant',
+      countryCode: 'TZ',
+      requestedEnvironments: ['live'],
+      requestedScopes: ['payments:create'],
+      browserOrigins: ['https://www.tag.co.tz'],
+      redirectUrls: ['https://www.tag.co.tz/orbi/return'],
+      webhookUrls: ['https://api.tag.co.tz/orbi/webhooks'],
+      useCases: ['Protected checkout'],
+      termsAccepted: true,
+      metadata: {
+        domainVerification: {
+          verifiedDomains: ['www.tag.co.tz'],
+        },
+      },
+    });
+    const service = await devStore.approveApplication(application.applicationId, { initialStatus: 'draft' });
+
+    const [summary] = await buildDeveloperHealthSummary(service.serviceCode);
+    assert.equal(summary.warnings.includes('DOMAIN_VERIFICATION_PENDING'), true);
+    assert.deepEqual(summary.allowlists.pendingDomainVerification, ['api.tag.co.tz']);
+  } finally {
+    (developerPortalStore as any).listServices = originalListServices;
+    (developerPortalStore as any).getService = originalGetService;
+    (webhookDeliveryStore as any).list = originalDeliveryList;
+  }
+});

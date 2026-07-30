@@ -10,6 +10,40 @@ const maxDate = (values: Array<string | undefined>) =>
     .sort()
     .at(-1);
 
+const hostnameFromUrl = (value: string) => {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+};
+
+const liveDomainsPendingVerification = (service: ReturnType<typeof developerPortalStore.listServices>[number]) => {
+  if (!service.environments?.includes('live')) return [];
+  const configuredDomains = new Set(
+    [
+      ...(service.browserOrigins || []),
+      ...(service.redirectUrls || []),
+      ...(service.webhookUrls || []),
+    ]
+      .map(hostnameFromUrl)
+      .filter((hostname): hostname is string => Boolean(hostname)),
+  );
+
+  const verification = service.metadata && typeof service.metadata === 'object'
+    ? (service.metadata as { domainVerification?: { verifiedDomains?: unknown } }).domainVerification
+    : undefined;
+  const verifiedDomains = new Set(
+    Array.isArray(verification?.verifiedDomains)
+      ? verification.verifiedDomains
+          .filter((domain): domain is string => typeof domain === 'string')
+          .map((domain) => domain.toLowerCase())
+      : [],
+  );
+
+  return [...configuredDomains].filter((domain) => !verifiedDomains.has(domain));
+};
+
 export const buildDeveloperHealthSummary = async (serviceCode?: string) => {
   const services = serviceCode
     ? [developerPortalStore.getService(serviceCode)]
@@ -30,6 +64,8 @@ export const buildDeveloperHealthSummary = async (serviceCode?: string) => {
     if (!service.redirectUrls?.length) warnings.push('REDIRECT_ALLOWLIST_EMPTY');
     if (!service.webhookUrls?.length) warnings.push('WEBHOOK_ALLOWLIST_EMPTY');
     if (!service.browserOrigins?.length) warnings.push('BROWSER_ORIGIN_ALLOWLIST_EMPTY');
+    const pendingDomains = liveDomainsPendingVerification(service);
+    if (pendingDomains.length) warnings.push('DOMAIN_VERIFICATION_PENDING');
     if (service.scopesPending?.length) warnings.push('SCOPES_PENDING_REVIEW');
     if (deliveries.length && failedDeliveries.length / deliveries.length >= 0.2) {
       warnings.push('WEBHOOK_FAILURE_RATE_HIGH');
@@ -72,6 +108,7 @@ export const buildDeveloperHealthSummary = async (serviceCode?: string) => {
         browserOrigins: service.browserOrigins || [],
         redirectUrls: service.redirectUrls || [],
         webhookUrls: service.webhookUrls || [],
+        pendingDomainVerification: pendingDomains,
       },
       providerReadiness,
       warnings,
