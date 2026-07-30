@@ -458,9 +458,11 @@ Required behavior:
 ```text
 Generate new key server-side only.
 Show secret once.
-Keep old key active during rotation window.
+Move the previous active key to pending_cutover during rotation window.
+Accept both active and pending_cutover keys during approved cutover.
 Allow explicit cutover.
 Revoke old key after cutover or expiry.
+Allow emergency revoke with operator reason.
 Emit audit event.
 Never expose keys through API reads.
 ```
@@ -508,16 +510,45 @@ Service profile cards show keyId, environment, status, fingerprint, issuedAt,
 and expiry/revocation dates only.
 ```
 
+Revoke API key:
+
+```http
+POST /v1/developer/services/:serviceCode/api-keys/:keyId/revoke
+Content-Type: application/json
+```
+
+```json
+{
+  "revokedBy": "operator@orbi.example",
+  "reason": "Emergency key revoke after suspected exposure.",
+  "metadata": {
+    "incidentId": "sec_2026_07_30_001"
+  }
+}
+```
+
+Key status lifecycle:
+
+```text
+active -> pending_cutover -> revoked
+active -> revoked
+```
+
+`pending_cutover` means the old key is still accepted only to give the
+merchant a controlled migration window. Completing the rotation revokes old
+pending-cutover keys for that environment.
+
 ## 7. Webhook Signing Secret Rotation
 
 Webhook secrets follow the same pattern as API keys:
 
 ```text
 Create new signing secret.
-Send events with active secret.
-Optionally include next key id during rotation window.
+Move previous active signing secret to pending_cutover.
+Sign outbound events with the newest active secret.
 Merchant verifies both current and next secret during overlap.
 Revoke old secret after cutover.
+Allow emergency revoke with operator reason.
 ```
 
 Request webhook signing secret rotation:
@@ -544,6 +575,30 @@ Content-Type: application/json
 The raw webhook signing secret is also one-time display only. Store only
 `secretId`, `fingerprint`, `environment`, `status`, and timestamps in portal
 records.
+
+Revoke webhook signing secret:
+
+```http
+POST /v1/developer/services/:serviceCode/webhook-secrets/:secretId/revoke
+Content-Type: application/json
+```
+
+```json
+{
+  "revokedBy": "operator@orbi.example",
+  "reason": "Emergency webhook secret revoke after suspected exposure.",
+  "metadata": {
+    "incidentId": "sec_2026_07_30_002"
+  }
+}
+```
+
+Webhook secret status lifecycle:
+
+```text
+active -> pending_cutover -> revoked
+active -> revoked
+```
 
 ## 8. Developer Portal Events
 
@@ -576,11 +631,13 @@ developer.api_key.rotation_approved
 developer.api_key.rotation_rejected
 developer.api_key.rotated
 developer.api_key.issued
+developer.api_key.revoked
 developer.webhook_secret.rotation_requested
 developer.webhook_secret.rotation_approved
 developer.webhook_secret.rotation_rejected
 developer.webhook_secret.rotated
 developer.webhook_secret.issued
+developer.webhook_secret.revoked
 ```
 
 ## 9. Developer Portal UI Blueprint
@@ -685,6 +742,7 @@ Primary endpoints:
 ```text
 POST /v1/developer/services/:serviceCode/api-keys/issue
 POST /v1/developer/services/:serviceCode/api-key-rotations
+POST /v1/developer/services/:serviceCode/api-keys/:keyId/revoke
 POST /v1/developer/api-key-rotations/:rotationId/decision
 ```
 
@@ -704,6 +762,7 @@ Primary endpoints:
 ```text
 POST /v1/developer/services/:serviceCode/webhook-secrets/issue
 POST /v1/developer/services/:serviceCode/webhook-secret-rotations
+POST /v1/developer/services/:serviceCode/webhook-secrets/:secretId/revoke
 POST /v1/developer/webhook-secret-rotations/:rotationId/decision
 ```
 
@@ -1039,6 +1098,13 @@ POST /v1/developer/services/:serviceCode/api-keys/issue
 Content-Type: application/json
 ```
 
+Revoke API key:
+
+```http
+POST /v1/developer/services/:serviceCode/api-keys/:keyId/revoke
+Content-Type: application/json
+```
+
 Approve, reject, or complete API key rotation:
 
 ```http
@@ -1072,6 +1138,13 @@ Issue webhook signing secret:
 
 ```http
 POST /v1/developer/services/:serviceCode/webhook-secrets/issue
+Content-Type: application/json
+```
+
+Revoke webhook signing secret:
+
+```http
+POST /v1/developer/services/:serviceCode/webhook-secrets/:secretId/revoke
 Content-Type: application/json
 ```
 

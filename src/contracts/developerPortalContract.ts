@@ -158,6 +158,12 @@ export const DeveloperSecretIssueRequestSchema = z.object({
   reason: z.string().trim().min(10).max(1000),
 });
 
+export const DeveloperSecretRevokeRequestSchema = z.object({
+  revokedBy: z.string().trim().min(3).max(180),
+  reason: z.string().trim().min(10).max(1000),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
 export const DeveloperWebhookSecretRotationRequestSchema = z.object({
   environment: DeveloperPortalEnvironmentSchema,
   currentSecretId: z.string().trim().min(1).max(120).optional(),
@@ -183,11 +189,13 @@ export const DeveloperPortalEventSchema = z
       'developer.api_key.rotation_rejected',
       'developer.api_key.rotated',
       'developer.api_key.issued',
+      'developer.api_key.revoked',
       'developer.webhook_secret.rotation_requested',
       'developer.webhook_secret.rotation_approved',
       'developer.webhook_secret.rotation_rejected',
       'developer.webhook_secret.rotated',
       'developer.webhook_secret.issued',
+      'developer.webhook_secret.revoked',
     ]),
     serviceCode: z.string().trim().min(2).max(80).optional(),
     environment: DeveloperPortalEnvironmentSchema.optional(),

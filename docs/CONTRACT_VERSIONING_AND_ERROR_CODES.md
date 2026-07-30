@@ -198,6 +198,9 @@ stable.
 | `DEVELOPER_API_KEY_ROTATION_DECISION_FAILED` | API key rotation decision could not be applied. | Retry or investigate operator state. |
 | `DEVELOPER_API_KEY_ISSUE_INVALID` | API key issue payload failed validation. | Correct environment, reason, and operator identity. |
 | `DEVELOPER_API_KEY_ISSUE_FAILED` | API key could not be issued. | Retry or investigate secret store. |
+| `DEVELOPER_API_KEY_REVOKE_INVALID` | API key revoke payload failed validation. | Correct revoke reason and operator identity. |
+| `DEVELOPER_API_KEY_REVOKE_FAILED` | API key could not be revoked. | Retry or investigate secret store. |
+| `DEVELOPER_API_KEY_NOT_FOUND` | API key ID does not exist for that service. | Refresh service key list before retrying. |
 | `DEVELOPER_WEBHOOK_SECRET_ROTATION_INVALID` | Webhook secret rotation request failed validation. | Correct actor, reason, and environment. |
 | `DEVELOPER_WEBHOOK_SECRET_ROTATION_FAILED` | Webhook secret rotation request could not be saved. | Retry or contact operator. |
 | `DEVELOPER_WEBHOOK_SECRET_ROTATION_NOT_FOUND` | Webhook secret rotation request ID does not exist. | Refresh webhook secret rotation requests. |
@@ -205,6 +208,9 @@ stable.
 | `DEVELOPER_WEBHOOK_SECRET_ROTATION_DECISION_FAILED` | Webhook secret rotation decision could not be applied. | Retry or investigate operator state. |
 | `DEVELOPER_WEBHOOK_SECRET_ISSUE_INVALID` | Webhook secret issue payload failed validation. | Correct environment, reason, and operator identity. |
 | `DEVELOPER_WEBHOOK_SECRET_ISSUE_FAILED` | Webhook secret could not be issued. | Retry or investigate secret store. |
+| `DEVELOPER_WEBHOOK_SECRET_REVOKE_INVALID` | Webhook secret revoke payload failed validation. | Correct revoke reason and operator identity. |
+| `DEVELOPER_WEBHOOK_SECRET_REVOKE_FAILED` | Webhook secret could not be revoked. | Retry or investigate secret store. |
+| `DEVELOPER_WEBHOOK_SECRET_NOT_FOUND` | Webhook secret ID does not exist for that service. | Refresh service webhook secret list before retrying. |
 | `WEBHOOK_DELIVERY_NOT_FOUND` | Webhook delivery ID does not exist. | Refresh delivery log. |
 | `WEBHOOK_DELIVERY_REPLAY_FAILED` | Webhook replay could not be completed. | Retry or investigate service callback health. |
 | `WEBHOOK_DELIVERY_REPLAY_PAYLOAD_MISSING` | Delivery record does not contain archived payload data and cannot be reconstructed. | Resend through the source workflow or inspect older delivery format. |

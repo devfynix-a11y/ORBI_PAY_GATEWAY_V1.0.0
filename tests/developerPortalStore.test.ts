@@ -113,3 +113,106 @@ test('developer portal store records scope, allowlist, key rotation, and events'
   assert.equal(JSON.stringify(store.getService(service.serviceCode)).includes(issuedWebhookSecret.oneTimeSecret), false);
   assert.equal(store.listEvents(service.serviceCode).length >= 8, true);
 });
+
+test('developer portal key lifecycle keeps grace window then revokes on cutover', async () => {
+  const store = DeveloperPortalStore.inMemory();
+  const application = await store.submitApplication({
+    legalName: 'Rotation Merchant Ltd',
+    displayName: 'Rotation Merchant',
+    contactEmail: 'ops@rotation.example',
+    businessType: 'merchant',
+    countryCode: 'TZ',
+    requestedEnvironments: ['sandbox'],
+    requestedScopes: ['payments:create'],
+    redirectUrls: ['https://rotation.example/orbi/return'],
+    webhookUrls: ['https://rotation.example/api/orbi/webhooks'],
+    useCases: ['Checkout key rotation'],
+    termsAccepted: true,
+  });
+  const service = await store.approveApplication(application.applicationId, { initialStatus: 'active' });
+
+  const first = await store.issueApiKey(service.serviceCode, {
+    environment: 'sandbox',
+    reason: 'Issue initial sandbox key.',
+    requestedBy: 'operator@orbi.example',
+  });
+  const rotation = await store.requestApiKeyRotation(service.serviceCode, {
+    environment: 'sandbox',
+    rotationReason: 'Routine sandbox API key rotation.',
+    requestedBy: 'ops@rotation.example',
+  });
+  await store.decideApiKeyRotation(rotation.rotationId, {
+    decision: 'approve',
+    reason: 'Approved for controlled cutover.',
+    decidedBy: 'operator@orbi.example',
+  });
+  const second = await store.issueApiKey(service.serviceCode, {
+    environment: 'sandbox',
+    reason: 'Issue replacement sandbox key.',
+    requestedBy: 'operator@orbi.example',
+  });
+
+  const duringCutover = store.getService(service.serviceCode);
+  assert.equal(duringCutover.keys.find((key) => key.keyId === first.key.keyId)?.status, 'pending_cutover');
+  assert.equal(duringCutover.keys.find((key) => key.keyId === second.key.keyId)?.status, 'active');
+  assert.equal(store.resolveApiKey(first.oneTimeSecret)?.key.keyId, first.key.keyId);
+  assert.equal(store.resolveApiKey(second.oneTimeSecret)?.key.keyId, second.key.keyId);
+
+  await store.decideApiKeyRotation(rotation.rotationId, {
+    decision: 'complete',
+    reason: 'Merchant confirmed replacement key is installed.',
+    decidedBy: 'operator@orbi.example',
+  });
+  const afterCutover = store.getService(service.serviceCode);
+  assert.equal(afterCutover.keys.find((key) => key.keyId === first.key.keyId)?.status, 'revoked');
+  assert.equal(store.resolveApiKey(first.oneTimeSecret), undefined);
+  assert.equal(store.resolveApiKey(second.oneTimeSecret)?.key.keyId, second.key.keyId);
+
+  const revoked = await store.revokeApiKey(service.serviceCode, second.key.keyId, {
+    revokedBy: 'operator@orbi.example',
+    reason: 'Emergency key revoke after suspected exposure.',
+  });
+  assert.equal(revoked.key.status, 'revoked');
+  assert.equal(store.resolveApiKey(second.oneTimeSecret), undefined);
+});
+
+test('developer portal webhook secret lifecycle supports cutover and explicit revoke', async () => {
+  const store = DeveloperPortalStore.inMemory();
+  const application = await store.submitApplication({
+    legalName: 'Webhook Merchant Ltd',
+    displayName: 'Webhook Merchant',
+    contactEmail: 'ops@webhook.example',
+    businessType: 'merchant',
+    countryCode: 'TZ',
+    requestedEnvironments: ['sandbox'],
+    requestedScopes: ['webhooks:receive'],
+    redirectUrls: ['https://webhook.example/orbi/return'],
+    webhookUrls: ['https://webhook.example/api/orbi/webhooks'],
+    useCases: ['Webhook secret rotation'],
+    termsAccepted: true,
+  });
+  const service = await store.approveApplication(application.applicationId, { initialStatus: 'active' });
+
+  const first = await store.issueWebhookSecret(service.serviceCode, {
+    environment: 'sandbox',
+    reason: 'Issue initial sandbox webhook secret.',
+    requestedBy: 'operator@orbi.example',
+  });
+  const second = await store.issueWebhookSecret(service.serviceCode, {
+    environment: 'sandbox',
+    reason: 'Issue replacement sandbox webhook secret.',
+    requestedBy: 'operator@orbi.example',
+  });
+
+  const duringCutover = store.getService(service.serviceCode);
+  assert.equal(duringCutover.webhookSecrets.find((secret) => secret.secretId === first.webhookSecret.secretId)?.status, 'pending_cutover');
+  assert.equal(duringCutover.webhookSecrets.find((secret) => secret.secretId === second.webhookSecret.secretId)?.status, 'active');
+  assert.equal(JSON.stringify(duringCutover).includes(first.oneTimeSecret), false);
+  assert.equal(JSON.stringify(duringCutover).includes(second.oneTimeSecret), false);
+
+  const revoked = await store.revokeWebhookSecret(service.serviceCode, second.webhookSecret.secretId, {
+    revokedBy: 'operator@orbi.example',
+    reason: 'Emergency webhook secret revoke after suspected exposure.',
+  });
+  assert.equal(revoked.webhookSecret.status, 'revoked');
+});

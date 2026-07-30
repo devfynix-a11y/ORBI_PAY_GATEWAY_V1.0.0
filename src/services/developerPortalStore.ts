@@ -11,6 +11,7 @@ import type {
   DeveloperScopeDecisionSchema,
   DeveloperScopeRequestSchema,
   DeveloperSecretIssueRequestSchema,
+  DeveloperSecretRevokeRequestSchema,
   DeveloperServiceApplicationSchema,
   DeveloperServiceRecordSchema,
   DeveloperServiceStatusUpdateSchema,
@@ -203,7 +204,7 @@ export class DeveloperPortalStore {
     for (const service of this.state.services) {
       if (service.status !== 'active') continue;
       const key = (service.keys || []).find((item) =>
-        item.status === 'active' &&
+        (item.status === 'active' || item.status === 'pending_cutover') &&
         item.fingerprint === fp &&
         (!item.expiresAt || Date.parse(item.expiresAt) > Date.now()),
       );
@@ -427,6 +428,11 @@ export class DeveloperPortalStore {
       });
     } else if (decision.decision === 'complete') {
       record.status = 'completed';
+      service.keys = (service.keys || []).map((key) =>
+        key.environment === record.environment && key.status === 'pending_cutover'
+          ? { ...key, status: 'revoked' as const, revokedAt: now }
+          : key,
+      );
       service.keyStatus = 'active';
       this.addEvent('developer.api_key.rotated', {
         serviceCode: service.serviceCode,
@@ -468,7 +474,7 @@ export class DeveloperPortalStore {
     service.keys = [
       ...(service.keys || []).map((key) =>
         key.environment === request.environment && key.status === 'active'
-          ? { ...key, status: 'revoked' as const, revokedAt: now }
+          ? { ...key, status: 'pending_cutover' as const }
           : key,
       ),
       record,
@@ -486,6 +492,39 @@ export class DeveloperPortalStore {
     });
     await this.persist();
     return { service, key: record, oneTimeSecret: secret };
+  }
+
+  async revokeApiKey(
+    serviceCode: string,
+    keyId: string,
+    request: z.infer<typeof DeveloperSecretRevokeRequestSchema>,
+  ) {
+    this.assertReady();
+    const service = this.getMutableService(serviceCode);
+    const now = new Date().toISOString();
+    const key = (service.keys || []).find((item) => item.keyId === keyId);
+    if (!key) throw new Error('DEVELOPER_API_KEY_NOT_FOUND');
+    key.status = 'revoked';
+    key.revokedAt = now;
+    service.keyStatus = (service.keys || []).some((item) =>
+      item.environment === key.environment &&
+      item.status === 'active' &&
+      (!item.expiresAt || Date.parse(item.expiresAt) > Date.now())
+    ) ? 'active' : 'revoked';
+    service.updatedAt = now;
+    this.addEvent('developer.api_key.revoked', {
+      serviceCode: service.serviceCode,
+      environment: key.environment,
+      data: {
+        keyId,
+        fingerprint: key.fingerprint,
+        revokedBy: request.revokedBy,
+        reason: request.reason,
+        metadata: request.metadata || {},
+      },
+    });
+    await this.persist();
+    return { service, key };
   }
 
   async requestWebhookSecretRotation(serviceCode: string, request: z.infer<typeof DeveloperWebhookSecretRotationRequestSchema>) {
@@ -534,6 +573,11 @@ export class DeveloperPortalStore {
       });
     } else if (decision.decision === 'complete') {
       record.status = 'completed';
+      service.webhookSecrets = (service.webhookSecrets || []).map((secret) =>
+        secret.environment === record.environment && secret.status === 'pending_cutover'
+          ? { ...secret, status: 'revoked' as const, revokedAt: now }
+          : secret,
+      );
       service.webhookSecretStatus = 'active';
       this.addEvent('developer.webhook_secret.rotated', {
         serviceCode: service.serviceCode,
@@ -576,7 +620,7 @@ export class DeveloperPortalStore {
     service.webhookSecrets = [
       ...(service.webhookSecrets || []).map((item) =>
         item.environment === request.environment && item.status === 'active'
-          ? { ...item, status: 'revoked' as const, revokedAt: now }
+          ? { ...item, status: 'pending_cutover' as const }
           : item,
       ),
       record,
@@ -596,13 +640,46 @@ export class DeveloperPortalStore {
     return { service, webhookSecret: record, oneTimeSecret: secret };
   }
 
+  async revokeWebhookSecret(
+    serviceCode: string,
+    secretId: string,
+    request: z.infer<typeof DeveloperSecretRevokeRequestSchema>,
+  ) {
+    this.assertReady();
+    const service = this.getMutableService(serviceCode);
+    const now = new Date().toISOString();
+    const secret = (service.webhookSecrets || []).find((item) => item.secretId === secretId);
+    if (!secret) throw new Error('DEVELOPER_WEBHOOK_SECRET_NOT_FOUND');
+    secret.status = 'revoked';
+    secret.revokedAt = now;
+    service.webhookSecretStatus = (service.webhookSecrets || []).some((item) =>
+      item.environment === secret.environment &&
+      item.status === 'active' &&
+      (!item.expiresAt || Date.parse(item.expiresAt) > Date.now())
+    ) ? 'active' : 'revoked';
+    service.updatedAt = now;
+    this.addEvent('developer.webhook_secret.revoked', {
+      serviceCode: service.serviceCode,
+      environment: secret.environment,
+      data: {
+        secretId,
+        fingerprint: secret.fingerprint,
+        revokedBy: request.revokedBy,
+        reason: request.reason,
+        metadata: request.metadata || {},
+      },
+    });
+    await this.persist();
+    return { service, webhookSecret: secret };
+  }
+
   getActiveWebhookSigningSecret(serviceCode: string, environment?: 'sandbox' | 'live') {
     this.assertReady();
     const service = this.getMutableService(serviceCode);
     const now = Date.now();
     const secret = (service.webhookSecrets || [])
       .filter((item) =>
-        item.status === 'active' &&
+        (item.status === 'active' || item.status === 'pending_cutover') &&
         (!environment || item.environment === environment) &&
         (!item.expiresAt || Date.parse(item.expiresAt) > now),
       )
@@ -710,7 +787,11 @@ export class DeveloperPortalStore {
       service.keys.push({
         keyId: row.key_id,
         environment: row.environment,
-        status: row.status === 'revoked' ? 'revoked' : 'active',
+        status: row.status === 'revoked'
+          ? 'revoked'
+          : row.status === 'pending_cutover'
+            ? 'pending_cutover'
+            : 'active',
         fingerprint: row.fingerprint,
         issuedAt: iso(row.issued_at) || new Date().toISOString(),
         expiresAt: iso(row.expires_at),
@@ -723,7 +804,11 @@ export class DeveloperPortalStore {
       service.webhookSecrets.push({
         secretId: row.secret_id,
         environment: row.environment,
-        status: row.status === 'revoked' ? 'revoked' : 'active',
+        status: row.status === 'revoked'
+          ? 'revoked'
+          : row.status === 'pending_cutover'
+            ? 'pending_cutover'
+            : 'active',
         fingerprint: row.fingerprint,
         encryptedSecret: row.encrypted_secret || undefined,
         issuedAt: iso(row.issued_at) || new Date().toISOString(),
@@ -732,10 +817,16 @@ export class DeveloperPortalStore {
       } as DeveloperWebhookSecretRecord);
     }
     for (const service of services) {
-      service.keyStatus = service.keys.some((key) => key.status === 'active') ? 'active' : 'not_issued';
-      service.webhookSecretStatus = service.webhookSecrets.some((secret) => secret.status === 'active')
-        ? 'active'
-        : 'not_issued';
+      service.keyStatus = service.keys.some((key) => key.status === 'pending_cutover')
+        ? 'rotation_pending'
+        : service.keys.some((key) => key.status === 'active')
+          ? 'active'
+          : 'not_issued';
+      service.webhookSecretStatus = service.webhookSecrets.some((secret) => secret.status === 'pending_cutover')
+        ? 'rotation_pending'
+        : service.webhookSecrets.some((secret) => secret.status === 'active')
+          ? 'active'
+          : 'not_issued';
     }
 
     this.state = {

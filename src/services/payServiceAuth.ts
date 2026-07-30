@@ -134,7 +134,7 @@ export const authenticatePayServiceCredential = (
       item.keyId === claims.keyId &&
       item.fingerprint === claims.fingerprint &&
       item.environment === claims.environment &&
-      item.status === 'active' &&
+      (item.status === 'active' || item.status === 'pending_cutover') &&
       (!item.expiresAt || Date.parse(item.expiresAt) > Date.now()),
     );
     if (!key) throw new Error('PAY_SERVICE_AUTH_FAILED');

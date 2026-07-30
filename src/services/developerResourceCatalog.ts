@@ -129,11 +129,25 @@ export const developerSandboxToolsCatalog = () => [
     description: 'Issue a one-time sandbox key after service approval.',
   },
   {
+    id: 'sandbox-api-key-revoke',
+    title: 'Revoke Sandbox API Key',
+    status: 'available',
+    endpoint: 'POST /v1/developer/services/:serviceCode/api-keys/:keyId/revoke',
+    description: 'Emergency revoke an API key with operator reason and audit event.',
+  },
+  {
     id: 'sandbox-webhook-secret',
     title: 'Issue Sandbox Webhook Secret',
     status: 'available',
     endpoint: 'POST /v1/developer/services/:serviceCode/webhook-secrets/issue',
     description: 'Issue one-time sandbox webhook signing secret.',
+  },
+  {
+    id: 'sandbox-webhook-secret-revoke',
+    title: 'Revoke Sandbox Webhook Secret',
+    status: 'available',
+    endpoint: 'POST /v1/developer/services/:serviceCode/webhook-secrets/:secretId/revoke',
+    description: 'Emergency revoke a webhook signing secret with operator reason and audit event.',
   },
   {
     id: 'sandbox-payment-intent',

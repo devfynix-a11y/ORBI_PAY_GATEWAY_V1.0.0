@@ -54,6 +54,7 @@ import {
   DeveloperScopeRequestSchema,
   DeveloperServiceApplicationSchema,
   DeveloperServiceStatusUpdateSchema,
+  DeveloperSecretRevokeRequestSchema,
   DeveloperWebhookSecretRotationRequestSchema,
 } from './contracts/developerPortalContract.js';
 import { consentReceiptStore } from './services/consentReceiptStore.js';
@@ -1796,6 +1797,8 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/services\/[^/]+\/webhook-secrets\/issue$/, permission: 'developer:manage_keys', confirmation: true },
   { pattern: /^\/v1\/developer\/webhook-deliveries\/[^/]+\/replay$/, permission: 'developer:replay_webhooks', confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/api-keys\/issue$/, permission: 'developer:manage_keys', confirmation: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/api-keys\/[^/]+\/revoke$/, permission: 'developer:manage_keys', confirmation: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/webhook-secrets\/[^/]+\/revoke$/, permission: 'developer:manage_keys', confirmation: true },
 ] as const;
 
 const portalRuleForPath = (path: string) => portalOperatorPaths.find((item) => item.pattern.test(path));
@@ -2140,6 +2143,22 @@ app.post('/v1/developer/services/:serviceCode/api-keys/issue', requireOperatorDi
   }
 });
 
+app.post('/v1/developer/services/:serviceCode/api-keys/:keyId/revoke', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperSecretRevokeRequestSchema.parse(req.body || {});
+    const result = await developerPortalStore.revokeApiKey(
+      String(req.params.serviceCode || ''),
+      String(req.params.keyId || ''),
+      payload,
+    );
+    return res.json({ success: true, data: result });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_API_KEY_REVOKE_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_API_KEY_REVOKE_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
 app.post('/v1/developer/api-key-rotations/:rotationId/decision', requireOperatorDiscoveryAccess, async (req, res) => {
   try {
     const payload = DeveloperApiKeyRotationDecisionSchema.parse(req.body || {});
@@ -2184,6 +2203,22 @@ app.post('/v1/developer/services/:serviceCode/webhook-secrets/issue', requireOpe
   } catch (e: any) {
     if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_WEBHOOK_SECRET_ISSUE_INVALID', e.issues);
     const error = errorCodeFromException(e, 'DEVELOPER_WEBHOOK_SECRET_ISSUE_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/services/:serviceCode/webhook-secrets/:secretId/revoke', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperSecretRevokeRequestSchema.parse(req.body || {});
+    const result = await developerPortalStore.revokeWebhookSecret(
+      String(req.params.serviceCode || ''),
+      String(req.params.secretId || ''),
+      payload,
+    );
+    return res.json({ success: true, data: result });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_WEBHOOK_SECRET_REVOKE_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_WEBHOOK_SECRET_REVOKE_FAILED');
     return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 });
