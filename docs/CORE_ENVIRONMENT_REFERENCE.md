@@ -123,6 +123,8 @@ This reference is for maintainability only. It intentionally does not store secr
 | `PAYMENT_GATEWAY_FINANCIAL_RATE_LIMIT_WINDOW_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Financial request rate limit window per service/key subject. Default `60`. |
 | `PAYMENT_GATEWAY_FINANCIAL_RATE_LIMIT_MAX_REQUESTS` | Runtime | Non-secret | No | Payment gateway only | Maximum financial requests per service/key subject per window. Default `120`. |
 | `PAYMENT_GATEWAY_FINANCIAL_RATE_LIMIT_MAX_SUBJECTS` | Runtime | Non-secret | No | Payment gateway only | Maximum in-memory rate-limit subjects retained per process. Default `50000`. |
+| `PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET` | Runtime | Secret | Yes in production | Payment gateway only | HMAC signing secret for short-lived service access tokens issued by `/oauth/token`. Keep separate from portal sessions and Core worker signing. |
+| `PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_TTL_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Service access token lifetime in seconds. Default `900`, clamped between 60 and 3600. |
 | `<PROVIDER>_API_BASE_URL` | Runtime | Non-secret | No | Payment gateway only | Provider API base URL declared by the provider manifest. |
 | `<PROVIDER>_CREDENTIAL_TOKEN_REF` | Runtime | Secret/config | No | Payment gateway only | Token reference to provider API credentials in vault/HSM/KMS-backed storage. |
 | `<PROVIDER>_WEBHOOK_SECRET_TOKEN_REF` | Runtime | Secret/config | No | Payment gateway only | Token reference to provider webhook verification secret. |

@@ -155,6 +155,12 @@ stable.
 | `PAY_GATEWAY_SIGNATURE_SECRET_MISSING` | Gateway could not resolve a signing secret for this request. | Check service key/auth headers. |
 | `PAY_GATEWAY_SIGNATURE_INVALID` | HMAC signature does not match request body/path. | Do not retry unchanged; rebuild signature over the exact raw body. |
 | `PAY_GATEWAY_RATE_LIMITED` | Service/key exceeded the financial runtime request rate limit. | Back off and retry with the same idempotency key only if the operation is retry-safe. |
+| `SERVICE_ACCESS_TOKEN_SECRET_REQUIRED` | Gateway cannot issue or verify service access tokens because token signing secret is missing. | Operator must configure `PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET`. |
+| `SERVICE_ACCESS_TOKEN_INVALID` | Bearer access token is malformed or signature verification failed. | Request a fresh token with valid service credentials. |
+| `SERVICE_ACCESS_TOKEN_EXPIRED` | Bearer access token is expired. | Request a fresh token and retry. |
+| `OAUTH_TOKEN_REQUEST_INVALID` | Token request payload failed validation. | Send `grant_type=client_credentials` and optional space-separated `scope`. |
+| `OAUTH_CLIENT_AUTH_INVALID` | Token request client credentials are missing or invalid. | Use Basic auth, `client_secret`, or `x-orbi-pay-service-key` with a Developer Portal API key secret. |
+| `OAUTH_DEVELOPER_PORTAL_SERVICE_REQUIRED` | Token exchange was attempted with a legacy service registry key. | Migrate service to Developer Portal issued keys. |
 | `CONSENT_SUBJECT_REQUIRED` | Request needs consent but no subject identity was supplied. | Send a stable user, customer, email, phone, or identifier. |
 | `CONSENT_REQUIRED` | Active consent receipt for the requested subject and scope is missing, revoked, or expired. | Start hosted consent/challenge again. |
 

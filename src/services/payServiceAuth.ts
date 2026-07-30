@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import type { Request } from 'express';
 import type { PayServiceDefinition, PayServiceOperation } from '../types.js';
 import { resolveTokenSecret } from '../security/tokenResolver.js';
+import { isServiceAccessToken, verifyServiceAccessToken } from '../security/serviceAccessToken.js';
 import { developerPortalStore } from './developerPortalStore.js';
 
 export type RuntimeEnvironment = 'demo' | 'production';
@@ -53,6 +54,7 @@ const serviceOperationsForScopes = (scopes: string[]): PayServiceOperation[] => 
 
 export const serviceDefinitionFromDeveloperService = (
   service: ReturnType<typeof developerPortalStore.getService>,
+  grantedScopes: string[] = service.scopesGranted,
 ): PayServiceDefinition => {
   const metadata = service.metadata || {};
   const registryOperations = Array.isArray((metadata as any).allowedOperations)
@@ -77,7 +79,7 @@ export const serviceDefinitionFromDeveloperService = (
     callbackUrlEnv: '',
     allowedOperations: registryOperations.length
       ? registryOperations
-      : serviceOperationsForScopes(service.scopesGranted),
+      : serviceOperationsForScopes(grantedScopes),
     allowedCurrencies: registryCurrencies.length ? registryCurrencies : ['TZS'],
     allowedCountries: registryCountries,
     merchant,
@@ -86,7 +88,8 @@ export const serviceDefinitionFromDeveloperService = (
       developerPortalService: true,
       businessType: service.businessType,
       environments: service.environments,
-      scopesGranted: service.scopesGranted,
+      scopesGranted: grantedScopes,
+      serviceAccessTokenScoped: grantedScopes.length !== service.scopesGranted.length,
       webhookUrls: service.webhookUrls,
     },
   };
@@ -122,6 +125,33 @@ export const authenticatePayServiceCredential = (
 ): AuthenticatedPayService => {
   const provided = extractServiceApiKey(req);
   if (!provided) throw new Error('PAY_SERVICE_AUTH_FAILED');
+
+  if (isServiceAccessToken(provided)) {
+    const claims = verifyServiceAccessToken(provided);
+    const service = developerPortalStore.getService(claims.serviceCode);
+    if (service.status !== 'active') throw new Error('PAY_SERVICE_AUTH_FAILED');
+    const key = (service.keys || []).find((item) =>
+      item.keyId === claims.keyId &&
+      item.fingerprint === claims.fingerprint &&
+      item.environment === claims.environment &&
+      item.status === 'active' &&
+      (!item.expiresAt || Date.parse(item.expiresAt) > Date.now()),
+    );
+    if (!key) throw new Error('PAY_SERVICE_AUTH_FAILED');
+    const grantedScopes = claims.scopes.filter((scope) => service.scopesGranted.includes(scope as any));
+    if (grantedScopes.length !== claims.scopes.length || grantedScopes.length === 0) {
+      throw new Error('PAY_SERVICE_SCOPE_NOT_GRANTED');
+    }
+    return {
+      service: serviceDefinitionFromDeveloperService(service, grantedScopes),
+      credential: {
+        source: 'developer_portal',
+        environment: claims.environment,
+        keyId: claims.keyId,
+        fingerprint: claims.fingerprint,
+      },
+    };
+  }
 
   const developerCredential = resolveDeveloperCredential(provided);
   if (developerCredential) {

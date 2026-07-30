@@ -60,6 +60,10 @@ export const config = {
       Number(process.env.PAYMENT_GATEWAY_FINANCIAL_RATE_LIMIT_MAX_REQUESTS || 120),
     financialRateLimitMaxSubjects:
       Number(process.env.PAYMENT_GATEWAY_FINANCIAL_RATE_LIMIT_MAX_SUBJECTS || 50000),
+    serviceAccessTokenSecret:
+      process.env.PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET || '',
+    serviceAccessTokenTtlSeconds:
+      Number(process.env.PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_TTL_SECONDS || 900),
   },
   core: {
     baseUrl: process.env.ORBI_CORE_INTERNAL_BASE_URL || 'https://api.orbifinancial.com',
@@ -133,6 +137,10 @@ export const requireGatewayRuntimeSecrets = () => {
 
   if (config.env === 'production' && !config.portal.authSecret) {
     throw new Error('PAYMENT_GATEWAY_PORTAL_AUTH_SECRET is required for production portal sessions.');
+  }
+
+  if (config.env === 'production' && !config.security.serviceAccessTokenSecret) {
+    throw new Error('PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET is required for production service access tokens.');
   }
 
   if (config.env === 'production' && config.mtls.enabled) {

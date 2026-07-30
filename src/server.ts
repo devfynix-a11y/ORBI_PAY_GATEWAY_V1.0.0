@@ -31,6 +31,10 @@ import {
   assertNonceNotReplayed,
 } from './security/financialRequestGuard.js';
 import {
+  isServiceAccessToken,
+  issueServiceAccessToken,
+} from './security/serviceAccessToken.js';
+import {
   buildApiErrorBody,
   errorCodeFromException,
   httpStatusForGatewayError,
@@ -206,6 +210,15 @@ const PaySafeEscrowActionSchema = z.object({
   reason: z.string().trim().max(500).optional(),
   customer: PaymentIntentCreateSchema.shape.customer,
   metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const OAuthTokenRequestSchema = z.object({
+  grant_type: z.literal('client_credentials'),
+  client_secret: z.string().trim().min(1).optional(),
+  scope: z.union([
+    z.string().trim(),
+    z.array(z.string().trim()),
+  ]).optional(),
 });
 
 const PaySafeBalanceQuerySchema = z.object({
@@ -475,6 +488,25 @@ const requireRuntimeEnvironment = (req: express.Request): RuntimeEnvironment => 
   const environment = requestRuntimeEnvironment(req);
   if (!environment) throw new Error('PAY_GATEWAY_ENVIRONMENT_REQUIRED');
   return environment;
+};
+
+const tokenRequestClientSecret = (req: express.Request, body: z.infer<typeof OAuthTokenRequestSchema>): string => {
+  const basic = req.get('authorization')?.match(/^Basic\s+(.+)$/i)?.[1]?.trim();
+  if (basic) {
+    try {
+      const decoded = Buffer.from(basic, 'base64').toString('utf8');
+      const separator = decoded.indexOf(':');
+      if (separator >= 0) return decoded.slice(separator + 1).trim();
+    } catch {
+      throw new Error('OAUTH_CLIENT_AUTH_INVALID');
+    }
+  }
+  return body.client_secret || req.get('x-orbi-pay-service-key') || req.get('x-api-key') || '';
+};
+
+const requestedOAuthScopes = (scope: z.infer<typeof OAuthTokenRequestSchema>['scope']): string[] => {
+  const raw = Array.isArray(scope) ? scope.join(' ') : String(scope || '');
+  return [...new Set(raw.split(/\s+/).map((value) => value.trim()).filter(Boolean))];
 };
 
 const assertServiceCredentialEnvironment = (
@@ -1132,8 +1164,7 @@ const requirePayServiceAccess = (req: express.Request, res: express.Response, ne
     return next();
   } catch (e: any) {
     const error = errorCodeFromException(e, 'PAY_SERVICE_ACCESS_DENIED');
-    const status = error === 'PAY_SERVICE_AUTH_FAILED' ? 403 : 404;
-    return sendApiError(res, status, error);
+    return sendApiError(res, httpStatusForGatewayError(error, 403), error);
   }
 };
 
@@ -1141,6 +1172,62 @@ app.get('/v1/service-profile', requirePayServiceAccess, (_req, res) => {
   const service = res.locals.payService as PayServiceDefinition;
   res.json({ success: true, data: payServiceRegistry.publicView(service) });
 });
+
+const serviceTokenHandler = (req: express.Request, res: express.Response) => {
+  const parsed = OAuthTokenRequestSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return sendValidationError(res, 'OAUTH_TOKEN_REQUEST_INVALID', parsed.error.issues);
+  }
+
+  try {
+    const clientSecret = tokenRequestClientSecret(req, parsed.data);
+    if (!clientSecret || isServiceAccessToken(clientSecret)) throw new Error('OAUTH_CLIENT_AUTH_INVALID');
+    const authenticated = authenticatePayServiceCredential(payServiceRegistry.activeServices(), {
+      get: (name: string) => {
+        const normalized = name.toLowerCase();
+        if (normalized === 'x-orbi-pay-service-key') return clientSecret;
+        return undefined;
+      },
+    } as express.Request);
+    if (authenticated.credential.source !== 'developer_portal') {
+      throw new Error('OAUTH_DEVELOPER_PORTAL_SERVICE_REQUIRED');
+    }
+    if (!authenticated.credential.environment || !authenticated.credential.keyId || !authenticated.credential.fingerprint) {
+      throw new Error('OAUTH_CLIENT_AUTH_INVALID');
+    }
+    const grantedScopes = Array.isArray(authenticated.service.metadata?.scopesGranted)
+      ? authenticated.service.metadata.scopesGranted.map((scope) => String(scope))
+      : [];
+    const requestedScopes = requestedOAuthScopes(parsed.data.scope);
+    const issuedScopes = requestedScopes.length ? requestedScopes : grantedScopes;
+    if (!issuedScopes.length || issuedScopes.some((scope) => !grantedScopes.includes(scope))) {
+      throw new Error('PAY_SERVICE_SCOPE_NOT_GRANTED');
+    }
+    const issued = issueServiceAccessToken({
+      serviceCode: authenticated.service.code,
+      keyId: authenticated.credential.keyId,
+      fingerprint: authenticated.credential.fingerprint,
+      environment: authenticated.credential.environment,
+      scopes: issuedScopes,
+    });
+    return res.json({
+      access_token: issued.accessToken,
+      token_type: 'Bearer',
+      expires_in: issued.expiresIn,
+      scope: issued.claims.scopes.join(' '),
+      service_code: issued.claims.serviceCode,
+      environment: issued.claims.environment,
+      issued_at: new Date(issued.claims.iat * 1000).toISOString(),
+      expires_at: new Date(issued.claims.exp * 1000).toISOString(),
+    });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'OAUTH_TOKEN_ISSUE_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error, 403), error);
+  }
+};
+
+app.post('/oauth/token', serviceTokenHandler);
+app.post('/v1/oauth/token', serviceTokenHandler);
 
 const submitPaymentIntentToCore = async (service: PayServiceDefinition, intent: PaymentIntent) => {
   const merchantContext = serviceMerchantContext(service);

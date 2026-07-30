@@ -207,6 +207,59 @@ webhooks:receive
 
 Scope approvals must be auditable and revocable.
 
+## 2.1 Service Access Tokens
+
+Developer Portal API keys are long-lived credentials. Runtime integrations should
+exchange them for short-lived service access tokens before calling financial
+routes.
+
+```http
+POST /oauth/token
+content-type: application/x-www-form-urlencoded
+authorization: Basic base64(<service-code>:<one-time-api-key-secret>)
+```
+
+Body:
+
+```text
+grant_type=client_credentials&scope=payments:create escrow:create
+```
+
+JSON is also accepted:
+
+```json
+{
+  "grant_type": "client_credentials",
+  "scope": "payments:create escrow:create"
+}
+```
+
+Response:
+
+```json
+{
+  "access_token": "orbi_at_...",
+  "token_type": "Bearer",
+  "expires_in": 900,
+  "scope": "payments:create escrow:create",
+  "service_code": "orbi-shop",
+  "environment": "live",
+  "issued_at": "2026-07-30T09:00:00.000Z",
+  "expires_at": "2026-07-30T09:15:00.000Z"
+}
+```
+
+Rules:
+
+```text
+- Token scope must be a subset of granted Developer Portal scopes.
+- Token environment is inherited from the API key: sandbox or live.
+- Runtime requests may use Authorization: Bearer <access_token>.
+- Financial runtime signatures may be calculated with the access token while it is valid.
+- Access tokens cannot be exchanged for new access tokens.
+- Production requires PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET.
+```
+
 Runtime scope enforcement:
 
 ```text

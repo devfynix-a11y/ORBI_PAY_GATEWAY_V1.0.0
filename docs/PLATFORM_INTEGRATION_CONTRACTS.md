@@ -935,6 +935,27 @@ Service registration should grant the minimum scopes needed by that service.
 Merchant identity is not enough to move money; action scopes and Core policy
 must both allow the operation.
 
+Service access token flow:
+
+```http
+POST /oauth/token
+Authorization: Basic base64(<service-code>:<developer-api-key-secret>)
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&scope=payments:create escrow:create
+```
+
+The response `access_token` is short-lived and may be used as:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+Use requested scopes narrowly. For example, a checkout server creating only a
+PaySafe hold should request `escrow:create`, not every granted scope. Live
+financial requests still require environment headers, idempotency keys, signed
+request headers, allowlists, consent where applicable, and Core policy approval.
+
 Runtime gateway enforcement:
 
 ```text
