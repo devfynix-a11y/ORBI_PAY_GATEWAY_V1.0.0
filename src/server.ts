@@ -2585,8 +2585,8 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
         events: visibleEvents,
         webhookDeliveries: visibleWebhookDeliveries,
         messagingDeliveries: visibleMessagingDeliveries,
-        docs: (operatorAllowed || developerAllowed) ? developerDocsCatalog() : [],
-        sdks: (operatorAllowed || developerAllowed) ? developerSdkCatalog() : [],
+        docs: developerDocsCatalog(),
+        sdks: developerSdkCatalog(),
         consentScopes: (operatorAllowed || developerAllowed) ? consentScopeCatalog() : [],
         environmentProfiles: (operatorAllowed || developerAllowed)
           ? { profiles: developerEnvironmentProfiles(), separation: developerEnvironmentSeparationMatrix() }
