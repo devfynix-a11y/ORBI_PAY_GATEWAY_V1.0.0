@@ -95,6 +95,10 @@ export const config = {
       process.env.PAYMENT_GATEWAY_FINANCIAL_TOKEN_AUDIENCE || 'orbi-pay-api',
     financialTokenTtlSeconds:
       Number(process.env.PAYMENT_GATEWAY_FINANCIAL_TOKEN_TTL_SECONDS || 300),
+    refreshTokenTtlSeconds:
+      Number(process.env.PAYMENT_GATEWAY_REFRESH_TOKEN_TTL_SECONDS || 2_592_000),
+    refreshTokenAbsoluteTtlSeconds:
+      Number(process.env.PAYMENT_GATEWAY_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS || 7_776_000),
   },
   observability: {
     auditEventSinkUrl:

@@ -110,6 +110,7 @@ import { consentScopeCatalog, consentScopeSummary, type ConsentLocale } from './
 import { createConsentReceiptFromHostedChallenge } from './services/hostedChallengeConsent.js';
 import { sandboxSimulatorStore } from './services/sandboxSimulatorStore.js';
 import { oauthAuthorizationStore } from './services/oauthAuthorizationStore.js';
+import { refreshTokenStore } from './services/refreshTokenStore.js';
 import type {
   GatewayPaymentRequest,
   GatewayPaymentResponse,
@@ -280,10 +281,18 @@ const OAuthAuthorizationCodeTokenRequestSchema = z.object({
   scope: z.union([z.string().trim(), z.array(z.string().trim())]).optional(),
 });
 
+const OAuthRefreshTokenRequestSchema = z.object({
+  grant_type: z.literal('refresh_token'),
+  client_id: z.string().trim().min(2).max(80),
+  refresh_token: z.string().trim().min(40),
+  scope: z.union([z.string().trim(), z.array(z.string().trim())]).optional(),
+});
+
 const OAuthTokenRequestSchema = z.discriminatedUnion('grant_type', [
   OAuthClientCredentialsTokenRequestSchema,
   OAuthTokenExchangeRequestSchema,
   OAuthAuthorizationCodeTokenRequestSchema,
+  OAuthRefreshTokenRequestSchema,
 ]);
 
 const OAuthAuthorizationRequestSchema = z.object({
@@ -595,7 +604,7 @@ const oauthAuthorizationServerMetadata = () => {
     introspection_endpoint: `${issuer}/oauth/introspect`,
     revocation_endpoint: `${issuer}/oauth/revoke`,
     service_documentation: `${issuer}/docs`,
-    grant_types_supported: ['authorization_code', 'client_credentials', TOKEN_EXCHANGE_GRANT_TYPE],
+    grant_types_supported: ['authorization_code', 'refresh_token', 'client_credentials', TOKEN_EXCHANGE_GRANT_TYPE],
     subject_token_types_supported: [ACCESS_TOKEN_TYPE],
     requested_token_types_supported: [ACCESS_TOKEN_TYPE],
     audiences_supported: [config.security.financialTokenAudience],
@@ -1620,6 +1629,8 @@ app.post('/oauth/authorize/decision', express.urlencoded({ extended: false }), a
 });
 
 const serviceTokenHandler = async (req: express.Request, res: express.Response) => {
+  res.setHeader('cache-control', 'no-store');
+  res.setHeader('pragma', 'no-cache');
   const parsed = OAuthTokenRequestSchema.safeParse(req.body || {});
   if (!parsed.success) {
     return sendValidationError(res, 'OAUTH_TOKEN_REQUEST_INVALID', parsed.error.issues);
@@ -1643,6 +1654,12 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
         keyId: key.keyId, fingerprint: key.fingerprint, environment: authorization.environment,
         scopes, consentId: authorization.consentId, identityIssuer: config.security.oidcIdentityIssuer,
       });
+      const refresh = await refreshTokenStore.issue({
+        serviceCode: service.serviceCode, environment: authorization.environment,
+        subjectId: authorization.subjectId, consentId: authorization.consentId,
+        scopes, identityIssuer: config.security.oidcIdentityIssuer,
+      });
+      await refreshTokenStore.recordAccessToken(refresh.context.familyId, issued.claims);
       void auditEventSink.emit({
         eventType: 'oauth.authorization_code.consumed', severity: 'info', outcome: 'success',
         requestId: res.locals.auditContext?.requestId, traceId: res.locals.auditContext?.traceId,
@@ -1653,9 +1670,77 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
       });
       return res.json({
         access_token: issued.accessToken, token_type: 'Bearer', expires_in: issued.expiresIn,
+        refresh_token: refresh.refreshToken,
         scope: scopes.join(' '), consent_id: authorization.consentId,
         service_code: service.serviceCode, environment: authorization.environment,
         audience: issued.claims.aud, issued_at: new Date(issued.claims.iat * 1000).toISOString(),
+        expires_at: new Date(issued.claims.exp * 1000).toISOString(),
+      });
+    }
+    if (parsed.data.grant_type === 'refresh_token') {
+      const service = developerPortalStore.getService(parsed.data.client_id);
+      if (service.status !== 'active') throw new Error('OAUTH_CLIENT_NOT_ACTIVE');
+      const rotation = await refreshTokenStore.rotate(parsed.data.refresh_token, service.serviceCode);
+      if (rotation.status === 'invalid') throw new Error('OAUTH_REFRESH_TOKEN_INVALID');
+      if (rotation.status === 'reuse_detected') {
+        for (const claims of rotation.accessTokenClaims) {
+          await serviceAccessTokenRevocationStore.recordRevocation({
+            claims, revokedBy: 'refresh-token-reuse-detector', reason: 'Refresh token reuse revoked the complete token family.',
+            metadata: { familyId: rotation.context.familyId, consentId: rotation.context.consentId },
+          });
+        }
+        void auditEventSink.emit({
+          eventType: 'oauth.refresh_token.reuse_detected', severity: 'critical', outcome: 'denied',
+          requestId: res.locals.auditContext?.requestId, traceId: res.locals.auditContext?.traceId,
+          correlationId: res.locals.auditContext?.correlationId,
+          actor: { serviceCode: service.serviceCode, subjectId: rotation.context.subjectId, environment: rotation.context.environment },
+          resource: { type: 'refresh_token_family', familyId: rotation.context.familyId, consentId: rotation.context.consentId },
+        });
+        throw new Error('OAUTH_REFRESH_TOKEN_REUSE_DETECTED');
+      }
+      const consent = await consentReceiptStore.get(rotation.context.consentId);
+      if (!service.environments.includes(rotation.context.environment)) {
+        await refreshTokenStore.revokeByService(service.serviceCode, 'environment_access_removed');
+        throw new Error('OAUTH_CLIENT_NOT_ACTIVE');
+      }
+      if (consent.status !== 'active' || consent.serviceCode !== service.serviceCode ||
+          consent.environment !== rotation.context.environment ||
+          (consent.subjectId !== rotation.context.subjectId && consent.externalSubjectId !== rotation.context.subjectId)) {
+        await refreshTokenStore.revokeByConsent(rotation.context.consentId, 'consent_or_subject_invalid');
+        throw new Error('CONSENT_REQUIRED');
+      }
+      const requestedScopes = requestedOAuthScopes(parsed.data.scope);
+      const scopes = requestedScopes.length ? requestedScopes : rotation.context.scopes;
+      if (scopes.some((scope) => !rotation.context.scopes.includes(scope) || !consent.scopes.includes(scope as never))) {
+        await refreshTokenStore.revokeByConsent(rotation.context.consentId, 'scope_mismatch');
+        throw new Error('CONSENT_SCOPE_MISMATCH');
+      }
+      const key = service.keys.find((candidate) =>
+        candidate.environment === rotation.context.environment && candidate.status === 'active');
+      if (!key) {
+        await refreshTokenStore.revokeByConsent(rotation.context.consentId, 'client_key_inactive');
+        throw new Error('OAUTH_CLIENT_KEY_NOT_ACTIVE');
+      }
+      const issued = issueFinancialAccessToken({
+        subject: rotation.context.subjectId, serviceCode: service.serviceCode,
+        keyId: key.keyId, fingerprint: key.fingerprint, environment: rotation.context.environment,
+        scopes, consentId: rotation.context.consentId, identityIssuer: rotation.context.identityIssuer,
+      });
+      await refreshTokenStore.recordAccessToken(rotation.context.familyId, issued.claims);
+      void auditEventSink.emit({
+        eventType: 'oauth.refresh_token.rotated', severity: 'info', outcome: 'success',
+        requestId: res.locals.auditContext?.requestId, traceId: res.locals.auditContext?.traceId,
+        correlationId: res.locals.auditContext?.correlationId,
+        actor: { serviceCode: service.serviceCode, subjectId: rotation.context.subjectId, environment: rotation.context.environment },
+        resource: { type: 'refresh_token_family', familyId: rotation.context.familyId, consentId: rotation.context.consentId },
+        metadata: { scopes },
+      });
+      return res.json({
+        access_token: issued.accessToken, token_type: 'Bearer', expires_in: issued.expiresIn,
+        refresh_token: rotation.refreshToken, scope: scopes.join(' '),
+        consent_id: rotation.context.consentId, service_code: service.serviceCode,
+        environment: rotation.context.environment, audience: issued.claims.aud,
+        issued_at: new Date(issued.claims.iat * 1000).toISOString(),
         expires_at: new Date(issued.claims.exp * 1000).toISOString(),
       });
     }
@@ -1864,6 +1949,19 @@ const serviceTokenRevocationHandler = async (req: express.Request, res: express.
 
   try {
     const authenticated = authenticateOAuthClient(req, parsed.data);
+    if (parsed.data.token.startsWith('orbi_rt_')) {
+      const revoked = await refreshTokenStore.revokeToken(
+        parsed.data.token, authenticated.service.code, 'oauth_client_revoked',
+      );
+      void auditEventSink.emit({
+        eventType: 'oauth.refresh_token.revoked', severity: 'warning', outcome: revoked ? 'success' : 'denied',
+        requestId: res.locals.auditContext?.requestId, traceId: res.locals.auditContext?.traceId,
+        correlationId: res.locals.auditContext?.correlationId,
+        actor: { serviceCode: authenticated.service.code, environment: authenticated.credential.environment },
+        resource: { type: 'refresh_token_family' },
+      });
+      return res.json({ success: true, data: { revoked } });
+    }
     if (isFinancialAccessToken(parsed.data.token)) {
       let claims;
       try {
@@ -3058,6 +3156,7 @@ app.post('/v1/consents/:consentId/revoke', requireConsentSubjectAccess, async (r
       reason: String(req.body?.reason || 'Subject revoked connected service consent.'),
     });
     const receipt = await consentReceiptStore.revoke(existing.consentId, payload);
+    await refreshTokenStore.revokeByConsent(receipt.consentId);
     deliverConsentRevocationWebhook(receipt);
     return res.json({ success: true, data: presentConsentReceipt(receipt, existing.context.locale || 'en') });
   } catch (e: any) {
@@ -3145,6 +3244,9 @@ app.post('/v1/developer/services/:serviceCode/status', requireOperatorDiscoveryA
   try {
     const payload = DeveloperServiceStatusUpdateSchema.parse(req.body || {});
     const service = await developerPortalStore.updateServiceStatus(String(req.params.serviceCode || ''), payload);
+    if (service.status === 'suspended' || service.status === 'archived') {
+      await refreshTokenStore.revokeByService(service.serviceCode, `service_${service.status}`);
+    }
     return res.json({ success: true, data: service });
   } catch (e: any) {
     if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_SERVICE_STATUS_INVALID', e.issues);
@@ -3375,6 +3477,7 @@ app.post('/v1/developer/consent-receipts/:consentId/revoke', requireOperatorDisc
   try {
     const payload = ConsentRevocationSchema.parse(req.body || {});
     const receipt = await consentReceiptStore.revoke(String(req.params.consentId || ''), payload);
+    await refreshTokenStore.revokeByConsent(receipt.consentId);
     deliverConsentRevocationWebhook(receipt);
     return res.json({ success: true, data: receipt });
   } catch (e: any) {
@@ -3850,6 +3953,7 @@ const start = async () => {
   await developerPortalStore.initialize();
   await consentReceiptStore.initialize();
   await oauthAuthorizationStore.initialize();
+  await refreshTokenStore.initialize();
   developerPortalStore.onEvent((event) => developerMessagingDispatcher.handleDeveloperEvent(event));
   await serviceAccessTokenRevocationStore.initialize();
   await operatorIncidentStore.initialize();

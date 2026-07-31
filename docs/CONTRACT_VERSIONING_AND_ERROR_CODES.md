@@ -162,6 +162,8 @@ stable.
 | `OAUTH_TOKEN_REQUEST_INVALID` | Token request payload failed validation. | Send `grant_type=client_credentials` and optional space-separated `scope`. |
 | `OAUTH_CLIENT_AUTH_INVALID` | Token request client credentials are missing or invalid. | Use Basic auth, `client_secret`, or `x-orbi-pay-service-key` with a Developer Portal API key secret. |
 | `OAUTH_DEVELOPER_PORTAL_SERVICE_REQUIRED` | Token exchange was attempted with a legacy service registry key. | Migrate service to Developer Portal issued keys. |
+| `OAUTH_REFRESH_TOKEN_INVALID` | Refresh token is unknown, expired, revoked, belongs to another client, or its family is no longer active. | Start a fresh authorization-code flow; do not retry the same token. |
+| `OAUTH_REFRESH_TOKEN_REUSE_DETECTED` | A previously consumed refresh token was presented again and the token family was revoked. | Stop all retries, discard family tokens, and require fresh customer authorization. Investigate possible token theft. |
 | `CONSENT_SUBJECT_REQUIRED` | Request needs consent but no subject identity was supplied. | Send a stable user, customer, email, phone, or identifier. |
 | `CONSENT_REQUIRED` | Active consent receipt for the requested subject and scope is missing, revoked, or expired. | Start hosted consent/challenge again. |
 

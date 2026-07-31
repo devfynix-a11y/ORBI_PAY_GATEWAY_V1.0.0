@@ -116,11 +116,23 @@ Implemented controls:
 
 ### 1E. Refresh token rotation
 
-- store only refresh-token hashes;
-- rotate on every successful refresh;
-- track token families;
-- revoke the full family on reuse;
-- revoke on consent withdrawal, client suspension, logout, or risk action.
+Implemented controls:
+
+- only SHA-256 refresh-token hashes are stored; plaintext tokens are returned
+  once and never logged or persisted;
+- every successful refresh atomically consumes the presented token and issues
+  a different token in the same family;
+- replay of a consumed token revokes the complete family and every unexpired
+  financial access token issued from that family;
+- client, environment, subject, consent, scopes, and identity issuer remain
+  bound for the complete family lifetime;
+- active consent, service status, active client key, and scopes are revalidated
+  before every refreshed access token is issued;
+- consent withdrawal and service suspension/archive revoke related families;
+- RFC 7009 `/oauth/revoke` accepts a refresh token from its authenticated
+  owning client and revokes the family;
+- rotating tokens expire after 30 days and a family has a non-extendable
+  90-day maximum lifetime by default.
 
 ## Fail-Closed Rules
 

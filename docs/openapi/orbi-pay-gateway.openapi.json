@@ -137,6 +137,16 @@
                   },
                   {
                     "type": "object",
+                    "required": ["grant_type", "client_id", "refresh_token"],
+                    "properties": {
+                      "grant_type": { "const": "refresh_token" },
+                      "client_id": { "type": "string" },
+                      "refresh_token": { "type": "string", "writeOnly": true },
+                      "scope": { "type": "string" }
+                    }
+                  },
+                  {
+                    "type": "object",
                     "required": ["grant_type"],
                     "properties": {
                       "grant_type": { "const": "client_credentials" },
@@ -178,6 +188,7 @@
                   "required": ["access_token", "token_type", "expires_in", "scope", "service_code", "environment"],
                   "properties": {
                     "access_token": { "type": "string", "writeOnly": true },
+                    "refresh_token": { "type": "string", "writeOnly": true },
                     "issued_token_type": { "type": "string" },
                     "token_type": { "const": "Bearer" },
                     "expires_in": { "type": "integer" },
