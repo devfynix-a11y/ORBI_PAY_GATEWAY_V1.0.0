@@ -88,6 +88,79 @@
         }
       }
     },
+    "/oauth/token": {
+      "post": {
+        "tags": ["Runtime"],
+        "summary": "Issue a machine token or exchange verified identity and consent for a financial token",
+        "operationId": "issueOAuthAccessToken",
+        "security": [{ "ServiceBasicAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": ["grant_type"],
+                    "properties": {
+                      "grant_type": { "const": "client_credentials" },
+                      "scope": { "type": "string" }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "grant_type",
+                      "subject_token",
+                      "subject_token_type",
+                      "audience",
+                      "scope",
+                      "consent_id"
+                    ],
+                    "properties": {
+                      "grant_type": { "const": "urn:ietf:params:oauth:grant-type:token-exchange" },
+                      "subject_token": { "type": "string", "writeOnly": true },
+                      "subject_token_type": { "const": "urn:ietf:params:oauth:token-type:access_token" },
+                      "requested_token_type": { "const": "urn:ietf:params:oauth:token-type:access_token" },
+                      "audience": { "const": "orbi-pay-api" },
+                      "scope": { "type": "string" },
+                      "consent_id": { "type": "string" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Short-lived scoped access token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["access_token", "token_type", "expires_in", "scope", "service_code", "environment"],
+                  "properties": {
+                    "access_token": { "type": "string", "writeOnly": true },
+                    "issued_token_type": { "type": "string" },
+                    "token_type": { "const": "Bearer" },
+                    "expires_in": { "type": "integer" },
+                    "scope": { "type": "string" },
+                    "consent_id": { "type": "string" },
+                    "service_code": { "type": "string" },
+                    "environment": { "enum": ["sandbox", "live"] },
+                    "audience": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/v1/payment-intents": {
       "post": {
         "tags": ["Runtime"],
@@ -1036,6 +1109,11 @@
   },
   "components": {
     "securitySchemes": {
+      "ServiceBasicAuth": {
+        "type": "http",
+        "scheme": "basic",
+        "description": "Developer service code and active environment-specific API key."
+      },
       "ServiceKey": {
         "type": "apiKey",
         "in": "header",

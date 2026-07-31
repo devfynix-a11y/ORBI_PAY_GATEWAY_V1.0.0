@@ -81,6 +81,14 @@ export const config = {
       Number(process.env.PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_TTL_SECONDS || 900),
     oauthIssuerUrl:
       process.env.PAYMENT_GATEWAY_OAUTH_ISSUER_URL || process.env.PAYMENT_GATEWAY_PUBLIC_BASE_URL || 'https://pay.orbifinancial.com',
+    oidcIdentityIssuer:
+      process.env.PAYMENT_GATEWAY_OIDC_IDENTITY_ISSUER || '',
+    oidcIdentityAudience:
+      process.env.PAYMENT_GATEWAY_OIDC_IDENTITY_AUDIENCE || '',
+    financialTokenAudience:
+      process.env.PAYMENT_GATEWAY_FINANCIAL_TOKEN_AUDIENCE || 'orbi-pay-api',
+    financialTokenTtlSeconds:
+      Number(process.env.PAYMENT_GATEWAY_FINANCIAL_TOKEN_TTL_SECONDS || 300),
   },
   observability: {
     auditEventSinkUrl:
@@ -192,6 +200,15 @@ export const requireGatewayRuntimeSecrets = () => {
 
   if (config.env === 'production' && !config.security.serviceAccessTokenSecret) {
     throw new Error('PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET is required for production service access tokens.');
+  }
+
+  if (
+    config.env === 'production' &&
+    (!config.security.oidcIdentityIssuer.startsWith('https://') ||
+      !config.security.oidcIdentityAudience ||
+      !config.security.financialTokenAudience)
+  ) {
+    throw new Error('Production OIDC issuer, identity audience, and financial token audience are required.');
   }
 
   if (config.env === 'production' && !config.security.allowedBrowserOrigins) {

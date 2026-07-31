@@ -77,6 +77,8 @@ export const rememberRevokedServiceAccessTokenIds = (jtis: string[]) => {
   }
 };
 
+export const isAccessTokenIdRevoked = (jti: string) => revokedTokenIds.has(jti);
+
 export const readServiceAccessTokenClaims = (token: string): ServiceAccessTokenClaims => {
   const value = token.trim();
   if (!isServiceAccessToken(value)) throw new Error('SERVICE_ACCESS_TOKEN_INVALID');
@@ -106,7 +108,7 @@ export const readServiceAccessTokenClaims = (token: string): ServiceAccessTokenC
 
 export const verifyServiceAccessToken = (token: string): ServiceAccessTokenClaims => {
   const parsed = readServiceAccessTokenClaims(token);
-  if (revokedTokenIds.has(parsed.jti)) {
+  if (isAccessTokenIdRevoked(parsed.jti)) {
     throw new Error('SERVICE_ACCESS_TOKEN_REVOKED');
   }
   return parsed;

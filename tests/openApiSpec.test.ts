@@ -19,11 +19,13 @@ test('openapi spec declares stable gateway contract metadata', () => {
   assert.match(spec.openapi, /^3\.1\./);
   assert.equal(Boolean(spec.paths), true);
   assert.equal(Boolean(spec.components.securitySchemes.ServiceKey), true);
+  assert.equal(Boolean(spec.components.securitySchemes.ServiceBasicAuth), true);
   assert.equal(Boolean(spec.components.securitySchemes.OperatorKey), true);
 });
 
 test('openapi spec covers runtime SDK endpoints', () => {
   const requiredRuntimePaths = [
+    '/oauth/token',
     '/v1/payment-intents',
     '/v1/payment-intents/{intentId}',
     '/v1/payment-intents/{intentId}/confirm',

@@ -45,6 +45,16 @@ import {
   readServiceAccessTokenClaims,
   revokeServiceAccessToken,
 } from './security/serviceAccessToken.js';
+import { oidcIdentityVerifier } from './security/oidcIdentityVerifier.js';
+import {
+  isFinancialAccessToken,
+  verifyFinancialAccessToken,
+} from './security/financialAccessToken.js';
+import {
+  ACCESS_TOKEN_TYPE,
+  FinancialTokenExchangeService,
+  TOKEN_EXCHANGE_GRANT_TYPE,
+} from './services/financialTokenExchange.js';
 import {
   buildApiErrorBody,
   errorCodeFromException,
@@ -236,7 +246,7 @@ const PaySafeEscrowActionSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
-const OAuthTokenRequestSchema = z.object({
+const OAuthClientCredentialsTokenRequestSchema = z.object({
   grant_type: z.literal('client_credentials'),
   client_secret: z.string().trim().min(1).optional(),
   scope: z.union([
@@ -244,6 +254,25 @@ const OAuthTokenRequestSchema = z.object({
     z.array(z.string().trim()),
   ]).optional(),
 });
+
+const OAuthTokenExchangeRequestSchema = z.object({
+  grant_type: z.literal(TOKEN_EXCHANGE_GRANT_TYPE),
+  client_secret: z.string().trim().min(1).optional(),
+  subject_token: z.string().trim().min(1),
+  subject_token_type: z.string().trim().min(1),
+  requested_token_type: z.string().trim().min(1).optional(),
+  audience: z.string().trim().min(1),
+  scope: z.union([
+    z.string().trim(),
+    z.array(z.string().trim()),
+  ]),
+  consent_id: z.string().trim().min(1),
+});
+
+const OAuthTokenRequestSchema = z.discriminatedUnion('grant_type', [
+  OAuthClientCredentialsTokenRequestSchema,
+  OAuthTokenExchangeRequestSchema,
+]);
 
 const OAuthTokenControlRequestSchema = z.object({
   token: z.string().trim().min(1),
@@ -543,7 +572,10 @@ const oauthAuthorizationServerMetadata = () => {
     introspection_endpoint: `${issuer}/oauth/introspect`,
     revocation_endpoint: `${issuer}/oauth/revoke`,
     service_documentation: `${issuer}/docs`,
-    grant_types_supported: ['client_credentials'],
+    grant_types_supported: ['client_credentials', TOKEN_EXCHANGE_GRANT_TYPE],
+    subject_token_types_supported: [ACCESS_TOKEN_TYPE],
+    requested_token_types_supported: [ACCESS_TOKEN_TYPE],
+    audiences_supported: [config.security.financialTokenAudience],
     token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
     revocation_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
     introspection_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
@@ -1395,9 +1427,36 @@ app.get('/v1/providers/:providerCode/health', async (req, res) => {
   }
 });
 
-const requirePayServiceAccess = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+const requirePayServiceAccess = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
     const authenticated = authenticatePayServiceCredential(payServiceRegistry.activeServices(), req);
+    if (authenticated.credential.tokenType === 'financial_access') {
+      const consent = await consentReceiptStore.get(authenticated.credential.consentId || '');
+      if (
+        consent.status !== 'active' ||
+        consent.serviceCode !== authenticated.service.code ||
+        consent.environment !== authenticated.credential.environment ||
+        (consent.subjectId !== authenticated.credential.subjectId &&
+          consent.externalSubjectId !== authenticated.credential.subjectId)
+      ) {
+        throw new Error('CONSENT_REQUIRED');
+      }
+      const grantedScopes = Array.isArray(authenticated.service.metadata?.scopesGranted)
+        ? authenticated.service.metadata.scopesGranted.map(String)
+        : [];
+      if (grantedScopes.some((scope) => !consent.scopes.includes(scope as never))) {
+        throw new Error('CONSENT_SCOPE_MISMATCH');
+      }
+      const requestSubject = subjectIdForConsent({
+        userId: req.body?.userId || req.body?.user_id || req.body?.customer?.userId || req.query?.userId,
+        customerId: req.body?.customerId || req.body?.customer_id || req.query?.customerId,
+        email: req.body?.email || req.body?.customer?.email || req.query?.email,
+        phone: req.body?.phone || req.body?.customer?.phone || req.query?.phone,
+      });
+      if (requestSubject && requestSubject !== authenticated.credential.subjectId) {
+        throw new Error('FINANCIAL_TOKEN_SUBJECT_MISMATCH');
+      }
+    }
     res.locals.payService = authenticated.service;
     res.locals.payServiceCredential = authenticated.credential;
     return next();
@@ -1419,25 +1478,14 @@ const oauthAuthorizationServerMetadataHandler = (_req: express.Request, res: exp
 app.get('/.well-known/oauth-authorization-server', oauthAuthorizationServerMetadataHandler);
 app.get('/v1/.well-known/oauth-authorization-server', oauthAuthorizationServerMetadataHandler);
 
-const serviceTokenHandler = (req: express.Request, res: express.Response) => {
+const serviceTokenHandler = async (req: express.Request, res: express.Response) => {
   const parsed = OAuthTokenRequestSchema.safeParse(req.body || {});
   if (!parsed.success) {
     return sendValidationError(res, 'OAUTH_TOKEN_REQUEST_INVALID', parsed.error.issues);
   }
 
   try {
-    const clientSecret = tokenRequestClientSecret(req, parsed.data);
-    if (!clientSecret || isServiceAccessToken(clientSecret)) throw new Error('OAUTH_CLIENT_AUTH_INVALID');
-    const authenticated = authenticatePayServiceCredential(payServiceRegistry.activeServices(), {
-      get: (name: string) => {
-        const normalized = name.toLowerCase();
-        if (normalized === 'x-orbi-pay-service-key') return clientSecret;
-        return undefined;
-      },
-    } as express.Request);
-    if (authenticated.credential.source !== 'developer_portal') {
-      throw new Error('OAUTH_DEVELOPER_PORTAL_SERVICE_REQUIRED');
-    }
+    const authenticated = authenticateOAuthClient(req, parsed.data);
     if (!authenticated.credential.environment || !authenticated.credential.keyId || !authenticated.credential.fingerprint) {
       throw new Error('OAUTH_CLIENT_AUTH_INVALID');
     }
@@ -1448,6 +1496,61 @@ const serviceTokenHandler = (req: express.Request, res: express.Response) => {
     const issuedScopes = requestedScopes.length ? requestedScopes : grantedScopes;
     if (!issuedScopes.length || issuedScopes.some((scope) => !grantedScopes.includes(scope))) {
       throw new Error('PAY_SERVICE_SCOPE_NOT_GRANTED');
+    }
+    if (parsed.data.grant_type === TOKEN_EXCHANGE_GRANT_TYPE) {
+      const exchange = new FinancialTokenExchangeService(
+        oidcIdentityVerifier(),
+        consentReceiptStore,
+      );
+      const issued = await exchange.exchange({
+        subjectToken: parsed.data.subject_token,
+        subjectTokenType: parsed.data.subject_token_type,
+        requestedTokenType: parsed.data.requested_token_type,
+        audience: parsed.data.audience,
+        scopes: issuedScopes,
+        consentId: parsed.data.consent_id,
+        serviceCode: authenticated.service.code,
+        keyId: authenticated.credential.keyId,
+        fingerprint: authenticated.credential.fingerprint,
+        environment: authenticated.credential.environment,
+        grantedScopes,
+      });
+      void auditEventSink.emit({
+        eventType: 'oauth.financial_access_token.issued',
+        severity: 'info',
+        outcome: 'success',
+        requestId: res.locals.auditContext?.requestId,
+        traceId: res.locals.auditContext?.traceId,
+        correlationId: res.locals.auditContext?.correlationId,
+        actor: {
+          serviceCode: authenticated.service.code,
+          subjectId: issued.claims.sub,
+          environment: issued.claims.environment,
+        },
+        resource: {
+          type: 'financial_access_token',
+          tokenId: issued.claims.jti,
+          consentId: issued.claims.consentId,
+        },
+        metadata: {
+          audience: issued.claims.aud,
+          scopes: issued.claims.scopes,
+          expiresAt: new Date(issued.claims.exp * 1000).toISOString(),
+        },
+      });
+      return res.json({
+        access_token: issued.accessToken,
+        issued_token_type: ACCESS_TOKEN_TYPE,
+        token_type: 'Bearer',
+        expires_in: issued.expiresIn,
+        scope: issued.claims.scopes.join(' '),
+        consent_id: issued.claims.consentId,
+        service_code: issued.claims.serviceCode,
+        environment: issued.claims.environment,
+        audience: issued.claims.aud,
+        issued_at: new Date(issued.claims.iat * 1000).toISOString(),
+        expires_at: new Date(issued.claims.exp * 1000).toISOString(),
+      });
     }
     const issued = issueServiceAccessToken({
       serviceCode: authenticated.service.code,
@@ -1498,7 +1601,9 @@ app.post('/v1/oauth/token', serviceTokenHandler);
 
 const authenticateOAuthClient = (req: express.Request, body: { client_secret?: string }) => {
   const clientSecret = tokenRequestClientSecret(req, body);
-  if (!clientSecret || isServiceAccessToken(clientSecret)) throw new Error('OAUTH_CLIENT_AUTH_INVALID');
+  if (!clientSecret || isServiceAccessToken(clientSecret) || isFinancialAccessToken(clientSecret)) {
+    throw new Error('OAUTH_CLIENT_AUTH_INVALID');
+  }
   const authenticated = authenticatePayServiceCredential(payServiceRegistry.activeServices(), {
     get: (name: string) => {
       const normalized = name.toLowerCase();
@@ -1512,7 +1617,7 @@ const authenticateOAuthClient = (req: express.Request, body: { client_secret?: s
   return authenticated;
 };
 
-const serviceTokenIntrospectionHandler = (req: express.Request, res: express.Response) => {
+const serviceTokenIntrospectionHandler = async (req: express.Request, res: express.Response) => {
   const parsed = OAuthTokenControlRequestSchema.safeParse(req.body || {});
   if (!parsed.success) {
     return sendValidationError(res, 'OAUTH_TOKEN_INTROSPECTION_INVALID', parsed.error.issues);
@@ -1520,6 +1625,39 @@ const serviceTokenIntrospectionHandler = (req: express.Request, res: express.Res
 
   try {
     const authenticated = authenticateOAuthClient(req, parsed.data);
+    if (isFinancialAccessToken(parsed.data.token)) {
+      let claims;
+      try {
+        claims = verifyFinancialAccessToken(parsed.data.token);
+      } catch {
+        return res.json({ active: false });
+      }
+      if (claims.serviceCode !== authenticated.service.code) return res.json({ active: false });
+      const consent = await consentReceiptStore.get(claims.consentId);
+      if (
+        consent.status !== 'active' ||
+        consent.serviceCode !== claims.serviceCode ||
+        consent.environment !== claims.environment ||
+        (consent.subjectId !== claims.sub && consent.externalSubjectId !== claims.sub)
+      ) {
+        return res.json({ active: false });
+      }
+      return res.json({
+        active: true,
+        iss: claims.iss,
+        aud: claims.aud,
+        typ: claims.typ,
+        sub: claims.sub,
+        service_code: claims.serviceCode,
+        environment: claims.environment,
+        scope: claims.scopes.join(' '),
+        consent_id: claims.consentId,
+        key_id: claims.keyId,
+        iat: claims.iat,
+        exp: claims.exp,
+        jti: claims.jti,
+      });
+    }
     const introspected = introspectServiceAccessToken(parsed.data.token);
     if (!introspected.active || introspected.claims.serviceCode !== authenticated.service.code) {
       return res.json({ active: false });
@@ -1552,6 +1690,54 @@ const serviceTokenRevocationHandler = async (req: express.Request, res: express.
 
   try {
     const authenticated = authenticateOAuthClient(req, parsed.data);
+    if (isFinancialAccessToken(parsed.data.token)) {
+      let claims;
+      try {
+        claims = verifyFinancialAccessToken(parsed.data.token);
+      } catch {
+        return res.status(200).json({ success: true, data: { revoked: false } });
+      }
+      if (claims.serviceCode !== authenticated.service.code) {
+        return res.status(200).json({ success: true, data: { revoked: false } });
+      }
+      await serviceAccessTokenRevocationStore.recordRevocation({
+        claims,
+        revokedBy: authenticated.service.code,
+        reason: 'Financial access token revoked by OAuth client.',
+        metadata: {
+          consentId: claims.consentId,
+          requestId: res.locals.auditContext?.requestId,
+          correlationId: res.locals.auditContext?.correlationId,
+        },
+      });
+      void auditEventSink.emit({
+        eventType: 'oauth.financial_access_token.revoked',
+        severity: 'warning',
+        outcome: 'success',
+        requestId: res.locals.auditContext?.requestId,
+        traceId: res.locals.auditContext?.traceId,
+        correlationId: res.locals.auditContext?.correlationId,
+        actor: {
+          serviceCode: authenticated.service.code,
+          environment: claims.environment,
+        },
+        resource: {
+          type: 'financial_access_token',
+          tokenId: claims.jti,
+          consentId: claims.consentId,
+        },
+      });
+      return res.json({
+        success: true,
+        data: {
+          revoked: true,
+          serviceCode: claims.serviceCode,
+          environment: claims.environment,
+          consentId: claims.consentId,
+          revokedAt: new Date().toISOString(),
+        },
+      });
+    }
     const introspected = introspectServiceAccessToken(parsed.data.token);
     if (!introspected.active || introspected.claims.serviceCode !== authenticated.service.code) {
       return res.status(200).json({ success: true, data: { revoked: false } });
@@ -3485,6 +3671,7 @@ app.post('/v1/webhooks/:providerCode', async (req, res) => {
 const start = async () => {
   requireGatewayRuntimeSecrets();
   rejectUnsafeDirectSecretsInProduction();
+  oidcIdentityVerifier();
   await portalAccessStore.initialize();
   await developerPortalStore.initialize();
   await consentReceiptStore.initialize();

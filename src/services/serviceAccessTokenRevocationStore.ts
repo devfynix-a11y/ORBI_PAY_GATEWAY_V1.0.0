@@ -1,6 +1,7 @@
 import { Pool, type PoolClient } from 'pg';
 import { config } from '../config.js';
 import { rememberRevokedServiceAccessTokenIds, type ServiceAccessTokenClaims } from '../security/serviceAccessToken.js';
+import type { FinancialAccessTokenClaims } from '../security/financialAccessToken.js';
 
 type RevocationStoreOptions = {
   mode?: 'postgres' | 'memory';
@@ -8,7 +9,7 @@ type RevocationStoreOptions = {
 };
 
 type RevocationRecordInput = {
-  claims: ServiceAccessTokenClaims;
+  claims: ServiceAccessTokenClaims | FinancialAccessTokenClaims;
   revokedBy?: string;
   reason?: string;
   metadata?: Record<string, unknown>;

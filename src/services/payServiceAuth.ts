@@ -3,6 +3,7 @@ import type { Request } from 'express';
 import type { PayServiceDefinition, PayServiceOperation } from '../types.js';
 import { resolveTokenSecret } from '../security/tokenResolver.js';
 import { isServiceAccessToken, verifyServiceAccessToken } from '../security/serviceAccessToken.js';
+import { isFinancialAccessToken, verifyFinancialAccessToken } from '../security/financialAccessToken.js';
 import { developerPortalStore } from './developerPortalStore.js';
 
 export type RuntimeEnvironment = 'demo' | 'production';
@@ -13,6 +14,9 @@ export type PayServiceCredentialContext = {
   environment?: DeveloperEnvironment;
   keyId?: string;
   fingerprint?: string;
+  tokenType?: 'api_key' | 'service_access' | 'financial_access';
+  subjectId?: string;
+  consentId?: string;
 };
 
 export type AuthenticatedPayService = {
@@ -150,6 +154,37 @@ export const authenticatePayServiceCredential = (
         environment: claims.environment,
         keyId: claims.keyId,
         fingerprint: claims.fingerprint,
+        tokenType: 'service_access',
+      },
+    };
+  }
+
+  if (isFinancialAccessToken(provided)) {
+    const claims = verifyFinancialAccessToken(provided);
+    const service = developerPortalStore.getService(claims.serviceCode);
+    if (service.status !== 'active') throw new Error('PAY_SERVICE_AUTH_FAILED');
+    const key = (service.keys || []).find((item) =>
+      item.keyId === claims.keyId &&
+      item.fingerprint === claims.fingerprint &&
+      item.environment === claims.environment &&
+      (item.status === 'active' || item.status === 'pending_cutover') &&
+      (!item.expiresAt || Date.parse(item.expiresAt) > Date.now()),
+    );
+    if (!key) throw new Error('PAY_SERVICE_AUTH_FAILED');
+    const grantedScopes = claims.scopes.filter((scope) => service.scopesGranted.includes(scope as never));
+    if (grantedScopes.length !== claims.scopes.length || !grantedScopes.length) {
+      throw new Error('PAY_SERVICE_SCOPE_NOT_GRANTED');
+    }
+    return {
+      service: serviceDefinitionFromDeveloperService(service, grantedScopes),
+      credential: {
+        source: 'developer_portal',
+        environment: claims.environment,
+        keyId: claims.keyId,
+        fingerprint: claims.fingerprint,
+        tokenType: 'financial_access',
+        subjectId: claims.sub,
+        consentId: claims.consentId,
       },
     };
   }
@@ -163,6 +198,7 @@ export const authenticatePayServiceCredential = (
         environment: developerCredential.key.environment,
         keyId: developerCredential.key.keyId,
         fingerprint: developerCredential.key.fingerprint,
+        tokenType: 'api_key',
       },
     };
   }

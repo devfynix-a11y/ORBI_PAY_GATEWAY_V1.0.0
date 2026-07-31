@@ -366,7 +366,10 @@ Response:
   "token_endpoint": "https://pay.orbifinancial.com/oauth/token",
   "introspection_endpoint": "https://pay.orbifinancial.com/oauth/introspect",
   "revocation_endpoint": "https://pay.orbifinancial.com/oauth/revoke",
-  "grant_types_supported": ["client_credentials"],
+  "grant_types_supported": [
+    "client_credentials",
+    "urn:ietf:params:oauth:grant-type:token-exchange"
+  ],
   "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
   "scopes_supported": ["identity:resolve", "payments:create", "escrow:create"]
 }
@@ -431,6 +434,50 @@ Rules:
 - Access tokens cannot be exchanged for new access tokens.
 - Production requires PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET.
 ```
+
+### Customer-authorized financial token exchange
+
+Use token exchange when an API action is performed for an authenticated ORBI
+customer. A machine token is not customer permission.
+
+```http
+POST /oauth/token
+content-type: application/x-www-form-urlencoded
+authorization: Basic base64(<service-code>:<live-or-sandbox-api-key>)
+```
+
+```text
+grant_type=urn:ietf:params:oauth:grant-type:token-exchange
+subject_token=<OIDC access token>
+subject_token_type=urn:ietf:params:oauth:token-type:access_token
+requested_token_type=urn:ietf:params:oauth:token-type:access_token
+audience=orbi-pay-api
+scope=payments:create balance:read
+consent_id=consent_...
+```
+
+Successful response:
+
+```json
+{
+  "access_token": "orbi_ft_...",
+  "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+  "token_type": "Bearer",
+  "expires_in": 300,
+  "scope": "payments:create balance:read",
+  "consent_id": "consent_...",
+  "service_code": "orbi-shop",
+  "environment": "live",
+  "audience": "orbi-pay-api"
+}
+```
+
+The Gateway validates the OIDC signature through the configured issuer JWKS.
+The identity subject must match the consent subject, and requested scopes must
+be approved for both the developer service and that consent. Audience,
+environment, developer key, and consent are immutable token claims. Every
+runtime use checks that consent is still active, so revocation takes effect
+without waiting for token expiry.
 
 Introspection:
 

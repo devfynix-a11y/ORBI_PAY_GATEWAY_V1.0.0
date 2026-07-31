@@ -45,11 +45,14 @@ Existing:
   hashes, and fail-closed startup
 - asynchronous consent enforcement so financial decisions always await the
   authoritative store
+- RFC 8693-style financial token exchange with strict OIDC/JWKS identity
+  verification and consent-bound runtime tokens
+- immediate consent and subject revalidation whenever a financial token is
+  used
 
 Remaining:
 
 - authorization-code flow with PKCE `S256`
-- runtime OIDC assertion validation against the discovered JWKS
 - exact redirect-URI matching
 - one-time authorization codes
 - refresh-token rotation and reuse detection

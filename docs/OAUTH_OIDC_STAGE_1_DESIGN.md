@@ -45,6 +45,8 @@ Evidence:
 
 ### 1C. Financial token exchange
 
+Status: complete
+
 Proposed request:
 
 ```http
@@ -76,6 +78,16 @@ policy. The resulting access token includes:
   "environment": "live"
 }
 ```
+
+Implementation evidence:
+
+- strict RS256 OIDC verification through remote issuer JWKS;
+- RFC 8693 token-exchange grant on `/oauth/token`;
+- distinct `orbi_ft_` financial token namespace;
+- subject, authorized party, audience, environment, scope, key, identity
+  issuer, session, and consent binding;
+- active consent and subject revalidation on every runtime request;
+- positive, mismatch, invalid audience, invalid signature, and tampering tests.
 
 ### 1D. Authorization code and PKCE
 
