@@ -25,6 +25,14 @@ const templateForEvent = (eventType: string): string | undefined => {
   return undefined;
 };
 
+const environmentFromEvent = (event: DeveloperPortalEvent): 'sandbox' | 'live' | undefined => {
+  if (event.environment === 'sandbox' || event.environment === 'live') return event.environment;
+  const dataEnvironment = String(event.data?.environment || '').toLowerCase();
+  if (dataEnvironment === 'sandbox' || dataEnvironment === 'demo') return 'sandbox';
+  if (dataEnvironment === 'live' || dataEnvironment === 'production') return 'live';
+  return undefined;
+};
+
 const safeMetadataForEvent = (event: DeveloperPortalEvent): Record<string, unknown> => ({
   eventType: event.eventType,
   serviceCode: event.serviceCode,
@@ -47,6 +55,24 @@ export class DeveloperMessagingDispatcher {
   async handleDeveloperEvent(event: DeveloperPortalEvent) {
     const templateCode = templateForEvent(event.eventType);
     if (!templateCode) return;
+    const environment = environmentFromEvent(event);
+    if (!environment) {
+      this.deliveryStore.record({
+        eventId: event.eventId,
+        correlationId: event.eventId,
+        templateCode,
+        recipientIdentityRef: recipientFromEvent(event),
+        language: 'en',
+        channel: 'email',
+        serviceCode: event.serviceCode,
+        safeMetadata: {
+          ...safeMetadataForEvent(event),
+          dispatchBlocked: true,
+          reason: 'MESSAGE_ENVIRONMENT_REQUIRED',
+        },
+      }, { status: 'failed', error: 'MESSAGE_ENVIRONMENT_REQUIRED' });
+      return;
+    }
     const intent: MessagingIntent = {
       eventId: event.eventId,
       correlationId: event.eventId,
@@ -55,7 +81,7 @@ export class DeveloperMessagingDispatcher {
       language: 'en',
       channel: 'email',
       serviceCode: event.serviceCode,
-      environment: event.environment,
+      environment,
       safeMetadata: safeMetadataForEvent(event),
     };
     const result = await this.talkClient.sendIntent(intent);
@@ -64,4 +90,3 @@ export class DeveloperMessagingDispatcher {
 }
 
 export const developerMessagingDispatcher = new DeveloperMessagingDispatcher();
-

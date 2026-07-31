@@ -15,6 +15,7 @@ export class OrbiTalkClient {
 
   async sendIntent(intent: MessagingIntent): Promise<OrbiTalkSendResult> {
     const parsed = MessagingIntentSchema.parse(intent);
+    if (!parsed.environment) return { status: 'failed', error: 'MESSAGE_ENVIRONMENT_REQUIRED' };
     if (!this.options.enabled) return { status: 'skipped', error: 'ORBI_TALK_DISABLED' };
     if (!this.options.apiKey) return { status: 'failed', error: 'ORBI_TALK_API_KEY_REQUIRED' };
 
@@ -39,6 +40,8 @@ export class OrbiTalkClient {
           'x-orbi-talk-timestamp': timestamp,
           'x-orbi-talk-nonce': nonce,
           'x-orbi-talk-signature': `sha256=${signature}`,
+          'x-orbi-environment': parsed.environment === 'live' ? 'production' : 'demo',
+          'x-orbi-source-service': 'orbi-pay-gateway',
         },
         body,
         signal: controller.signal,
@@ -64,4 +67,3 @@ export class OrbiTalkClient {
 }
 
 export const orbiTalkClient = new OrbiTalkClient();
-

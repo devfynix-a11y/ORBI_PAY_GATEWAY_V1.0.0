@@ -55,3 +55,59 @@ test('developer messaging dispatcher records delivery evidence without raw secre
   assert.equal(deliveries[0].templateCode, 'developer.api_key.emergency_rotated');
 });
 
+test('developer messaging dispatcher fails closed when environment is missing', async () => {
+  const deliveryStore = MessagingDeliveryStore.inMemory();
+  let sent = false;
+  const talkClient = {
+    async sendIntent() {
+      sent = true;
+      return { status: 'queued' as const };
+    },
+  };
+  const dispatcher = new DeveloperMessagingDispatcher(talkClient as any, deliveryStore);
+
+  await dispatcher.handleDeveloperEvent({
+    eventId: 'dev_evt_rotation_003',
+    eventType: 'developer.api_key.rotation_requested',
+    serviceCode: 'merchant-service',
+    occurredAt: new Date().toISOString(),
+    data: {
+      requestedBy: 'ops@merchant.example',
+    },
+  });
+
+  const deliveries = deliveryStore.list({ serviceCode: 'merchant-service' });
+  assert.equal(sent, false);
+  assert.equal(deliveries[0].status, 'failed');
+  assert.equal(deliveries[0].error, 'MESSAGE_ENVIRONMENT_REQUIRED');
+});
+
+test('developer messaging dispatcher preserves sandbox and live environment in delivery evidence', async () => {
+  const deliveryStore = MessagingDeliveryStore.inMemory();
+  const talkClient = {
+    async sendIntent() {
+      return { status: 'queued' as const };
+    },
+  };
+  const dispatcher = new DeveloperMessagingDispatcher(talkClient as any, deliveryStore);
+
+  await dispatcher.handleDeveloperEvent({
+    eventId: 'dev_evt_rotation_004',
+    eventType: 'developer.api_key.rotation_requested',
+    serviceCode: 'sandbox-service',
+    environment: 'sandbox',
+    occurredAt: new Date().toISOString(),
+    data: { requestedBy: 'ops@sandbox.example' },
+  });
+  await dispatcher.handleDeveloperEvent({
+    eventId: 'dev_evt_rotation_005',
+    eventType: 'developer.api_key.rotation_requested',
+    serviceCode: 'live-service',
+    environment: 'live',
+    occurredAt: new Date().toISOString(),
+    data: { requestedBy: 'ops@live.example' },
+  });
+
+  assert.equal(deliveryStore.list({ serviceCode: 'sandbox-service' })[0].environment, 'sandbox');
+  assert.equal(deliveryStore.list({ serviceCode: 'live-service' })[0].environment, 'live');
+});
