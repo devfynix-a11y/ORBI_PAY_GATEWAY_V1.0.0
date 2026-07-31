@@ -27,6 +27,42 @@ test('developer portal store persists service application lifecycle', async () =
   assert.equal(service.browserOrigins.includes('https://shop.orbifinancial.com'), true);
 });
 
+test('developer portal store grants sandbox scopes and provisions one-time credentials', async () => {
+  const store = DeveloperPortalStore.inMemory();
+  const application = await store.submitApplication({
+    legalName: 'Tag POS Limited',
+    displayName: 'Tag POS Sandbox',
+    contactEmail: 'dev@tag.example',
+    businessType: 'merchant',
+    countryCode: 'TZ',
+    requestedEnvironments: ['sandbox'],
+    requestedScopes: ['identity:resolve', 'payments:create', 'escrow:create', 'webhooks:receive'],
+    browserOrigins: ['http://localhost:3000'],
+    redirectUrls: ['http://localhost:3000/orbi/return'],
+    webhookUrls: ['http://localhost:3000/api/orbi/webhooks'],
+    useCases: ['Sandbox POS checkout testing'],
+    termsAccepted: true,
+  }, { email: 'developer@tag.example', userId: 'portal_user_tag' });
+
+  const service = await store.approveApplication(application.applicationId, {
+    initialStatus: 'active',
+    grantRequestedScopes: true,
+  });
+  const credentials = await store.provisionServiceCredentials(service.serviceCode, {
+    environment: 'sandbox',
+    requestedBy: 'developer@tag.example',
+    reason: 'Issue first sandbox credentials during onboarding.',
+  });
+
+  assert.equal(service.status, 'active');
+  assert.deepEqual(service.scopesPending, []);
+  assert.equal(service.scopesGranted.includes('payments:create'), true);
+  assert.equal(credentials.apiKeySecret.startsWith('orbi_sandbox_'), true);
+  assert.equal(credentials.webhookSigningSecret.startsWith('orbi_whsec_sandbox_'), true);
+  assert.equal(JSON.stringify(store.getService(service.serviceCode)).includes(credentials.apiKeySecret), false);
+  assert.equal(JSON.stringify(store.getService(service.serviceCode)).includes(credentials.webhookSigningSecret), false);
+});
+
 test('developer portal store filters applications and services by owner', async () => {
   const store = DeveloperPortalStore.inMemory();
   const first = await store.submitApplication({

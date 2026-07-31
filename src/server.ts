@@ -2428,13 +2428,46 @@ app.post('/v1/portal/gateway', requireOperatorDiscoveryAccess, async (req, res) 
         email: session.claims.email,
         userId: session.claims.sub,
       });
+      const sandboxOnly = payload.requestedEnvironments.length === 1 && payload.requestedEnvironments[0] === 'sandbox';
+      let sandboxProvisioning;
+      if (sandboxOnly) {
+        const service = await developerPortalStore.approveApplication(application.applicationId, {
+          initialStatus: 'active',
+          grantRequestedScopes: true,
+        });
+        sandboxProvisioning = await developerPortalStore.provisionServiceCredentials(service.serviceCode, {
+          environment: 'sandbox',
+          requestedBy: session.claims.email,
+          reason: 'Issue first sandbox credentials during developer onboarding.',
+        });
+      }
       await portalAccessStore.writeAuditEvent(req, {
-        action: 'portal.developer.service_application.submitted',
+        action: sandboxOnly ? 'portal.developer.sandbox_integration.created' : 'portal.developer.service_application.submitted',
         target: application.applicationId,
         environment,
-        metadata: { applicationId: application.applicationId, contactEmail: application.contactEmail },
+        metadata: {
+          applicationId: application.applicationId,
+          contactEmail: application.contactEmail,
+          sandboxOnly,
+          serviceCode: sandboxProvisioning?.service.serviceCode,
+        },
       });
-      return res.status(201).json({ success: true, data: application });
+      return res.status(201).json({
+        success: true,
+        data: sandboxProvisioning
+          ? {
+              application,
+              service: sandboxProvisioning.service,
+              credentials: {
+                environment: 'sandbox',
+                apiKey: sandboxProvisioning.apiKey,
+                apiKeySecret: sandboxProvisioning.apiKeySecret,
+                webhookSecret: sandboxProvisioning.webhookSecret,
+                webhookSigningSecret: sandboxProvisioning.webhookSigningSecret,
+              },
+            }
+          : application,
+      });
     } catch (e: any) {
       if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_SERVICE_APPLICATION_INVALID', e.issues);
       const error = errorCodeFromException(e, 'DEVELOPER_SERVICE_APPLICATION_FAILED');
@@ -2632,6 +2665,11 @@ app.get('/v1/services', requireOperatorDiscoveryAccess, (_req, res) => {
 const DeveloperServiceApproveSchema = z.object({
   serviceCode: z.string().trim().min(2).max(80).optional(),
   initialStatus: z.enum(['draft', 'active']).optional(),
+  grantRequestedScopes: z.boolean().optional(),
+  issueCredentials: z.boolean().optional(),
+  credentialEnvironment: z.enum(['sandbox', 'live']).optional(),
+  decidedBy: z.string().trim().min(3).max(180).optional(),
+  reason: z.string().trim().min(10).max(1000).optional(),
 });
 
 app.post('/v1/developer/service-applications', requireOperatorDiscoveryAccess, async (req, res) => {
@@ -2654,7 +2692,26 @@ app.post('/v1/developer/service-applications/:applicationId/approve', requireOpe
   try {
     const payload = DeveloperServiceApproveSchema.parse(req.body || {});
     const service = await developerPortalStore.approveApplication(String(req.params.applicationId || ''), payload);
-    return res.json({ success: true, data: service });
+    if (!payload.issueCredentials) return res.json({ success: true, data: service });
+    const environment = payload.credentialEnvironment || (service.environments.includes('live') ? 'live' : 'sandbox');
+    const credentials = await developerPortalStore.provisionServiceCredentials(service.serviceCode, {
+      environment,
+      requestedBy: payload.decidedBy || 'portal-operator',
+      reason: payload.reason || `Issue ${environment} credentials after approval.`,
+    });
+    return res.json({
+      success: true,
+      data: {
+        service: credentials.service,
+        credentials: {
+          environment,
+          apiKey: credentials.apiKey,
+          apiKeySecret: credentials.apiKeySecret,
+          webhookSecret: credentials.webhookSecret,
+          webhookSigningSecret: credentials.webhookSigningSecret,
+        },
+      },
+    });
   } catch (e: any) {
     if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_SERVICE_APPROVAL_INVALID', e.issues);
     const error = errorCodeFromException(e, 'DEVELOPER_SERVICE_APPROVAL_FAILED');

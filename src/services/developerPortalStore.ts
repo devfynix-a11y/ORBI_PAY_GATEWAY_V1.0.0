@@ -293,7 +293,11 @@ export class DeveloperPortalStore {
     return undefined;
   }
 
-  async approveApplication(applicationId: string, input: { serviceCode?: string; initialStatus?: 'draft' | 'active' }) {
+  async approveApplication(applicationId: string, input: {
+    serviceCode?: string;
+    initialStatus?: 'draft' | 'active';
+    grantRequestedScopes?: boolean;
+  }) {
     this.assertReady();
     const application = this.state.applications.find((item) => item.applicationId === applicationId);
     if (!application) throw new Error('DEVELOPER_APPLICATION_NOT_FOUND');
@@ -308,8 +312,8 @@ export class DeveloperPortalStore {
       displayName: application.displayName,
       status: input.initialStatus || 'draft',
       environments: unique(application.requestedEnvironments),
-      scopesGranted: [],
-      scopesPending: unique(application.requestedScopes),
+      scopesGranted: input.grantRequestedScopes ? unique(application.requestedScopes) : [],
+      scopesPending: input.grantRequestedScopes ? [] : unique(application.requestedScopes),
       browserOrigins: unique(application.browserOrigins || []),
       redirectUrls: unique(application.redirectUrls || []),
       webhookUrls: unique(application.webhookUrls || []),
@@ -343,11 +347,36 @@ export class DeveloperPortalStore {
       environment: service.environments.includes('live') ? 'live' : service.environments[0],
       data: {
         applicationId,
+        scopesGranted: input.grantRequestedScopes ? service.scopesGranted : [],
         scopesPending: service.scopesPending,
       },
     });
     await this.persist();
     return service;
+  }
+
+  async provisionServiceCredentials(serviceCode: string, input: {
+    environment: 'sandbox' | 'live';
+    requestedBy: string;
+    reason: string;
+  }) {
+    const apiKey = await this.issueApiKey(serviceCode, {
+      environment: input.environment,
+      requestedBy: input.requestedBy,
+      reason: input.reason,
+    });
+    const webhookSecret = await this.issueWebhookSecret(serviceCode, {
+      environment: input.environment,
+      requestedBy: input.requestedBy,
+      reason: input.reason,
+    });
+    return {
+      service: webhookSecret.service,
+      apiKey: apiKey.key,
+      apiKeySecret: apiKey.oneTimeSecret,
+      webhookSecret: webhookSecret.webhookSecret,
+      webhookSigningSecret: webhookSecret.oneTimeSecret,
+    };
   }
 
   async submitScopeRequest(serviceCode: string, request: z.infer<typeof DeveloperScopeRequestSchema>) {
