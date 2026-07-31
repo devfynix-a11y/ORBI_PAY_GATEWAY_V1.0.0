@@ -66,6 +66,14 @@ export class OidcIdentityVerifier {
   }
 }
 
+export const verifyOidcAuthorizationIdentity = async (idToken: string, nonce: string) => {
+  const verified = await new OidcIdentityVerifier({
+    audience: config.security.oidcAuthorizationClientId,
+  }).verify(idToken);
+  if (verified.claims.nonce !== nonce) throw new Error('OIDC_AUTHORIZATION_NONCE_INVALID');
+  return verified;
+};
+
 let verifier: OidcIdentityVerifier | undefined;
 
 export const oidcIdentityVerifier = () => {

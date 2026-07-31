@@ -59,6 +59,7 @@
                   "type": "object",
                   "required": [
                     "issuer",
+                    "authorization_endpoint",
                     "token_endpoint",
                     "introspection_endpoint",
                     "revocation_endpoint",
@@ -68,6 +69,7 @@
                   ],
                   "properties": {
                     "issuer": { "type": "string", "format": "uri" },
+                    "authorization_endpoint": { "type": "string", "format": "uri" },
                     "token_endpoint": { "type": "string", "format": "uri" },
                     "introspection_endpoint": { "type": "string", "format": "uri" },
                     "revocation_endpoint": { "type": "string", "format": "uri" },
@@ -88,6 +90,27 @@
         }
       }
     },
+    "/oauth/authorize": {
+      "get": {
+        "tags": ["Runtime"],
+        "summary": "Start customer authorization with PKCE S256",
+        "operationId": "authorizeCustomerAccess",
+        "security": [],
+        "parameters": [
+          { "name": "response_type", "in": "query", "required": true, "schema": { "const": "code" } },
+          { "name": "client_id", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "redirect_uri", "in": "query", "required": true, "schema": { "type": "string", "format": "uri" } },
+          { "name": "scope", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "required": true, "schema": { "type": "string", "minLength": 16 } },
+          { "name": "code_challenge", "in": "query", "required": true, "schema": { "type": "string", "minLength": 43, "maxLength": 43 } },
+          { "name": "code_challenge_method", "in": "query", "required": true, "schema": { "const": "S256" } }
+        ],
+        "responses": {
+          "302": { "description": "Redirect to ORBI Identity" },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/oauth/token": {
       "post": {
         "tags": ["Runtime"],
@@ -100,6 +123,18 @@
             "application/x-www-form-urlencoded": {
               "schema": {
                 "oneOf": [
+                  {
+                    "type": "object",
+                    "required": ["grant_type", "client_id", "code", "redirect_uri", "code_verifier"],
+                    "properties": {
+                      "grant_type": { "const": "authorization_code" },
+                      "client_id": { "type": "string" },
+                      "code": { "type": "string", "writeOnly": true },
+                      "redirect_uri": { "type": "string", "format": "uri" },
+                      "code_verifier": { "type": "string", "writeOnly": true, "minLength": 43, "maxLength": 128 },
+                      "scope": { "type": "string" }
+                    }
+                  },
                   {
                     "type": "object",
                     "required": ["grant_type"],

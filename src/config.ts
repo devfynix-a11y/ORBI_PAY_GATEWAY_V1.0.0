@@ -85,6 +85,12 @@ export const config = {
       process.env.PAYMENT_GATEWAY_OIDC_IDENTITY_ISSUER || '',
     oidcIdentityAudience:
       process.env.PAYMENT_GATEWAY_OIDC_IDENTITY_AUDIENCE || '',
+    oidcAuthorizationClientId:
+      process.env.PAYMENT_GATEWAY_OIDC_AUTHORIZATION_CLIENT_ID || '',
+    oauthAuthorizationRequestTtlSeconds:
+      Number(process.env.PAYMENT_GATEWAY_OAUTH_AUTHORIZATION_REQUEST_TTL_SECONDS || 600),
+    oauthAuthorizationCodeTtlSeconds:
+      Number(process.env.PAYMENT_GATEWAY_OAUTH_AUTHORIZATION_CODE_TTL_SECONDS || 120),
     financialTokenAudience:
       process.env.PAYMENT_GATEWAY_FINANCIAL_TOKEN_AUDIENCE || 'orbi-pay-api',
     financialTokenTtlSeconds:
@@ -206,6 +212,7 @@ export const requireGatewayRuntimeSecrets = () => {
     config.env === 'production' &&
     (!config.security.oidcIdentityIssuer.startsWith('https://') ||
       !config.security.oidcIdentityAudience ||
+      !config.security.oidcAuthorizationClientId ||
       !config.security.financialTokenAudience)
   ) {
     throw new Error('Production OIDC issuer, identity audience, and financial token audience are required.');

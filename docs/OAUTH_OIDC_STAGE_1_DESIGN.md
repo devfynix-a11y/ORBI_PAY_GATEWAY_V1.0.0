@@ -96,6 +96,24 @@ PKCE `S256`. ORBI hosted consent receives the verified identity result and
 creates a one-time financial authorization code. Redirect URIs must match the
 approved URI byte-for-byte.
 
+Implemented controls:
+
+- `GET /oauth/authorize` accepts only `response_type=code` and PKCE `S256`;
+- the client must be active in the current trust zone and every requested
+  scope must already be granted;
+- redirect URIs use exact string matching against the approved service record;
+- ORBI Identity performs authentication; merchant-provided identity headers
+  and query values are never trusted;
+- upstream state, nonce, and PKCE verifier are server-generated, short-lived,
+  and stored encrypted at rest;
+- the hosted ORBI consent screen creates durable consent evidence before a
+  financial authorization code is issued;
+- authorization codes are random, stored only as SHA-256 hashes, expire after
+  two minutes, and are consumed atomically once;
+- `POST /oauth/token` with `grant_type=authorization_code` verifies the exact
+  redirect URI and the original PKCE verifier before issuing a short-lived,
+  consent-bound `orbi_ft_` token.
+
 ### 1E. Refresh token rotation
 
 - store only refresh-token hashes;

@@ -45,9 +45,10 @@ import {
   readServiceAccessTokenClaims,
   revokeServiceAccessToken,
 } from './security/serviceAccessToken.js';
-import { oidcIdentityVerifier } from './security/oidcIdentityVerifier.js';
+import { oidcIdentityVerifier, verifyOidcAuthorizationIdentity } from './security/oidcIdentityVerifier.js';
 import {
   isFinancialAccessToken,
+  issueFinancialAccessToken,
   verifyFinancialAccessToken,
 } from './security/financialAccessToken.js';
 import {
@@ -108,6 +109,7 @@ import {
 import { consentScopeCatalog, consentScopeSummary, type ConsentLocale } from './services/consentScopeCatalog.js';
 import { createConsentReceiptFromHostedChallenge } from './services/hostedChallengeConsent.js';
 import { sandboxSimulatorStore } from './services/sandboxSimulatorStore.js';
+import { oauthAuthorizationStore } from './services/oauthAuthorizationStore.js';
 import type {
   GatewayPaymentRequest,
   GatewayPaymentResponse,
@@ -269,10 +271,30 @@ const OAuthTokenExchangeRequestSchema = z.object({
   consent_id: z.string().trim().min(1),
 });
 
+const OAuthAuthorizationCodeTokenRequestSchema = z.object({
+  grant_type: z.literal('authorization_code'),
+  client_id: z.string().trim().min(2).max(80),
+  code: z.string().trim().min(20),
+  redirect_uri: z.string().trim().url(),
+  code_verifier: z.string().trim().min(43).max(128),
+  scope: z.union([z.string().trim(), z.array(z.string().trim())]).optional(),
+});
+
 const OAuthTokenRequestSchema = z.discriminatedUnion('grant_type', [
   OAuthClientCredentialsTokenRequestSchema,
   OAuthTokenExchangeRequestSchema,
+  OAuthAuthorizationCodeTokenRequestSchema,
 ]);
+
+const OAuthAuthorizationRequestSchema = z.object({
+  response_type: z.literal('code'),
+  client_id: z.string().trim().min(2).max(80),
+  redirect_uri: z.string().trim().url(),
+  scope: z.string().trim().min(1),
+  state: z.string().trim().min(16).max(512),
+  code_challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  code_challenge_method: z.literal('S256'),
+});
 
 const OAuthTokenControlRequestSchema = z.object({
   token: z.string().trim().min(1),
@@ -568,11 +590,12 @@ const oauthAuthorizationServerMetadata = () => {
   const issuer = gatewayIssuerUrl();
   return {
     issuer,
+    authorization_endpoint: `${issuer}/oauth/authorize`,
     token_endpoint: `${issuer}/oauth/token`,
     introspection_endpoint: `${issuer}/oauth/introspect`,
     revocation_endpoint: `${issuer}/oauth/revoke`,
     service_documentation: `${issuer}/docs`,
-    grant_types_supported: ['client_credentials', TOKEN_EXCHANGE_GRANT_TYPE],
+    grant_types_supported: ['authorization_code', 'client_credentials', TOKEN_EXCHANGE_GRANT_TYPE],
     subject_token_types_supported: [ACCESS_TOKEN_TYPE],
     requested_token_types_supported: [ACCESS_TOKEN_TYPE],
     audiences_supported: [config.security.financialTokenAudience],
@@ -580,8 +603,8 @@ const oauthAuthorizationServerMetadata = () => {
     revocation_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
     introspection_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
     scopes_supported: DeveloperScopeSchema.options,
-    response_types_supported: [],
-    code_challenge_methods_supported: [],
+    response_types_supported: ['code'],
+    code_challenge_methods_supported: ['S256'],
     token_endpoint_auth_signing_alg_values_supported: ['HS256'],
   };
 };
@@ -1478,6 +1501,124 @@ const oauthAuthorizationServerMetadataHandler = (_req: express.Request, res: exp
 app.get('/.well-known/oauth-authorization-server', oauthAuthorizationServerMetadataHandler);
 app.get('/v1/.well-known/oauth-authorization-server', oauthAuthorizationServerMetadataHandler);
 
+const oauthRuntimeDeveloperEnvironment = () =>
+  developerEnvironmentForRuntime(config.providerMode === 'sandbox' ? 'demo' : 'production');
+
+const oauthCallbackUrl = () => `${gatewayIssuerUrl()}/oauth/identity/callback`;
+const randomOAuthValue = (bytes = 32) => crypto.randomBytes(bytes).toString('base64url');
+const htmlEscape = (value: unknown) => String(value ?? '')
+  .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+
+const oauthConsentHtml = (record: Awaited<ReturnType<typeof oauthAuthorizationStore.completeIdentity>>, displayName: string) => `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authorize ${htmlEscape(displayName)} | ORBI</title><style>
+:root{color-scheme:light;--ink:#08233f;--blue:#075fba;--line:#d9e4ed;--soft:#f2f7fa}*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at top,#e7f5f2,#f8fbfc 48%,#e8eef3);font-family:Georgia,'Times New Roman',serif;color:var(--ink)}
+main{width:min(560px,100%);background:#fff;border:1px solid var(--line);border-radius:28px;padding:34px;box-shadow:0 24px 70px #08233f1c}h1{font-size:30px;margin:10px 0}p{line-height:1.55;color:#456177}.brand{font:800 24px Arial,sans-serif;letter-spacing:-1px}.brand b{color:#08a65a}.scope{padding:12px 14px;margin:8px 0;background:var(--soft);border-radius:12px;font:600 14px Arial,sans-serif}.actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:26px}button{border:0;border-radius:14px;padding:15px;font:700 15px Arial,sans-serif;cursor:pointer}.allow{background:var(--blue);color:#fff}.deny{background:#e9eff3;color:var(--ink)}small{display:block;margin-top:20px;color:#738797;line-height:1.5}@media(max-width:430px){main{padding:24px}.actions{grid-template-columns:1fr}}
+</style></head><body><main><div class="brand">ORBI <b>Pay</b></div><h1>Connect ${htmlEscape(displayName)}</h1>
+<p>This service is requesting permission to perform only the actions listed below on your behalf.</p>
+${record.requestedScopes.map((scope) => `<div class="scope">${htmlEscape(scope)}</div>`).join('')}
+<form method="post" action="/oauth/authorize/decision"><input type="hidden" name="request_id" value="${htmlEscape(record.requestId)}"><input type="hidden" name="approval_token" value="${htmlEscape(record.approvalToken)}"><div class="actions"><button class="deny" name="decision" value="deny">Decline</button><button class="allow" name="decision" value="approve">Allow access</button></div></form>
+<small>You can revoke this access later. ORBI never shares your password or PIN with this service.</small></main></body></html>`;
+
+app.get('/oauth/authorize', async (req, res) => {
+  const parsed = OAuthAuthorizationRequestSchema.safeParse(req.query);
+  if (!parsed.success) return sendValidationError(res, 'OAUTH_AUTHORIZATION_REQUEST_INVALID', parsed.error.issues);
+  try {
+    const environment = oauthRuntimeDeveloperEnvironment();
+    const service = developerPortalStore.getService(parsed.data.client_id);
+    if (service.status !== 'active' || !service.environments.includes(environment)) {
+      throw new Error('OAUTH_CLIENT_NOT_ACTIVE');
+    }
+    if (!service.redirectUrls.includes(parsed.data.redirect_uri)) throw new Error('OAUTH_REDIRECT_URI_NOT_ALLOWED');
+    const scopes = requestedOAuthScopes(parsed.data.scope);
+    if (!scopes.length || scopes.some((scope) => !service.scopesGranted.includes(scope as never))) {
+      throw new Error('PAY_SERVICE_SCOPE_NOT_GRANTED');
+    }
+    const requestId = `oauth_req_${crypto.randomUUID()}`;
+    const upstreamState = randomOAuthValue();
+    const nonce = randomOAuthValue();
+    const upstreamVerifier = randomOAuthValue(48);
+    const upstreamChallenge = crypto.createHash('sha256').update(upstreamVerifier).digest('base64url');
+    const approvalToken = randomOAuthValue();
+    await oauthAuthorizationStore.create({
+      requestId, upstreamState, serviceCode: service.serviceCode, environment,
+      redirectUri: parsed.data.redirect_uri, requestedScopes: scopes,
+      clientState: parsed.data.state, codeChallenge: parsed.data.code_challenge,
+      nonce, upstreamVerifier, approvalToken,
+      expiresAt: new Date(Date.now() + config.security.oauthAuthorizationRequestTtlSeconds * 1000).toISOString(),
+    });
+    const identityAuthorize = new URL(`${config.security.oidcIdentityIssuer}/protocol/openid-connect/auth`);
+    identityAuthorize.search = new URLSearchParams({
+      response_type: 'code', client_id: config.security.oidcAuthorizationClientId,
+      redirect_uri: oauthCallbackUrl(), scope: 'openid', state: upstreamState, nonce,
+      code_challenge: upstreamChallenge, code_challenge_method: 'S256',
+    }).toString();
+    return res.redirect(302, identityAuthorize.toString());
+  } catch (e: any) {
+    return sendApiError(res, httpStatusForGatewayError(errorCodeFromException(e, 'OAUTH_AUTHORIZATION_FAILED'), 400), errorCodeFromException(e, 'OAUTH_AUTHORIZATION_FAILED'));
+  }
+});
+
+app.get('/oauth/identity/callback', async (req, res) => {
+  try {
+    const code = String(req.query.code || '');
+    const state = String(req.query.state || '');
+    if (!code || !state) throw new Error('OIDC_AUTHORIZATION_CALLBACK_INVALID');
+    // Claim the state first; duplicate callbacks cannot progress the transaction.
+    const pending = await oauthAuthorizationStore.completeIdentity(state, `pending:${crypto.randomUUID()}`);
+    const tokenResponse = await fetch(`${config.security.oidcIdentityIssuer}/protocol/openid-connect/token`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'authorization_code', client_id: config.security.oidcAuthorizationClientId,
+        redirect_uri: oauthCallbackUrl(), code, code_verifier: pending.upstreamVerifier }),
+    });
+    const tokens = await tokenResponse.json() as { id_token?: string; error?: string };
+    if (!tokenResponse.ok || !tokens.id_token) throw new Error('OIDC_AUTHORIZATION_TOKEN_EXCHANGE_FAILED');
+    const identity = await verifyOidcAuthorizationIdentity(tokens.id_token, pending.nonce);
+    const record = await oauthAuthorizationStore.replacePendingSubject(pending.requestId, identity.subject);
+    const service = developerPortalStore.getService(record.serviceCode);
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.setHeader('cache-control', 'no-store');
+    return res.send(oauthConsentHtml(record, service.displayName));
+  } catch (e: any) {
+    return sendApiError(res, 400, errorCodeFromException(e, 'OIDC_AUTHORIZATION_CALLBACK_FAILED'));
+  }
+});
+
+app.post('/oauth/authorize/decision', express.urlencoded({ extended: false }), async (req, res) => {
+  try {
+    const requestId = String(req.body?.request_id || '');
+    const approvalToken = String(req.body?.approval_token || '');
+    const decision = req.body?.decision === 'approve' ? 'approved' : 'denied';
+    const record = await oauthAuthorizationStore.decide(requestId, approvalToken, decision);
+    const redirect = new URL(record.redirectUri);
+    redirect.searchParams.set('state', record.clientState);
+    if (decision === 'denied') {
+      redirect.searchParams.set('error', 'access_denied');
+      return res.redirect(303, redirect.toString());
+    }
+    const acceptedAt = new Date().toISOString();
+    const evidenceHash = crypto.createHash('sha256').update([
+      record.requestId, record.serviceCode, record.subjectId, ...record.requestedScopes, acceptedAt,
+    ].join('|')).digest('hex');
+    const consent = await consentReceiptStore.create(ConsentReceiptCreateSchema.parse({
+      serviceCode: record.serviceCode, environment: record.environment,
+      subjectType: 'user', subjectId: record.subjectId, scopes: record.requestedScopes,
+      purpose: `Authorize ${record.serviceCode} to use the selected ORBI services.`,
+      expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+      context: { locale: 'en', timezone: 'UTC', channel: 'hosted_challenge' },
+      evidence: { consentTextVersion: 'orbi-oauth-consent-v1', challengeType: 'OIDC', acceptedAt, evidenceHash,
+        metadata: { authorizationRequestId: record.requestId } },
+    }));
+    const code = await oauthAuthorizationStore.issueCode(record, consent.consentId, config.security.oauthAuthorizationCodeTtlSeconds);
+    redirect.searchParams.set('code', code);
+    return res.redirect(303, redirect.toString());
+  } catch (e: any) {
+    return sendApiError(res, 400, errorCodeFromException(e, 'OAUTH_AUTHORIZATION_DECISION_FAILED'));
+  }
+});
+
 const serviceTokenHandler = async (req: express.Request, res: express.Response) => {
   const parsed = OAuthTokenRequestSchema.safeParse(req.body || {});
   if (!parsed.success) {
@@ -1485,6 +1626,39 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
   }
 
   try {
+    if (parsed.data.grant_type === 'authorization_code') {
+      const service = developerPortalStore.getService(parsed.data.client_id);
+      if (service.status !== 'active') throw new Error('OAUTH_CLIENT_NOT_ACTIVE');
+      const authorization = await oauthAuthorizationStore.consumeCode(
+        parsed.data.code, service.serviceCode, parsed.data.redirect_uri, parsed.data.code_verifier,
+      );
+      const key = service.keys.find((candidate) =>
+        candidate.environment === authorization.environment && candidate.status === 'active');
+      if (!key) throw new Error('OAUTH_CLIENT_KEY_NOT_ACTIVE');
+      const requestedScopes = requestedOAuthScopes(parsed.data.scope);
+      const scopes = requestedScopes.length ? requestedScopes : authorization.scopes;
+      if (scopes.some((scope) => !authorization.scopes.includes(scope))) throw new Error('PAY_SERVICE_SCOPE_NOT_GRANTED');
+      const issued = issueFinancialAccessToken({
+        subject: authorization.subjectId, serviceCode: service.serviceCode,
+        keyId: key.keyId, fingerprint: key.fingerprint, environment: authorization.environment,
+        scopes, consentId: authorization.consentId, identityIssuer: config.security.oidcIdentityIssuer,
+      });
+      void auditEventSink.emit({
+        eventType: 'oauth.authorization_code.consumed', severity: 'info', outcome: 'success',
+        requestId: res.locals.auditContext?.requestId, traceId: res.locals.auditContext?.traceId,
+        correlationId: res.locals.auditContext?.correlationId,
+        actor: { serviceCode: service.serviceCode, subjectId: authorization.subjectId, environment: authorization.environment },
+        resource: { type: 'financial_access_token', tokenId: issued.claims.jti, consentId: authorization.consentId },
+        metadata: { scopes, grantType: 'authorization_code' },
+      });
+      return res.json({
+        access_token: issued.accessToken, token_type: 'Bearer', expires_in: issued.expiresIn,
+        scope: scopes.join(' '), consent_id: authorization.consentId,
+        service_code: service.serviceCode, environment: authorization.environment,
+        audience: issued.claims.aud, issued_at: new Date(issued.claims.iat * 1000).toISOString(),
+        expires_at: new Date(issued.claims.exp * 1000).toISOString(),
+      });
+    }
     const authenticated = authenticateOAuthClient(req, parsed.data);
     if (!authenticated.credential.environment || !authenticated.credential.keyId || !authenticated.credential.fingerprint) {
       throw new Error('OAUTH_CLIENT_AUTH_INVALID');
@@ -3675,6 +3849,7 @@ const start = async () => {
   await portalAccessStore.initialize();
   await developerPortalStore.initialize();
   await consentReceiptStore.initialize();
+  await oauthAuthorizationStore.initialize();
   developerPortalStore.onEvent((event) => developerMessagingDispatcher.handleDeveloperEvent(event));
   await serviceAccessTokenRevocationStore.initialize();
   await operatorIncidentStore.initialize();
