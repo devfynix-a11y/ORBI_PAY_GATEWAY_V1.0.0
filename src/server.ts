@@ -2275,7 +2275,6 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/service-applications$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/events$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
-  { pattern: /^\/v1\/developer\/messaging-deliveries$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/integration-health$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/scope-requests$/, permission: 'developer:request_access', developerAllowed: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/api-key-rotations$/, permission: 'developer:request_access', developerAllowed: true },
@@ -2410,13 +2409,6 @@ app.post('/v1/portal/gateway', requireOperatorDiscoveryAccess, async (req, res) 
       data: developerPortalStore.listEvents().filter((event) => !event.serviceCode || allowedCodes.has(event.serviceCode)),
     });
   }
-  if (developerScoped && method === 'GET' && path === '/v1/developer/messaging-deliveries') {
-    const services = developerPortalStore.listServices(ownerFilter);
-    return res.json({
-      success: true,
-      data: services.flatMap((service) => messagingDeliveryStore.list({ serviceCode: service.serviceCode })),
-    });
-  }
   if (developerScoped && method === 'GET' && path === '/v1/developer/integration-health') {
     const summaries = (await Promise.all(
       developerPortalStore
@@ -2535,11 +2527,7 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
     : developerAllowed
       ? visibleServices.flatMap((service) => webhookDeliveryStore.list({ serviceCode: service.serviceCode }))
       : [];
-  const visibleMessagingDeliveries = operatorAllowed
-    ? messagingDeliveryStore.list({})
-    : developerAllowed
-      ? visibleServices.flatMap((service) => messagingDeliveryStore.list({ serviceCode: service.serviceCode }))
-      : [];
+  const visibleMessagingDeliveries = operatorAllowed ? messagingDeliveryStore.list({}) : [];
   const visibleHealth = operatorAllowed
     ? await buildDeveloperHealthSummary()
     : developerAllowed
