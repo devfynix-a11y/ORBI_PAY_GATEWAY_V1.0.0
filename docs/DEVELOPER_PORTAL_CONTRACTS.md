@@ -1464,6 +1464,31 @@ POST /v1/developer/services/:serviceCode/scope-requests
 Content-Type: application/json
 ```
 
+One request may contain several permissions:
+
+```json
+{
+  "environment": "sandbox",
+  "requestedScopes": [
+    "payments:create",
+    "escrow:create",
+    "webhooks:receive"
+  ],
+  "reason": "Create protected checkout payments and receive signed payment status updates."
+}
+```
+
+Permission controls are fail-closed:
+
+- the signed-in developer may request access only for an integration owned by that account;
+- the request environment must match both the Gateway runtime and the integration environment;
+- production requests require approved production access on the developer account;
+- granted and pending permissions cannot be requested again;
+- suspended, rejected, or archived integrations cannot request permissions;
+- operators must use an MFA-verified session, confirmation, and a review reason;
+- reviewer identity is taken from the verified operator session, not client input;
+- approved permissions do not bypass customer consent or runtime operation policies.
+
 Approve or reject a scope request:
 
 ```http

@@ -148,7 +148,13 @@ export const DeveloperServiceRecordSchema = z
 export const DeveloperServiceProfileResponseSchema = ApiSuccessResponseSchema(DeveloperServiceRecordSchema);
 
 export const DeveloperScopeRequestSchema = z.object({
-  requestedScopes: z.array(DeveloperScopeSchema).min(1).max(20),
+  requestedScopes: z
+    .array(DeveloperScopeSchema)
+    .min(1)
+    .max(20)
+    .refine((scopes) => new Set(scopes).size === scopes.length, {
+      message: 'Requested permissions must not contain duplicates.',
+    }),
   reason: z.string().trim().min(10).max(1000),
   environment: DeveloperPortalEnvironmentSchema,
   metadata: z.record(z.string(), z.unknown()).optional(),

@@ -94,12 +94,23 @@ test('developer portal store filters applications and services by owner', async 
     termsAccepted: true,
   }, { email: 'developer@beta.example', userId: 'portal_user_beta' });
 
-  await store.approveApplication(first.applicationId, {});
-  await store.approveApplication(second.applicationId, {});
+  const alphaService = await store.approveApplication(first.applicationId, {});
+  const betaService = await store.approveApplication(second.applicationId, {});
+  const alphaScopeRequest = await store.submitScopeRequest(alphaService.serviceCode, {
+    requestedScopes: ['escrow:read'],
+    reason: 'Read PaySafe status for Alpha-owned checkout transactions.',
+    environment: 'sandbox',
+  });
+  await store.submitScopeRequest(betaService.serviceCode, {
+    requestedScopes: ['balance:read'],
+    reason: 'Read approved balance data for Beta-owned customer profiles.',
+    environment: 'sandbox',
+  });
 
   const alphaFilter = { ownerEmail: 'developer@alpha.example', serviceCodes: [] };
   assert.deepEqual(store.listApplications(undefined, alphaFilter).map((item) => item.applicationId), [first.applicationId]);
   assert.deepEqual(store.listServices(alphaFilter).map((item) => item.serviceCode), ['alpha-merchant']);
+  assert.deepEqual(store.listScopeRequests(alphaFilter).map((item) => item.requestId), [alphaScopeRequest.requestId]);
   assert.equal(store.portalUserCanAccessService('alpha-merchant', alphaFilter), true);
   assert.equal(store.portalUserCanAccessService('beta-merchant', alphaFilter), false);
 });
@@ -135,6 +146,38 @@ test('developer portal store records scope, allowlist, key rotation, and events'
   });
   assert.equal(scopeDecision.request.status, 'approved');
   assert.equal(scopeDecision.service.scopesGranted.includes('balance:read'), true);
+  await assert.rejects(
+    () => store.submitScopeRequest(service.serviceCode, {
+      requestedScopes: ['balance:read'],
+      reason: 'Attempt to request a permission that is already granted.',
+      environment: 'sandbox',
+    }),
+    /DEVELOPER_SCOPE_ALREADY_GRANTED/,
+  );
+  await assert.rejects(
+    () => store.submitScopeRequest(service.serviceCode, {
+      requestedScopes: ['payment_profile:read'],
+      reason: 'Attempt to duplicate a permission that is already pending.',
+      environment: 'sandbox',
+    }),
+    /DEVELOPER_SCOPE_ALREADY_PENDING/,
+  );
+  await assert.rejects(
+    () => store.submitScopeRequest(service.serviceCode, {
+      requestedScopes: ['payments:create'],
+      reason: 'Attempt to request access in an environment not enabled for this service.',
+      environment: 'live',
+    }),
+    /DEVELOPER_SCOPE_ENVIRONMENT_NOT_ENABLED/,
+  );
+  await assert.rejects(
+    () => store.decideScopeRequest(scopeRequest.requestId, {
+      decision: 'reject',
+      reason: 'A decided permission request cannot be reviewed for a second time.',
+      decidedBy: 'other-operator@orbi.example',
+    }),
+    /DEVELOPER_SCOPE_REQUEST_ALREADY_DECIDED/,
+  );
 
   const allowlist = await store.applyAllowlistUpdate(service.serviceCode, {
     browserOrigins: ['https://merchant.example'],

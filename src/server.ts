@@ -2267,6 +2267,7 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/sandbox-simulator\/accounts$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/integration-health$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/scope-requests$/, permission: 'developer:manage_scopes' },
+  { pattern: /^\/v1\/developer\/scope-requests\/[^/]+\/decision$/, permission: 'developer:manage_scopes', confirmation: true },
   { pattern: /^\/v1\/developer\/service-applications\/[^/]+\/approve$/, permission: 'developer:approve_applications', confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/status$/, permission: 'developer:manage_services', confirmation: true },
   { pattern: /^\/v1\/developer\/sandbox-simulator\/reset$/, permission: 'developer:manage_sandbox', confirmation: true },
@@ -2359,6 +2360,10 @@ app.get('/v1/portal/audit-events', requireOperatorDiscoveryAccess, async (req, r
 
 app.post('/v1/portal/gateway', requireOperatorDiscoveryAccess, async (req, res) => {
   const environment = String(req.body?.environment || 'sandbox') === 'live' ? 'live' : 'sandbox';
+  const runtimeEnvironment = config.providerMode === 'live' ? 'live' : 'sandbox';
+  if (environment !== runtimeEnvironment) {
+    return sendApiError(res, 409, 'PORTAL_GATEWAY_ENVIRONMENT_MISMATCH');
+  }
   const path = String(req.body?.path || '');
   const method = String(req.body?.method || 'GET').toUpperCase();
   const baseSession = portalAccessStore.requireSession(req, 'developer');
@@ -2392,6 +2397,9 @@ app.post('/v1/portal/gateway', requireOperatorDiscoveryAccess, async (req, res) 
   const serviceCodeMatch = path.match(/^\/v1\/developer\/services\/([^/]+)(?:\/|$)/);
   const requestedServiceCode = serviceCodeMatch ? decodeURIComponent(serviceCodeMatch[1]) : undefined;
   const developerScoped = session.claims.role === 'developer';
+  if (developerScoped && environment === 'live' && !session.claims.liveAccess) {
+    return sendApiError(res, 403, 'PORTAL_LIVE_ACCESS_REQUIRED');
+  }
 
   if (developerScoped && method === 'GET' && path === '/v1/developer/services') {
     return res.json({ success: true, data: developerPortalStore.listServices(ownerFilter) });
@@ -2478,10 +2486,12 @@ app.post('/v1/portal/gateway', requireOperatorDiscoveryAccess, async (req, res) 
     return sendApiError(res, 403, 'PORTAL_GATEWAY_SERVICE_ACCESS_DENIED');
   }
 
+  const scopeDecisionPath = /^\/v1\/developer\/scope-requests\/[^/]+\/decision$/.test(path);
   const requestBody = method === 'GET'
     ? undefined
     : {
         ...(req.body?.body || {}),
+        ...(scopeDecisionPath ? { decidedBy: session.claims.email } : {}),
         actor: {
           email: session.claims.email,
           role: session.claims.role,
@@ -2535,42 +2545,52 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
 
   const operatorAllowed = canUseOperator && session.ok;
   const developerAllowed = canUseDeveloper && session.ok;
+  const developerEnvironmentAllowed = developerAllowed
+    && (environment !== 'live' || Boolean(session.claims.liveAccess));
+  if (developerAllowed && !developerEnvironmentAllowed) {
+    errors.push({ name: 'liveAccess', error: 'Production access has not been approved for this developer account.' });
+  }
   const adminAllowed = accessLevel === 'admin' && session.ok && session.claims.role === 'admin';
   const adminUsers = adminAllowed ? await portalAccessStore.listUsers(req) : { ok: true as const, data: [] };
   const adminAudit = adminAllowed ? await portalAccessStore.listAuditEvents(req) : { ok: true as const, data: [] };
   if (!adminUsers.ok) errors.push({ name: 'portalUsers', error: adminUsers.error });
   if (!adminAudit.ok) errors.push({ name: 'portalAudit', error: adminAudit.error });
-  const ownerFilter = developerAllowed
+  const ownerFilter = developerEnvironmentAllowed
     ? { serviceCodes: session.claims.serviceCodes || [], ownerEmail: session.claims.email }
     : undefined;
   const visibleServices = operatorAllowed
     ? developerPortalStore.listServices()
-    : developerAllowed
+    : developerEnvironmentAllowed
       ? developerPortalStore.listServices(ownerFilter)
       : [];
   const visibleApplications = operatorAllowed
     ? developerPortalStore.listApplications()
-    : developerAllowed
+    : developerEnvironmentAllowed
       ? developerPortalStore.listApplications(undefined, ownerFilter)
       : [];
   const visibleServiceCodes = new Set(visibleServices.map((service) => service.serviceCode));
   const visibleEvents = operatorAllowed
     ? developerPortalStore.listEvents()
-    : developerAllowed
+    : developerEnvironmentAllowed
       ? developerPortalStore.listEvents().filter((event) => !event.serviceCode || visibleServiceCodes.has(event.serviceCode))
       : [];
   const visibleWebhookDeliveries = operatorAllowed
     ? webhookDeliveryStore.list({})
-    : developerAllowed
+    : developerEnvironmentAllowed
       ? visibleServices.flatMap((service) => webhookDeliveryStore.list({ serviceCode: service.serviceCode }))
       : [];
   const visibleMessagingDeliveries = operatorAllowed ? messagingDeliveryStore.list({}) : [];
   const visibleHealth = operatorAllowed
     ? await buildDeveloperHealthSummary()
-    : developerAllowed
+    : developerEnvironmentAllowed
       ? (await Promise.all(visibleServices.map((service) => buildDeveloperHealthSummary(service.serviceCode)))).flat()
       : undefined;
   const visibleIncidents = operatorAllowed ? await operatorIncidentStore.list() : [];
+  const visibleScopeRequests = operatorAllowed
+    ? developerPortalStore.listScopeRequests()
+    : developerEnvironmentAllowed
+      ? developerPortalStore.listScopeRequests(ownerFilter)
+      : [];
 
   return res.json({
     success: true,
@@ -2582,16 +2602,17 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
         ready: { status: 'ready', service: 'orbi-pay-gateway' },
         services: visibleServices,
         applications: visibleApplications,
+        scopeRequests: visibleScopeRequests,
         events: visibleEvents,
         webhookDeliveries: visibleWebhookDeliveries,
         messagingDeliveries: visibleMessagingDeliveries,
         docs: developerDocsCatalog(),
         sdks: developerSdkCatalog(),
-        consentScopes: (operatorAllowed || developerAllowed) ? consentScopeCatalog() : [],
-        environmentProfiles: (operatorAllowed || developerAllowed)
+        consentScopes: (operatorAllowed || developerEnvironmentAllowed) ? consentScopeCatalog() : [],
+        environmentProfiles: (operatorAllowed || developerEnvironmentAllowed)
           ? { profiles: developerEnvironmentProfiles(), separation: developerEnvironmentSeparationMatrix() }
           : {},
-        sandboxAccounts: (operatorAllowed || developerAllowed) ? sandboxSimulatorStore.listAccounts() : [],
+        sandboxAccounts: (operatorAllowed || developerEnvironmentAllowed) ? sandboxSimulatorStore.listAccounts() : [],
         integrationHealth: visibleHealth,
         incidents: visibleIncidents,
         serviceProfile: undefined,
@@ -2746,7 +2767,19 @@ app.post('/v1/developer/services/:serviceCode/status', requireOperatorDiscoveryA
 
 app.post('/v1/developer/services/:serviceCode/scope-requests', requireOperatorDiscoveryAccess, async (req, res) => {
   try {
-    const payload = DeveloperScopeRequestSchema.parse(req.body || {});
+    const parsed = DeveloperScopeRequestSchema.parse(req.body || {});
+    const runtimeEnvironment = config.providerMode === 'live' ? 'live' : 'sandbox';
+    if (parsed.environment !== runtimeEnvironment) {
+      return sendApiError(res, 409, 'DEVELOPER_SCOPE_ENVIRONMENT_MISMATCH');
+    }
+    const actorEmail = String(req.body?.actor?.email || '').trim().toLowerCase();
+    const payload = {
+      ...parsed,
+      metadata: {
+        ...(parsed.metadata || {}),
+        ...(actorEmail ? { submittedByPortalEmail: actorEmail } : {}),
+      },
+    };
     const record = await developerPortalStore.submitScopeRequest(String(req.params.serviceCode || ''), payload);
     return res.status(201).json({ success: true, data: record });
   } catch (e: any) {
@@ -2758,7 +2791,11 @@ app.post('/v1/developer/services/:serviceCode/scope-requests', requireOperatorDi
 
 app.post('/v1/developer/scope-requests/:requestId/decision', requireOperatorDiscoveryAccess, async (req, res) => {
   try {
-    const payload = DeveloperScopeDecisionSchema.parse(req.body || {});
+    const actorEmail = String(req.body?.actor?.email || '').trim().toLowerCase();
+    const payload = DeveloperScopeDecisionSchema.parse({
+      ...(req.body || {}),
+      ...(actorEmail ? { decidedBy: actorEmail } : {}),
+    });
     const result = await developerPortalStore.decideScopeRequest(String(req.params.requestId || ''), payload);
     return res.json({ success: true, data: result });
   } catch (e: any) {

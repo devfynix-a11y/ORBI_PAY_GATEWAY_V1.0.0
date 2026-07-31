@@ -240,6 +240,17 @@ export class DeveloperPortalStore {
       .map((service) => this.publicService(service));
   }
 
+  listScopeRequests(filter?: DeveloperOwnerFilter) {
+    this.assertReady();
+    if (!filter) return [...this.state.scopeRequests];
+    const visibleServiceCodes = new Set(
+      this.state.services
+        .filter((service) => serviceBelongsTo(service, filter))
+        .map((service) => service.serviceCode),
+    );
+    return this.state.scopeRequests.filter((request) => visibleServiceCodes.has(request.serviceCode));
+  }
+
   getService(serviceCode: string) {
     this.assertReady();
     return this.publicService(this.getMutableService(serviceCode));
@@ -382,6 +393,18 @@ export class DeveloperPortalStore {
   async submitScopeRequest(serviceCode: string, request: z.infer<typeof DeveloperScopeRequestSchema>) {
     this.assertReady();
     const service = this.getMutableService(serviceCode);
+    if (!service.environments.includes(request.environment)) {
+      throw new Error('DEVELOPER_SCOPE_ENVIRONMENT_NOT_ENABLED');
+    }
+    if (['suspended', 'rejected', 'archived'].includes(service.status)) {
+      throw new Error('DEVELOPER_SERVICE_NOT_ELIGIBLE_FOR_SCOPE_REQUEST');
+    }
+    if (request.requestedScopes.some((scope) => service.scopesGranted.includes(scope))) {
+      throw new Error('DEVELOPER_SCOPE_ALREADY_GRANTED');
+    }
+    if (request.requestedScopes.some((scope) => service.scopesPending.includes(scope))) {
+      throw new Error('DEVELOPER_SCOPE_ALREADY_PENDING');
+    }
     const now = new Date().toISOString();
     service.scopesPending = unique([...service.scopesPending, ...request.requestedScopes]);
     service.updatedAt = now;
@@ -409,7 +432,14 @@ export class DeveloperPortalStore {
     this.assertReady();
     const record = this.state.scopeRequests.find((item) => item.requestId === requestId);
     if (!record) throw new Error('DEVELOPER_SCOPE_REQUEST_NOT_FOUND');
+    if (record.status !== 'pending_review') throw new Error('DEVELOPER_SCOPE_REQUEST_ALREADY_DECIDED');
     const service = this.getMutableService(record.serviceCode);
+    if (!service.environments.includes(record.environment)) {
+      throw new Error('DEVELOPER_SCOPE_ENVIRONMENT_NOT_ENABLED');
+    }
+    if (['suspended', 'rejected', 'archived'].includes(service.status)) {
+      throw new Error('DEVELOPER_SERVICE_NOT_ELIGIBLE_FOR_SCOPE_DECISION');
+    }
     const now = new Date().toISOString();
     record.status = decision.decision === 'approve' ? 'approved' : 'rejected';
     record.decidedAt = now;

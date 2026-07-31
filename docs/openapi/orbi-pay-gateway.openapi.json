@@ -561,6 +561,89 @@
         }
       }
     },
+    "/v1/developer/services/{serviceCode}/scope-requests": {
+      "post": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Request one or more integration permissions",
+        "operationId": "requestDeveloperPermissions",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [
+          {
+            "name": "serviceCode",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["environment", "requestedScopes", "reason"],
+                "properties": {
+                  "environment": { "enum": ["sandbox", "live"] },
+                  "requestedScopes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "uniqueItems": true,
+                    "items": { "type": "string" }
+                  },
+                  "reason": { "type": "string", "minLength": 10, "maxLength": 1000 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "$ref": "#/components/responses/GenericSuccess" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/developer/scope-requests/{requestId}/decision": {
+      "post": {
+        "tags": ["Developer Control Plane"],
+        "summary": "Approve or reject a permission request",
+        "operationId": "decideDeveloperPermissionRequest",
+        "security": [{ "OperatorKey": [] }],
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["decision", "reason", "decidedBy"],
+                "properties": {
+                  "decision": { "enum": ["approve", "reject"] },
+                  "reason": { "type": "string", "minLength": 10, "maxLength": 1000 },
+                  "decidedBy": { "type": "string", "minLength": 3, "maxLength": 180 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/GenericSuccess" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/v1/developer/integration-health": {
       "get": {
         "tags": ["Developer Control Plane"],

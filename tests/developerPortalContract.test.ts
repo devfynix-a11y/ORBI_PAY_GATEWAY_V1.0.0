@@ -144,6 +144,14 @@ test('scope requests require a reason and known scopes', () => {
       environment: 'live',
     }),
   );
+
+  assert.throws(() =>
+    DeveloperScopeRequestSchema.parse({
+      requestedScopes: ['payments:create', 'payments:create'],
+      reason: 'Duplicate permissions must not enter the operator review queue.',
+      environment: 'sandbox',
+    }),
+  );
 });
 
 test('allowlist updates must include browser origin, redirect, or webhook urls', () => {

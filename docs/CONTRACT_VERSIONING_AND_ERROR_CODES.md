@@ -186,6 +186,10 @@ stable.
 | `DEVELOPER_SCOPE_REQUEST_INVALID` | Scope request failed validation. | Correct requested scopes and reason. |
 | `DEVELOPER_SCOPE_REQUEST_FAILED` | Scope request could not be saved. | Retry or contact operator. |
 | `DEVELOPER_SCOPE_REQUEST_NOT_FOUND` | Scope request ID does not exist. | Refresh scope request list. |
+| `DEVELOPER_SCOPE_ALREADY_GRANTED` | One or more requested permissions are already granted. | Remove granted permissions from the request. |
+| `DEVELOPER_SCOPE_ALREADY_PENDING` | One or more requested permissions are already awaiting review. | Wait for the existing review decision. |
+| `DEVELOPER_SCOPE_ENVIRONMENT_NOT_ENABLED` | The integration is not enabled in the requested environment. | Request environment access before requesting permissions. |
+| `DEVELOPER_SCOPE_REQUEST_ALREADY_DECIDED` | The permission request already has a final decision. | Refresh the request queue; do not submit a second decision. |
 | `DEVELOPER_SCOPE_DECISION_INVALID` | Scope decision payload failed validation. | Correct decision, reason, and operator identity. |
 | `DEVELOPER_SCOPE_DECISION_FAILED` | Scope decision could not be applied. | Retry or investigate operator state. |
 | `DEVELOPER_ALLOWLIST_INVALID` | Redirect/webhook allowlist payload failed validation. | Correct URL list and environment. |
