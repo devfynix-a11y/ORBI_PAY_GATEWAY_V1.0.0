@@ -2283,9 +2283,12 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/services\/[^/]+\/webhook-secrets\/[^/]+\/revoke$/, permission: 'developer:manage_keys', confirmation: true },
 ] as const;
 
-const portalRuleForPath = (path: string) => {
+const portalRuleForPath = (path: string, role: PortalRole) => {
   const matches = portalOperatorPaths.filter((item) => item.pattern.test(path));
-  return matches.find((item) => 'developerAllowed' in item && item.developerAllowed) || matches[0];
+  if (role === 'developer') {
+    return matches.find((item) => 'developerAllowed' in item && item.developerAllowed);
+  }
+  return matches.find((item) => !('developerAllowed' in item && item.developerAllowed)) || matches[0];
 };
 
 const portalResult = (res: express.Response, result: any) => {
@@ -2348,7 +2351,10 @@ app.post('/v1/portal/gateway', requireOperatorDiscoveryAccess, async (req, res) 
   const environment = String(req.body?.environment || 'sandbox') === 'live' ? 'live' : 'sandbox';
   const path = String(req.body?.path || '');
   const method = String(req.body?.method || 'GET').toUpperCase();
-  const rule = portalRuleForPath(path);
+  const baseSession = portalAccessStore.requireSession(req, 'developer');
+  if (!baseSession.ok) return res.status(baseSession.status).json({ success: false, error: baseSession.error });
+
+  const rule = portalRuleForPath(path, baseSession.claims.role);
 
   if (!rule) return sendApiError(res, 403, 'PORTAL_GATEWAY_ACTION_NOT_ALLOWED');
   const allowedMethods = 'methods' in rule ? rule.methods : ['POST', 'PATCH', 'PUT', 'DELETE'];
