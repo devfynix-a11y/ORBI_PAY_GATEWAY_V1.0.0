@@ -2334,12 +2334,24 @@ app.get('/v1/portal/auth/session', requireOperatorDiscoveryAccess, (req, res) =>
   });
 });
 
-app.post('/v1/portal/auth/logout', requireOperatorDiscoveryAccess, (_req, res) => {
-  return res.json({ success: true });
+app.post('/v1/portal/auth/logout', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.logout(req));
 });
 
 app.get('/v1/portal/auth/mfa', requireOperatorDiscoveryAccess, async (req, res) => {
-  return portalResult(res, await portalAccessStore.mfaSetup(req));
+  return portalResult(res, await portalAccessStore.mfaStatus(req));
+});
+
+app.post('/v1/portal/auth/mfa/enroll', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.startMfaEnrollment(req));
+});
+
+app.post('/v1/portal/auth/mfa/verify', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.confirmMfaEnrollment(req, req.body || {}));
+});
+
+app.post('/v1/portal/auth/mfa/step-up', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.stepUpMfa(req, req.body || {}));
 });
 
 app.get('/v1/portal/users', requireOperatorDiscoveryAccess, async (req, res) => {

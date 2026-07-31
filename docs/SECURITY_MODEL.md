@@ -119,6 +119,34 @@ Never commit:
 - internal CA private key
 - generated service certificates
 
+## Developer Portal MFA
+
+The Developer Portal uses a server-controlled TOTP lifecycle:
+
+1. `disabled`: no authenticator factor is active.
+2. `pending`: a one-time QR enrollment has started but has not been verified.
+3. `active`: the factor was verified and is required at sign-in.
+
+Operator and administrator accounts require MFA. An account that requires MFA but has not completed enrollment receives a restricted session that can only be used to complete account security setup. Protected operator actions remain blocked.
+
+TOTP secrets are encrypted with AES-256-GCM using `ORBI_SECRET_ENCRYPTION_KEY`. The QR and manual setup key are returned only during pending enrollment. Once MFA becomes active, the setup key must never be returned by status or profile endpoints.
+
+Every accepted TOTP counter is recorded. Reusing the same code is rejected. Sensitive actions require a recently verified factor:
+
+```env
+PAYMENT_GATEWAY_PORTAL_MFA_FRESHNESS_SECONDS=300
+```
+
+Portal sessions are registered in `pay_gateway_portal_sessions`. A signed token is valid only while its server-side session record remains active. Logout revokes that record, expired records are cleaned up, and MFA step-up rotates the previous session.
+
+Operational rules:
+
+- Never disable MFA merely because a user lost a device.
+- Verify the account owner through the approved support process.
+- Revoke active sessions before resetting a factor.
+- Audit the operator, reason, affected user, and reset time.
+- Never send a TOTP secret, QR payload, password, OTP, or recovery code through logs, email, chat, or support tickets.
+
 ## Fail-Closed Rules
 
 - If Core callback signing secret is missing in production, gateway startup fails.

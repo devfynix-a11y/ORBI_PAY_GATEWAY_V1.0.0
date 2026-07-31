@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { Pool, type PoolClient } from 'pg';
 import type express from 'express';
 import { config } from '../config.js';
+import { decryptSecret, encryptSecret, type EncryptedSecretEnvelope } from '../security/secretVaultCrypto.js';
 
 export type PortalRole = 'developer' | 'operator' | 'admin';
 
@@ -18,6 +19,9 @@ export type PortalAccount = {
   passwordHash: string;
   passwordIterations: number;
   totpSecret?: string;
+  totpSecretEncrypted?: EncryptedSecretEnvelope;
+  mfaStatus?: 'disabled' | 'pending' | 'active';
+  lastTotpCounter?: number;
   mfaRequired?: boolean;
   enabled?: boolean;
   createdAt?: string;
@@ -25,6 +29,7 @@ export type PortalAccount = {
 };
 
 type PortalSessionClaims = {
+  sid: string;
   sub: string;
   username?: string;
   email: string;
@@ -35,6 +40,8 @@ type PortalSessionClaims = {
   permissions: string[];
   mfaVerified: boolean;
   mfaRequired: boolean;
+  mfaStatus: 'disabled' | 'pending' | 'active';
+  mfaAt?: number;
   iat: number;
   exp: number;
 };
@@ -122,6 +129,7 @@ const publicAccount = (account: PortalAccount) => ({
   liveAccess: Boolean(account.liveAccess),
   serviceCodes: Array.isArray(account.serviceCodes) ? account.serviceCodes : [],
   mfaRequired: Boolean(account.mfaRequired),
+  mfaStatus: account.mfaStatus || (account.totpSecret || account.totpSecretEncrypted ? 'active' : 'disabled'),
   enabled: account.enabled !== false,
   createdAt: account.createdAt,
   updatedAt: account.updatedAt,
@@ -165,9 +173,8 @@ const randomBase32 = (bytes = 20): string => {
   return out;
 };
 
-const totpCode = (secret: string, stepOffset = 0): string => {
+const totpAtCounter = (secret: string, counter: number): string => {
   const key = base32Decode(secret);
-  const counter = Math.floor(Date.now() / 30000) + stepOffset;
   const buffer = Buffer.alloc(8);
   buffer.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
   buffer.writeUInt32BE(counter >>> 0, 4);
@@ -176,9 +183,12 @@ const totpCode = (secret: string, stepOffset = 0): string => {
   return ((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).toString().padStart(6, '0');
 };
 
+const currentTotpCounter = (): number => Math.floor(Date.now() / 30000);
+
 export class PortalAccessStore {
   private pool?: Pool;
   private initialized = false;
+  private activeSessions = new Set<string>();
 
   async initialize() {
     if (this.initialized) return;
@@ -186,6 +196,8 @@ export class PortalAccessStore {
     this.pool = new Pool({ connectionString: config.databaseUrl });
     await this.ensureSchema();
     await this.ensureBootstrapAdmin();
+    await this.migrateLegacyTotpSecrets();
+    await this.loadActiveSessions();
     this.initialized = true;
   }
 
@@ -199,20 +211,40 @@ export class PortalAccessStore {
       });
       throw new Error('PORTAL_INVALID_CREDENTIALS');
     }
-    if (!this.verifyTotp(account, input.otp)) {
+    const mfaRequired = portalMfaRequiredFor(account);
+    const mfaActive = account.mfaStatus === 'active';
+    let mfaVerified = false;
+    if (mfaRequired && mfaActive) {
+      const verified = await this.verifyTotp(account, input.otp);
+      if (!verified) {
+        await this.writeAuditEvent(req, {
+          action: 'portal.auth.mfa_failed',
+          target: account.email,
+          metadata: { reason: 'invalid_or_replayed_otp' },
+        });
+        throw new Error('PORTAL_INVALID_MFA_CODE');
+      }
+      mfaVerified = true;
+    } else if (!mfaRequired) {
+      mfaVerified = true;
+    }
+    if (mfaRequired && !mfaActive) {
       await this.writeAuditEvent(req, {
-        action: 'portal.auth.mfa_failed',
+        action: 'portal.auth.mfa_enrollment_required',
         target: account.email,
-        metadata: { reason: 'invalid_otp' },
+        metadata: { mfaStatus: account.mfaStatus || 'disabled' },
       });
-      throw new Error('PORTAL_INVALID_MFA_CODE');
     }
     await this.writeAuditEvent(req, {
       action: 'portal.auth.login',
       target: account.email,
       metadata: { actorEmail: account.email, actorRole: account.role },
     });
-    return { token: this.signSession(account), user: publicAccount(account) };
+    return {
+      ...(await this.issueSession(account, mfaVerified, req)),
+      user: publicAccount(account),
+      mfaEnrollmentRequired: mfaRequired && !mfaActive,
+    };
   }
 
   verifySessionToken(token: string) {
@@ -234,6 +266,9 @@ export class PortalAccessStore {
     }
     if (!claims.exp || Number(claims.exp) <= Math.floor(Date.now() / 1000)) {
       return { ok: false as const, status: 401, error: 'Your session has expired. Sign in again.' };
+    }
+    if (!claims.sid || !this.activeSessions.has(claims.sid)) {
+      return { ok: false as const, status: 401, error: 'Your session is no longer active. Sign in again.' };
     }
     return { ok: true as const, claims };
   }
@@ -263,22 +298,147 @@ export class PortalAccessStore {
     if (!session.claims.mfaVerified) {
       return { ok: false as const, status: 403, error: 'MFA is required for this sensitive action.' };
     }
+    const freshness = Math.max(30, config.portal.mfaFreshnessSeconds);
+    if (!session.claims.mfaAt || Math.floor(Date.now() / 1000) - session.claims.mfaAt > freshness) {
+      return { ok: false as const, status: 403, error: 'Fresh MFA verification is required for this sensitive action.' };
+    }
     return session;
   }
 
-  async mfaSetup(req: express.Request) {
+  async logout(req: express.Request) {
+    const session = this.verifySessionToken(this.readBearer(req));
+    if (!session.ok) return { ok: true as const, data: { revoked: false } };
+    this.activeSessions.delete(session.claims.sid);
+    await this.db().query(
+      `update public.pay_gateway_portal_sessions
+       set revoked_at = now(), revoke_reason = 'user_logout'
+       where session_id = $1 and revoked_at is null`,
+      [session.claims.sid],
+    );
+    await this.writeAuditEvent(undefined, {
+      action: 'portal.auth.logout',
+      target: session.claims.email,
+      metadata: { actorEmail: session.claims.email, actorRole: session.claims.role, sessionId: session.claims.sid },
+    });
+    return { ok: true as const, data: { revoked: true } };
+  }
+
+  async mfaStatus(req: express.Request) {
     const session = this.requireSession(req, 'developer');
     if (!session.ok) return session;
     const account = await this.findAccount(session.claims.email);
-    if (!account?.totpSecret) return { ok: false as const, status: 404, error: 'MFA setup is not configured for this account.' };
+    if (!account) return { ok: false as const, status: 404, error: 'Portal account not found.' };
     return {
       ok: true as const,
       data: {
-        otpauthUri: this.totpSetupUri(account),
-        secret: account.totpSecret,
         mfaRequired: Boolean(account.mfaRequired),
+        status: account.mfaStatus || 'disabled',
       },
     };
+  }
+
+  async startMfaEnrollment(req: express.Request) {
+    const session = this.requireSession(req, 'developer');
+    if (!session.ok) return session;
+    const account = await this.findAccount(session.claims.email);
+    if (!account) return { ok: false as const, status: 404, error: 'Portal account not found.' };
+    if (account.mfaStatus === 'active') {
+      return { ok: false as const, status: 409, error: 'MFA is already active. Reset it through account security support.' };
+    }
+    const secret = randomBase32(20);
+    const encrypted = encryptSecret(secret);
+    await this.db().query(
+      `update public.pay_gateway_portal_users
+       set totp_secret_encrypted = $2, totp_secret = null, mfa_status = 'pending',
+           last_totp_counter = null, updated_at = now()
+       where user_id = $1`,
+      [account.userId, encrypted],
+    );
+    const pendingAccount = { ...account, totpSecret: secret, mfaStatus: 'pending' as const };
+    await this.writeAuditEvent(req, {
+      action: 'portal.auth.mfa_enrollment_started',
+      target: account.email,
+      metadata: { factor: 'totp' },
+    });
+    return {
+      ok: true as const,
+      data: {
+        otpauthUri: this.totpSetupUri(pendingAccount),
+        secret,
+        status: 'pending',
+      },
+    };
+  }
+
+  async confirmMfaEnrollment(req: express.Request, input: Record<string, unknown>) {
+    const session = this.requireSession(req, 'developer');
+    if (!session.ok) return session;
+    const account = await this.findAccount(session.claims.email);
+    if (!account) return { ok: false as const, status: 404, error: 'Portal account not found.' };
+    if (account.mfaStatus !== 'pending' || !account.totpSecretEncrypted) {
+      return { ok: false as const, status: 409, error: 'Start authenticator setup before verifying a code.' };
+    }
+    const verified = this.matchTotp(account, input.code, false);
+    if (!verified) {
+      await this.writeAuditEvent(req, {
+        action: 'portal.auth.mfa_enrollment_failed',
+        target: account.email,
+        metadata: { reason: 'invalid_code' },
+      });
+      return { ok: false as const, status: 400, error: 'The authenticator code is invalid or expired.' };
+    }
+    await this.db().query(
+      `update public.pay_gateway_portal_users
+       set mfa_status = 'active', mfa_required = true, last_totp_counter = $2, updated_at = now()
+       where user_id = $1`,
+      [account.userId, verified.counter],
+    );
+    const activeAccount = { ...account, mfaStatus: 'active' as const, mfaRequired: true, lastTotpCounter: verified.counter };
+    await this.writeAuditEvent(req, {
+      action: 'portal.auth.mfa_enrollment_completed',
+      target: account.email,
+      metadata: { factor: 'totp' },
+    });
+    return {
+      ok: true as const,
+      data: {
+        ...(await this.issueSession(activeAccount, true, req)),
+        user: publicAccount(activeAccount),
+        status: 'active',
+      },
+    };
+  }
+
+  async stepUpMfa(req: express.Request, input: Record<string, unknown>) {
+    const session = this.requireSession(req, 'developer');
+    if (!session.ok) return session;
+    const account = await this.findAccount(session.claims.email);
+    if (!account || account.mfaStatus !== 'active') {
+      return { ok: false as const, status: 409, error: 'Active MFA enrollment is required.' };
+    }
+    const verified = await this.verifyTotp(account, input.code);
+    if (!verified) {
+      await this.writeAuditEvent(req, {
+        action: 'portal.auth.mfa_step_up_failed',
+        target: account.email,
+        metadata: { reason: 'invalid_or_replayed_otp' },
+      });
+      return { ok: false as const, status: 400, error: 'The authenticator code is invalid, expired, or already used.' };
+    }
+    this.activeSessions.delete(session.claims.sid);
+    await this.db().query(
+      `update public.pay_gateway_portal_sessions
+       set revoked_at = now(), revoke_reason = 'mfa_step_up'
+       where session_id = $1 and revoked_at is null`,
+      [session.claims.sid],
+    );
+    const nextSession = await this.issueSession(account, true, req);
+    await this.writeAuditEvent(undefined, {
+      action: 'portal.auth.mfa_step_up_completed',
+      target: account.email,
+      metadata: { actorEmail: account.email, actorRole: account.role, replacedSessionId: session.claims.sid },
+    });
+    return { ok: true as const, data: { ...nextSession, user: publicAccount(account) } };
   }
 
   async listUsers(req: express.Request) {
@@ -324,16 +484,11 @@ export class PortalAccessStore {
     const salt = crypto.randomBytes(16).toString('base64url');
     const iterations = 210000;
     const userId = `portal_user_${crypto.randomUUID()}`;
-    const totpSecret = input.totpSecret
-      ? String(input.totpSecret).trim().replace(/\s+/g, '').toUpperCase()
-      : (Boolean(input.mfaRequired) || ROLE_ORDER[role] >= ROLE_ORDER.operator)
-        ? randomBase32(20)
-        : null;
     const result = await this.db().query(
       `insert into public.pay_gateway_portal_users (
         user_id, username, email, name, role, permissions, live_access, service_codes,
-        password_salt, password_hash, password_iterations, totp_secret, mfa_required, enabled
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true)
+        password_salt, password_hash, password_iterations, totp_secret, mfa_required, mfa_status, enabled
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,null,$12,'disabled',true)
       returning *`,
       [
         userId,
@@ -347,7 +502,6 @@ export class PortalAccessStore {
         salt,
         hashPassword(password, salt, iterations),
         iterations,
-        totpSecret,
         Boolean(input.mfaRequired) || ROLE_ORDER[role] >= ROLE_ORDER.operator,
       ],
     );
@@ -361,7 +515,7 @@ export class PortalAccessStore {
       ok: true as const,
       data: {
         ...publicAccount(account),
-        mfaSetup: account.mfaRequired ? { otpauthUri: this.totpSetupUri(account), secret: account.totpSecret } : undefined,
+        mfaEnrollmentRequired: account.mfaRequired,
       },
     };
   }
@@ -559,13 +713,15 @@ export class PortalAccessStore {
       permissions: Array.isArray(claims.permissions) ? claims.permissions : [],
       mfaRequired: Boolean(claims.mfaRequired),
       mfaVerified: Boolean(claims.mfaVerified),
+      mfaStatus: claims.mfaStatus || 'disabled',
     };
   }
 
-  private signSession(account: PortalAccount) {
+  private signSession(account: PortalAccount, mfaVerified: boolean, sessionId: string) {
     const now = Math.floor(Date.now() / 1000);
     const header = base64UrlJson({ alg: 'HS256', typ: 'ORBI_PORTAL_SESSION' });
     const payload = base64UrlJson({
+      sid: sessionId,
       sub: account.email,
       username: account.username,
       name: account.name || account.email,
@@ -574,13 +730,38 @@ export class PortalAccessStore {
       liveAccess: Boolean(account.liveAccess),
       serviceCodes: Array.isArray(account.serviceCodes) ? account.serviceCodes : [],
       permissions: permissionsForAccount(account),
-      mfaVerified: portalMfaRequiredFor(account) ? Boolean(account.totpSecret) : true,
+      mfaVerified,
       mfaRequired: portalMfaRequiredFor(account),
+      mfaStatus: account.mfaStatus || 'disabled',
+      mfaAt: mfaVerified ? now : undefined,
       iat: now,
       exp: now + config.portal.sessionTtlSeconds,
     });
     const unsigned = `${header}.${payload}`;
     return `${unsigned}.${this.hmac(unsigned)}`;
+  }
+
+  private async issueSession(account: PortalAccount, mfaVerified: boolean, req?: express.Request) {
+    const sessionId = `portal_session_${crypto.randomUUID()}`;
+    const now = Math.floor(Date.now() / 1000);
+    const expiresAt = new Date((now + config.portal.sessionTtlSeconds) * 1000);
+    const token = this.signSession(account, mfaVerified, sessionId);
+    await this.db().query(
+      `insert into public.pay_gateway_portal_sessions (
+        session_id, user_id, token_hash, mfa_verified_at, ip_hash, user_agent_hash, expires_at
+      ) values ($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        sessionId,
+        account.userId,
+        crypto.createHash('sha256').update(token).digest('hex'),
+        mfaVerified ? new Date(now * 1000) : null,
+        req ? hashOptional(req.headers['x-forwarded-for'] || req.socket?.remoteAddress) || null : null,
+        req ? hashOptional(req.headers['user-agent']) || null : null,
+        expiresAt,
+      ],
+    );
+    this.activeSessions.add(sessionId);
+    return { token, expiresAt: expiresAt.toISOString() };
   }
 
   private hmac(value: string) {
@@ -595,19 +776,42 @@ export class PortalAccessStore {
     return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
   }
 
-  private verifyTotp(account: PortalAccount, code: unknown) {
-    if (!portalMfaRequiredFor(account)) return true;
-    if (!account.totpSecret) return false;
+  private async verifyTotp(account: PortalAccount, code: unknown) {
+    const match = this.matchTotp(account, code, true);
+    if (!match) return false;
+    await this.db().query(
+      'update public.pay_gateway_portal_users set last_totp_counter = $2, updated_at = now() where user_id = $1',
+      [account.userId, match.counter],
+    );
+    return true;
+  }
+
+  private matchTotp(account: PortalAccount, code: unknown, rejectReplay: boolean) {
+    const secret = this.totpSecretFor(account);
+    if (!secret) return false;
     const clean = String(code || '').trim();
     if (!/^\d{6}$/.test(clean)) return false;
-    return [-1, 0, 1].some((offset) => totpCode(account.totpSecret!, offset) === clean);
+    const current = currentTotpCounter();
+    for (const offset of [-1, 0, 1]) {
+      const counter = current + offset;
+      if (totpAtCounter(secret, counter) !== clean) continue;
+      if (rejectReplay && account.lastTotpCounter !== undefined && counter <= account.lastTotpCounter) return false;
+      return { counter };
+    }
+    return false;
+  }
+
+  private totpSecretFor(account: PortalAccount) {
+    if (account.totpSecretEncrypted) return decryptSecret(account.totpSecretEncrypted);
+    return account.totpSecret;
   }
 
   private totpSetupUri(account: PortalAccount) {
-    if (!account.totpSecret) return undefined;
+    const secret = this.totpSecretFor(account);
+    if (!secret) return undefined;
     const issuer = encodeURIComponent(config.portal.totpIssuer);
     const label = encodeURIComponent(`${config.portal.totpIssuer}:${account.email}`);
-    return `otpauth://totp/${label}?secret=${encodeURIComponent(account.totpSecret)}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
+    return `otpauth://totp/${label}?secret=${encodeURIComponent(secret)}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
   }
 
   private async findAccount(email: unknown) {
@@ -645,6 +849,36 @@ export class PortalAccessStore {
     );
   }
 
+  private async migrateLegacyTotpSecrets() {
+    const result = await this.db().query(
+      `select user_id, totp_secret
+       from public.pay_gateway_portal_users
+       where totp_secret is not null and trim(totp_secret) <> ''`,
+    );
+    for (const row of result.rows) {
+      const encrypted = encryptSecret(String(row.totp_secret).trim());
+      await this.db().query(
+        `update public.pay_gateway_portal_users
+         set totp_secret_encrypted = $2, totp_secret = null, mfa_status = 'active', updated_at = now()
+         where user_id = $1`,
+        [row.user_id, encrypted],
+      );
+    }
+  }
+
+  private async loadActiveSessions() {
+    const result = await this.db().query(
+      `select session_id
+       from public.pay_gateway_portal_sessions
+       where revoked_at is null and expires_at > now()`,
+    );
+    this.activeSessions = new Set(result.rows.map((row) => String(row.session_id)));
+    await this.db().query(
+      `delete from public.pay_gateway_portal_sessions
+       where expires_at < now() - interval '30 days'`,
+    );
+  }
+
   private requireSensitiveWrite(req: express.Request, action: string) {
     const mfa = this.requireMfa(req, 'admin');
     if (!mfa.ok) return mfa;
@@ -671,6 +905,11 @@ export class PortalAccessStore {
       passwordHash: row.password_hash,
       passwordIterations: Number(row.password_iterations || 210000),
       totpSecret: row.totp_secret || undefined,
+      totpSecretEncrypted: row.totp_secret_encrypted || undefined,
+      mfaStatus: row.mfa_status || (row.totp_secret || row.totp_secret_encrypted ? 'active' : 'disabled'),
+      lastTotpCounter: row.last_totp_counter === null || row.last_totp_counter === undefined
+        ? undefined
+        : Number(row.last_totp_counter),
       mfaRequired: Boolean(row.mfa_required),
       enabled: Boolean(row.enabled),
       createdAt: iso(row.created_at),
@@ -694,7 +933,10 @@ export class PortalAccessStore {
           password_hash text not null,
           password_iterations integer not null default 210000,
           totp_secret text,
+          totp_secret_encrypted jsonb,
           mfa_required boolean not null default false,
+          mfa_status text not null default 'disabled' check (mfa_status in ('disabled','pending','active')),
+          last_totp_counter bigint,
           enabled boolean not null default true,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
@@ -711,12 +953,34 @@ export class PortalAccessStore {
           metadata jsonb not null default '{}'::jsonb,
           created_at timestamptz not null default now()
         );
+        create table if not exists public.pay_gateway_portal_sessions (
+          session_id text primary key,
+          user_id text not null references public.pay_gateway_portal_users(user_id) on delete cascade,
+          token_hash text not null,
+          mfa_verified_at timestamptz,
+          ip_hash text,
+          user_agent_hash text,
+          expires_at timestamptz not null,
+          revoked_at timestamptz,
+          revoke_reason text,
+          created_at timestamptz not null default now()
+        );
+        create index if not exists pay_gateway_portal_sessions_active_idx
+          on public.pay_gateway_portal_sessions (user_id, expires_at desc)
+          where revoked_at is null;
         create index if not exists pay_gateway_portal_audit_created_idx
           on public.pay_gateway_portal_audit_events (created_at desc);
       `);
       await client.query(`
         alter table public.pay_gateway_portal_users
           add column if not exists username text;
+        alter table public.pay_gateway_portal_users
+          add column if not exists totp_secret_encrypted jsonb,
+          add column if not exists mfa_status text not null default 'disabled',
+          add column if not exists last_totp_counter bigint;
+        update public.pay_gateway_portal_users
+          set mfa_status = 'active'
+          where totp_secret is not null and mfa_status = 'disabled';
         update public.pay_gateway_portal_users
           set username = lower(regexp_replace(split_part(email, '@', 1), '[^a-zA-Z0-9_-]+', '_', 'g')) || '_' || substr(md5(email), 1, 8)
           where username is null or trim(username) = '';
