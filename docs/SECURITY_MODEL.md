@@ -131,13 +131,19 @@ Operator and administrator accounts require MFA. An account that requires MFA bu
 
 TOTP secrets are encrypted with AES-256-GCM using `ORBI_SECRET_ENCRYPTION_KEY`. The QR and manual setup key are returned only during pending enrollment. Once MFA becomes active, the setup key must never be returned by status or profile endpoints.
 
-Every accepted TOTP counter is recorded. Reusing the same code is rejected. Sensitive actions require a recently verified factor:
+After successful enrollment, the user receives ten one-time recovery codes. They are displayed once and must be stored in a password manager or encrypted offline storage. Gateway stores only keyed HMAC hashes in `pay_gateway_portal_recovery_codes`; a used code is atomically marked as consumed and cannot be reused.
+
+Every accepted TOTP counter is recorded. Reusing the same authenticator code is rejected. Repeated invalid authenticator or recovery-code attempts temporarily lock MFA verification:
 
 ```env
 PAYMENT_GATEWAY_PORTAL_MFA_FRESHNESS_SECONDS=300
+PAYMENT_GATEWAY_PORTAL_MFA_MAX_FAILED_ATTEMPTS=5
+PAYMENT_GATEWAY_PORTAL_MFA_LOCKOUT_SECONDS=900
 ```
 
 Portal sessions are registered in `pay_gateway_portal_sessions`. A signed token is valid only while its server-side session record remains active. Logout revokes that record, expired records are cleaned up, and MFA step-up rotates the previous session.
+
+An administrator may reset another user's MFA only with `portal:manage_users`, a fresh MFA session, explicit confirmation, and a recorded reason. Reset removes the factor and recovery codes, clears lockout state, revokes every active session for the affected user, and requires fresh enrollment at the next sign-in. Self-reset is rejected.
 
 Operational rules:
 

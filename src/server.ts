@@ -2310,7 +2310,9 @@ app.post('/v1/portal/auth/login', requireOperatorDiscoveryAccess, async (req, re
   } catch (e: any) {
     const error = errorCodeFromException(e, 'PORTAL_AUTH_FAILED');
     const message = error === 'PORTAL_INVALID_MFA_CODE'
-      ? 'Enter the 6-digit authenticator code.'
+      ? 'Enter a valid authenticator or recovery code.'
+      : error === 'PORTAL_MFA_TEMPORARILY_LOCKED'
+        ? 'MFA is temporarily locked after repeated failed attempts. Try again later or contact support.'
       : error === 'PORTAL_INVALID_CREDENTIALS'
         ? 'Invalid email or password.'
         : error;
@@ -2364,6 +2366,10 @@ app.post('/v1/portal/users', requireOperatorDiscoveryAccess, async (req, res) =>
 
 app.patch('/v1/portal/users/:userId', requireOperatorDiscoveryAccess, async (req, res) => {
   return portalResult(res, await portalAccessStore.updateUser(req, String(req.params.userId || ''), req.body || {}));
+});
+
+app.post('/v1/portal/users/:userId/mfa/reset', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.resetUserMfa(req, String(req.params.userId || ''), req.body || {}));
 });
 
 app.get('/v1/portal/audit-events', requireOperatorDiscoveryAccess, async (req, res) => {

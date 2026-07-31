@@ -41,6 +41,8 @@ export const config = {
     authSecret: process.env.PAYMENT_GATEWAY_PORTAL_AUTH_SECRET || '',
     sessionTtlSeconds: Number(process.env.PAYMENT_GATEWAY_PORTAL_SESSION_TTL_SECONDS || 60 * 60 * 8),
     mfaFreshnessSeconds: Number(process.env.PAYMENT_GATEWAY_PORTAL_MFA_FRESHNESS_SECONDS || 300),
+    mfaMaxFailedAttempts: Number(process.env.PAYMENT_GATEWAY_PORTAL_MFA_MAX_FAILED_ATTEMPTS || 5),
+    mfaLockoutSeconds: Number(process.env.PAYMENT_GATEWAY_PORTAL_MFA_LOCKOUT_SECONDS || 900),
     totpIssuer: process.env.PAYMENT_GATEWAY_PORTAL_TOTP_ISSUER || 'ORBI Pay Developer Portal',
     operatorMfaRequired: boolFromEnv(process.env.PAYMENT_GATEWAY_PORTAL_OPERATOR_MFA_REQUIRED, true),
     bootstrapAdmin: {

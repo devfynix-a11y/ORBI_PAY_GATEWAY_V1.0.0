@@ -22,6 +22,8 @@ export type PortalAccount = {
   totpSecretEncrypted?: EncryptedSecretEnvelope;
   mfaStatus?: 'disabled' | 'pending' | 'active';
   lastTotpCounter?: number;
+  mfaFailedAttempts?: number;
+  mfaLockedUntil?: string;
   mfaRequired?: boolean;
   enabled?: boolean;
   createdAt?: string;
@@ -185,6 +187,14 @@ const totpAtCounter = (secret: string, counter: number): string => {
 
 const currentTotpCounter = (): number => Math.floor(Date.now() / 30000);
 
+const normalizeRecoveryCode = (value: unknown): string =>
+  String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+const newRecoveryCode = (): string => {
+  const raw = crypto.randomBytes(8).toString('hex').toUpperCase();
+  return `ORBI-${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}-${raw.slice(12, 16)}`;
+};
+
 export class PortalAccessStore {
   private pool?: Pool;
   private initialized = false;
@@ -201,7 +211,7 @@ export class PortalAccessStore {
     this.initialized = true;
   }
 
-  async login(input: { email?: unknown; password?: unknown; otp?: unknown }, req?: express.Request) {
+  async login(input: { email?: unknown; password?: unknown; otp?: unknown; recoveryCode?: unknown }, req?: express.Request) {
     const account = await this.findAccount(input.email);
     if (!account || !this.verifyPassword(account, String(input.password || ''))) {
       await this.writeAuditEvent(req, {
@@ -215,16 +225,40 @@ export class PortalAccessStore {
     const mfaActive = account.mfaStatus === 'active';
     let mfaVerified = false;
     if (mfaRequired && mfaActive) {
-      const verified = await this.verifyTotp(account, input.otp);
+      if (account.mfaLockedUntil && new Date(account.mfaLockedUntil).getTime() > Date.now()) {
+        await this.writeAuditEvent(req, {
+          action: 'portal.auth.mfa_locked',
+          target: account.email,
+          metadata: { lockedUntil: account.mfaLockedUntil },
+        });
+        throw new Error('PORTAL_MFA_TEMPORARILY_LOCKED');
+      }
+      const usedRecoveryCode = Boolean(normalizeRecoveryCode(input.recoveryCode));
+      const verified = usedRecoveryCode
+        ? await this.consumeRecoveryCode(account, input.recoveryCode)
+        : await this.verifyTotp(account, input.otp);
       if (!verified) {
+        const lock = await this.recordMfaFailure(account);
         await this.writeAuditEvent(req, {
           action: 'portal.auth.mfa_failed',
           target: account.email,
-          metadata: { reason: 'invalid_or_replayed_otp' },
+          metadata: {
+            reason: usedRecoveryCode ? 'invalid_or_used_recovery_code' : 'invalid_or_replayed_otp',
+            failedAttempts: lock.failedAttempts,
+            lockedUntil: lock.lockedUntil,
+          },
         });
-        throw new Error('PORTAL_INVALID_MFA_CODE');
+        throw new Error(lock.lockedUntil ? 'PORTAL_MFA_TEMPORARILY_LOCKED' : 'PORTAL_INVALID_MFA_CODE');
       }
+      await this.clearMfaFailures(account);
       mfaVerified = true;
+      if (usedRecoveryCode) {
+        await this.writeAuditEvent(req, {
+          action: 'portal.auth.recovery_code_used',
+          target: account.email,
+          metadata: { remainingCodes: await this.recoveryCodeCount(account.userId!) },
+        });
+      }
     } else if (!mfaRequired) {
       mfaVerified = true;
     }
@@ -394,6 +428,7 @@ export class PortalAccessStore {
       [account.userId, verified.counter],
     );
     const activeAccount = { ...account, mfaStatus: 'active' as const, mfaRequired: true, lastTotpCounter: verified.counter };
+    const recoveryCodes = await this.replaceRecoveryCodes(account.userId!);
     await this.writeAuditEvent(req, {
       action: 'portal.auth.mfa_enrollment_completed',
       target: account.email,
@@ -405,6 +440,7 @@ export class PortalAccessStore {
         ...(await this.issueSession(activeAccount, true, req)),
         user: publicAccount(activeAccount),
         status: 'active',
+        recoveryCodes,
       },
     };
   }
@@ -644,6 +680,58 @@ export class PortalAccessStore {
     return { ok: true as const, data: publicAccount(this.accountFromRow(result.rows[0])) };
   }
 
+  async resetUserMfa(req: express.Request, userId: string, input: Record<string, unknown>) {
+    const session = this.requirePermission(req, 'portal:manage_users', 'admin');
+    if (!session.ok) return session;
+    const sensitive = this.requireSensitiveWrite(req, 'portal.user.mfa_reset');
+    if (!sensitive.ok) return sensitive;
+    const current = await this.db().query(
+      'select * from public.pay_gateway_portal_users where user_id = $1 limit 1',
+      [userId],
+    );
+    if (!current.rows[0]) return { ok: false as const, status: 404, error: 'Portal user not found.' };
+    const target = this.accountFromRow(current.rows[0]);
+    if (normalizeEmail(target.email) === normalizeEmail(session.claims.email)) {
+      return { ok: false as const, status: 409, error: 'Administrators cannot reset their own MFA factor.' };
+    }
+    const reason = String(input.reason || '').trim();
+    await this.withClient(async (client) => {
+      await client.query('begin');
+      try {
+        await client.query(
+          `update public.pay_gateway_portal_users
+           set totp_secret = null, totp_secret_encrypted = null, mfa_status = 'disabled',
+               last_totp_counter = null, mfa_failed_attempts = 0, mfa_locked_until = null,
+               mfa_required = true, updated_at = now()
+           where user_id = $1`,
+          [userId],
+        );
+        await client.query('delete from public.pay_gateway_portal_recovery_codes where user_id = $1', [userId]);
+        const sessions = await client.query(
+          `update public.pay_gateway_portal_sessions
+           set revoked_at = now(), revoke_reason = 'admin_mfa_reset'
+           where user_id = $1 and revoked_at is null
+           returning session_id`,
+          [userId],
+        );
+        for (const row of sessions.rows) this.activeSessions.delete(String(row.session_id));
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      }
+    });
+    await this.writeAuditEvent(req, {
+      action: 'portal.user.mfa_reset',
+      target: target.email,
+      metadata: { targetUserId: userId, reason },
+    });
+    return {
+      ok: true as const,
+      data: { userId, email: target.email, mfaStatus: 'disabled', sessionsRevoked: true },
+    };
+  }
+
   async listAuditEvents(req: express.Request) {
     const session = this.requirePermission(req, 'portal:read_audit', 'admin');
     if (!session.ok) return session;
@@ -786,6 +874,88 @@ export class PortalAccessStore {
     return true;
   }
 
+  private recoveryCodeHash(userId: string, code: unknown) {
+    return crypto
+      .createHmac('sha256', config.portal.authSecret)
+      .update(`${userId}:${normalizeRecoveryCode(code)}`)
+      .digest('hex');
+  }
+
+  private async replaceRecoveryCodes(userId: string) {
+    const codes = Array.from({ length: 10 }, () => newRecoveryCode());
+    await this.withClient(async (client) => {
+      await client.query('begin');
+      try {
+        await client.query('delete from public.pay_gateway_portal_recovery_codes where user_id = $1', [userId]);
+        for (const code of codes) {
+          await client.query(
+            `insert into public.pay_gateway_portal_recovery_codes (code_id, user_id, code_hash)
+             values ($1,$2,$3)`,
+            [`portal_recovery_${crypto.randomUUID()}`, userId, this.recoveryCodeHash(userId, code)],
+          );
+        }
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      }
+    });
+    return codes;
+  }
+
+  private async consumeRecoveryCode(account: PortalAccount, code: unknown) {
+    const clean = normalizeRecoveryCode(code);
+    if (!/^ORBI[A-F0-9]{16}$/.test(clean) || !account.userId) return false;
+    const result = await this.db().query(
+      `update public.pay_gateway_portal_recovery_codes
+       set used_at = now()
+       where user_id = $1 and code_hash = $2 and used_at is null
+       returning code_id`,
+      [account.userId, this.recoveryCodeHash(account.userId, clean)],
+    );
+    return Boolean(result.rows[0]);
+  }
+
+  private async recoveryCodeCount(userId: string) {
+    const result = await this.db().query(
+      `select count(*)::integer as count
+       from public.pay_gateway_portal_recovery_codes
+       where user_id = $1 and used_at is null`,
+      [userId],
+    );
+    return Number(result.rows[0]?.count || 0);
+  }
+
+  private async recordMfaFailure(account: PortalAccount) {
+    const maxAttempts = Math.max(3, config.portal.mfaMaxFailedAttempts);
+    const lockoutSeconds = Math.max(60, config.portal.mfaLockoutSeconds);
+    const result = await this.db().query(
+      `update public.pay_gateway_portal_users
+       set mfa_failed_attempts = mfa_failed_attempts + 1,
+           mfa_locked_until = case
+             when mfa_failed_attempts + 1 >= $2 then now() + ($3 * interval '1 second')
+             else mfa_locked_until
+           end,
+           updated_at = now()
+       where user_id = $1
+       returning mfa_failed_attempts, mfa_locked_until`,
+      [account.userId, maxAttempts, lockoutSeconds],
+    );
+    return {
+      failedAttempts: Number(result.rows[0]?.mfa_failed_attempts || 0),
+      lockedUntil: iso(result.rows[0]?.mfa_locked_until),
+    };
+  }
+
+  private async clearMfaFailures(account: PortalAccount) {
+    await this.db().query(
+      `update public.pay_gateway_portal_users
+       set mfa_failed_attempts = 0, mfa_locked_until = null, updated_at = now()
+       where user_id = $1`,
+      [account.userId],
+    );
+  }
+
   private matchTotp(account: PortalAccount, code: unknown, rejectReplay: boolean) {
     const secret = this.totpSecretFor(account);
     if (!secret) return false;
@@ -910,6 +1080,8 @@ export class PortalAccessStore {
       lastTotpCounter: row.last_totp_counter === null || row.last_totp_counter === undefined
         ? undefined
         : Number(row.last_totp_counter),
+      mfaFailedAttempts: Number(row.mfa_failed_attempts || 0),
+      mfaLockedUntil: iso(row.mfa_locked_until),
       mfaRequired: Boolean(row.mfa_required),
       enabled: Boolean(row.enabled),
       createdAt: iso(row.created_at),
@@ -937,6 +1109,8 @@ export class PortalAccessStore {
           mfa_required boolean not null default false,
           mfa_status text not null default 'disabled' check (mfa_status in ('disabled','pending','active')),
           last_totp_counter bigint,
+          mfa_failed_attempts integer not null default 0,
+          mfa_locked_until timestamptz,
           enabled boolean not null default true,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
@@ -965,6 +1139,17 @@ export class PortalAccessStore {
           revoke_reason text,
           created_at timestamptz not null default now()
         );
+        create table if not exists public.pay_gateway_portal_recovery_codes (
+          code_id text primary key,
+          user_id text not null references public.pay_gateway_portal_users(user_id) on delete cascade,
+          code_hash text not null,
+          used_at timestamptz,
+          created_at timestamptz not null default now(),
+          unique (user_id, code_hash)
+        );
+        create index if not exists pay_gateway_portal_recovery_codes_unused_idx
+          on public.pay_gateway_portal_recovery_codes (user_id)
+          where used_at is null;
         create index if not exists pay_gateway_portal_sessions_active_idx
           on public.pay_gateway_portal_sessions (user_id, expires_at desc)
           where revoked_at is null;
@@ -977,7 +1162,9 @@ export class PortalAccessStore {
         alter table public.pay_gateway_portal_users
           add column if not exists totp_secret_encrypted jsonb,
           add column if not exists mfa_status text not null default 'disabled',
-          add column if not exists last_totp_counter bigint;
+          add column if not exists last_totp_counter bigint,
+          add column if not exists mfa_failed_attempts integer not null default 0,
+          add column if not exists mfa_locked_until timestamptz;
         update public.pay_gateway_portal_users
           set mfa_status = 'active'
           where totp_secret is not null and mfa_status = 'disabled';
