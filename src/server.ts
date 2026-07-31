@@ -3485,6 +3485,7 @@ app.post('/v1/webhooks/:providerCode', async (req, res) => {
 const start = async () => {
   requireGatewayRuntimeSecrets();
   rejectUnsafeDirectSecretsInProduction();
+  await portalAccessStore.initialize();
   await developerPortalStore.initialize();
   developerPortalStore.onEvent((event) => developerMessagingDispatcher.handleDeveloperEvent(event));
   await serviceAccessTokenRevocationStore.initialize();
