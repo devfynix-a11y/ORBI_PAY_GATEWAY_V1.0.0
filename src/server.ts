@@ -2317,6 +2317,10 @@ app.post('/v1/portal/auth/login', requireOperatorDiscoveryAccess, async (req, re
   }
 });
 
+app.post('/v1/portal/auth/signup', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.signupDeveloper(req, req.body || {}));
+});
+
 app.get('/v1/portal/auth/session', requireOperatorDiscoveryAccess, (req, res) => {
   const session = portalAccessStore.requireSession(req, 'developer');
   if (!session.ok) return res.status(session.status).json({ success: false, error: session.error });

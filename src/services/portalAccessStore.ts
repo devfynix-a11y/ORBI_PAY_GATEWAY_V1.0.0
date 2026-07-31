@@ -90,6 +90,8 @@ const iso = (value: unknown): string | undefined => {
 
 const normalizeEmail = (value: unknown): string => String(value || '').trim().toLowerCase();
 
+const isValidEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
 const hashOptional = (value: unknown): string | undefined => {
   const text = String(value || '').trim();
   if (!text) return undefined;
@@ -327,6 +329,67 @@ export class PortalAccessStore {
       data: {
         ...publicAccount(account),
         mfaSetup: account.mfaRequired ? { otpauthUri: this.totpSetupUri(account), secret: account.totpSecret } : undefined,
+      },
+    };
+  }
+
+  async signupDeveloper(req: express.Request, input: Record<string, unknown>) {
+    const email = normalizeEmail(input.email);
+    const name = String(input.name || '').trim();
+    const password = String(input.password || '').trim();
+    const companyName = String(input.companyName || '').trim();
+    const countryCode = String(input.countryCode || '').trim().toUpperCase();
+    const useCase = String(input.useCase || '').trim();
+
+    if (!isValidEmail(email)) return { ok: false as const, status: 400, error: 'Enter a valid business email address.' };
+    if (name.length < 2) return { ok: false as const, status: 400, error: 'Enter your full name.' };
+    if (password.length < 12) return { ok: false as const, status: 400, error: 'Password must contain at least 12 characters.' };
+    if (companyName.length < 2) return { ok: false as const, status: 400, error: 'Enter your business or project name.' };
+    if (countryCode && !/^[A-Z]{2}$/.test(countryCode)) {
+      return { ok: false as const, status: 400, error: 'Country code must use two letters, for example TZ.' };
+    }
+    if (useCase.length < 12) return { ok: false as const, status: 400, error: 'Tell us briefly what you want to build with ORBI.' };
+    if (input.termsAccepted !== true) return { ok: false as const, status: 400, error: 'Accept the developer terms to continue.' };
+
+    const existing = await this.db().query('select user_id from public.pay_gateway_portal_users where lower(email) = lower($1) limit 1', [email]);
+    if (existing.rows[0]) return { ok: false as const, status: 409, error: 'A developer account already exists for this email.' };
+
+    const salt = crypto.randomBytes(16).toString('base64url');
+    const iterations = 210000;
+    const userId = `portal_user_${crypto.randomUUID()}`;
+    const result = await this.db().query(
+      `insert into public.pay_gateway_portal_users (
+        user_id, email, name, role, permissions, live_access, service_codes,
+        password_salt, password_hash, password_iterations, totp_secret, mfa_required, enabled
+      ) values ($1,$2,$3,'developer',$4,false,'{}',$5,$6,$7,null,false,true)
+      returning *`,
+      [
+        userId,
+        email,
+        name,
+        ROLE_PERMISSIONS.developer,
+        salt,
+        hashPassword(password, salt, iterations),
+        iterations,
+      ],
+    );
+    const account = this.accountFromRow(result.rows[0]);
+    await this.writeAuditEvent(req, {
+      action: 'portal.developer.signup',
+      target: account.email,
+      metadata: {
+        companyName,
+        countryCode: countryCode || undefined,
+        useCase,
+        sandboxOnly: true,
+        createdUserId: userId,
+      },
+    });
+    return {
+      ok: true as const,
+      data: {
+        user: publicAccount(account),
+        nextStep: 'Sign in and start building in sandbox. Request production access when your integration is ready.',
       },
     };
   }
