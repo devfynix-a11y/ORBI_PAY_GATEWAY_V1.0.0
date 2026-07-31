@@ -83,24 +83,41 @@ Future hardening adds mTLS on top of HMAC. HMAC must remain permanently enabled.
 The gateway hardening sequence must be executed step by step:
 
 ```text
-1. Live mTLS cutover after sandbox direct mTLS verification and maintenance
-   approval. Keep HMAC enabled permanently.
-2. Developer Portal backend-only finalization. The portal must call gateway
-   backend APIs only, never databases directly.
-3. Merchant domain/origin governance for browser origins, redirect URLs,
-   callback URLs, and webhook URLs.
-4. Audit correlation across SDK, gateway, Core, hosted challenge, webhooks, and
-   operator actions.
-5. Production webhook replay with signed replay evidence and delivery lineage.
-6. SDK production polish for Node, Python, PHP, and future SDKs.
-7. Open Banking/BaaS compliance support through consent, scopes, revocation,
-   access grants, rate limits, and audit exports.
-8. SaaS control-plane readiness. Developer Portal must persist onboarding and
-   scope queues in Postgres, scope developer sessions to owned services only,
-   and keep operator/admin approvals separated from developer self-service.
-9. Bank-grade enterprise readiness. Complete live mTLS, OAuth/OIDC consent
-   authority, KMS-compatible secret custody, reconciliation evidence, SIEM
-   monitoring, security testing, and bank/provider certification packs.
+1. Secure the Core connection.
+   Gateway must prove its identity to Core. HMAC stays on forever; live mTLS is
+   added after approved smoke evidence.
+2. Keep Developer Portal backend-driven.
+   The portal must call Gateway APIs only. No browser database access, no
+   browser operator keys, no browser service secrets.
+3. Verify developer domains.
+   Website origins, return URLs, callback URLs, and payment update URLs must be
+   registered, approved, environment-scoped, and enforced.
+4. Make every payment easy to trace.
+   SDK, Gateway, Core, hosted challenge, payment updates, operator actions, and
+   reconciliation must carry shared request evidence.
+5. Make payment update replay safe.
+   Replay must be operator-controlled, signed, logged, and visible to the
+   developer/service owner.
+6. Polish SDKs for normal developers.
+   Node, Python, PHP, and future SDKs must hide signing and retry details behind
+   simple methods such as `orbi.transfers.send(...)`.
+7. Finish Open Banking/BaaS controls.
+   Consent, permissions, revocation, access grants, rate limits, audit exports,
+   and certification packs must be production-grade.
+8. Finish SaaS control-plane ownership.
+   Developer sessions must only see their own services. Operator/admin approval
+   must stay separate from developer self-service.
+9. Prepare bank-grade evidence.
+   mTLS, OAuth/OIDC, secret custody, reconciliation reports, monitoring,
+   security tests, and provider certification evidence must be ready for bank
+   review.
+```
+
+Developer-facing path:
+
+```text
+Create account -> build in sandbox -> add trusted domains -> request live access
+-> receive keys -> use SDK -> receive signed payment updates -> reconcile.
 ```
 
 ## Bank-Grade Enterprise Readiness Plan
