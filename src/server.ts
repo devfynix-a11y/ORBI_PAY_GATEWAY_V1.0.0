@@ -73,6 +73,8 @@ import {
 } from './contracts/developerPortalContract.js';
 import { consentReceiptStore } from './services/consentReceiptStore.js';
 import { developerPortalStore } from './services/developerPortalStore.js';
+import { developerMessagingDispatcher } from './services/developerMessagingDispatcher.js';
+import { messagingDeliveryStore } from './services/messagingDeliveryStore.js';
 import { portalAccessStore, type PortalRole } from './services/portalAccessStore.js';
 import { ServiceConsentGuard, subjectIdForConsent } from './services/serviceConsentGuard.js';
 import { scopeForPaymentIntent, scopeForPaymentOperation } from './services/serviceScopePolicy.js';
@@ -2257,6 +2259,7 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/service-applications$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/events$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/webhook-deliveries$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/messaging-deliveries$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/docs-catalog$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/sdk-catalog$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/consent-scopes$/, permission: 'developer:read_all', methods: ['GET'] },
@@ -2272,6 +2275,7 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/service-applications$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/events$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
+  { pattern: /^\/v1\/developer\/messaging-deliveries$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/integration-health$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/scope-requests$/, permission: 'developer:request_access', developerAllowed: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/api-key-rotations$/, permission: 'developer:request_access', developerAllowed: true },
@@ -2406,6 +2410,13 @@ app.post('/v1/portal/gateway', requireOperatorDiscoveryAccess, async (req, res) 
       data: developerPortalStore.listEvents().filter((event) => !event.serviceCode || allowedCodes.has(event.serviceCode)),
     });
   }
+  if (developerScoped && method === 'GET' && path === '/v1/developer/messaging-deliveries') {
+    const services = developerPortalStore.listServices(ownerFilter);
+    return res.json({
+      success: true,
+      data: services.flatMap((service) => messagingDeliveryStore.list({ serviceCode: service.serviceCode })),
+    });
+  }
   if (developerScoped && method === 'GET' && path === '/v1/developer/integration-health') {
     const summaries = (await Promise.all(
       developerPortalStore
@@ -2524,6 +2535,11 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
     : developerAllowed
       ? visibleServices.flatMap((service) => webhookDeliveryStore.list({ serviceCode: service.serviceCode }))
       : [];
+  const visibleMessagingDeliveries = operatorAllowed
+    ? messagingDeliveryStore.list({})
+    : developerAllowed
+      ? visibleServices.flatMap((service) => messagingDeliveryStore.list({ serviceCode: service.serviceCode }))
+      : [];
   const visibleHealth = operatorAllowed
     ? await buildDeveloperHealthSummary()
     : developerAllowed
@@ -2543,6 +2559,7 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
         applications: visibleApplications,
         events: visibleEvents,
         webhookDeliveries: visibleWebhookDeliveries,
+        messagingDeliveries: visibleMessagingDeliveries,
         docs: (operatorAllowed || developerAllowed) ? developerDocsCatalog() : [],
         sdks: (operatorAllowed || developerAllowed) ? developerSdkCatalog() : [],
         consentScopes: (operatorAllowed || developerAllowed) ? consentScopeCatalog() : [],
@@ -3070,6 +3087,17 @@ app.get('/v1/developer/webhook-deliveries', requireOperatorDiscoveryAccess, (req
   });
 });
 
+app.get('/v1/developer/messaging-deliveries', requireOperatorDiscoveryAccess, (req, res) => {
+  const serviceCode = String(req.query.serviceCode || '').trim() || undefined;
+  const eventId = String(req.query.eventId || '').trim() || undefined;
+  const status = String(req.query.status || '').trim() || undefined;
+  const environment = String(req.query.environment || '').trim() || undefined;
+  return res.json({
+    success: true,
+    data: messagingDeliveryStore.list({ serviceCode, eventId, status, environment }),
+  });
+});
+
 app.post('/v1/developer/webhook-deliveries/:deliveryId/replay', requireOperatorDiscoveryAccess, async (req, res) => {
   try {
     const replayRequest = DeveloperWebhookReplayRequestSchema.parse(req.body || {});
@@ -3344,6 +3372,7 @@ const start = async () => {
   requireGatewayRuntimeSecrets();
   rejectUnsafeDirectSecretsInProduction();
   await developerPortalStore.initialize();
+  developerPortalStore.onEvent((event) => developerMessagingDispatcher.handleDeveloperEvent(event));
   await serviceAccessTokenRevocationStore.initialize();
   await operatorIncidentStore.initialize();
   reconciliationEvidenceScheduler.start();

@@ -31,6 +31,8 @@ export const config = {
     process.env.PAYMENT_GATEWAY_CONSENT_RECEIPT_STORE_PATH || 'data/consent-receipts.json',
   webhookDeliveryStorePath:
     process.env.PAYMENT_GATEWAY_WEBHOOK_DELIVERY_STORE_PATH || 'data/webhook-deliveries.json',
+  messagingDeliveryStorePath:
+    process.env.PAYMENT_GATEWAY_MESSAGING_DELIVERY_STORE_PATH || 'data/messaging-deliveries.json',
   operatorDiscoveryApiKey: process.env.PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY || '',
   sandboxTools: {
     enabled: boolFromEnv(process.env.PAYMENT_GATEWAY_OBP_SANDBOX_TOOLS_ENABLED, false),
@@ -85,6 +87,13 @@ export const config = {
     operatorAlertSinkUrl: process.env.PAYMENT_GATEWAY_OPERATOR_ALERT_SINK_URL || '',
     operatorAlertSinkPath: process.env.PAYMENT_GATEWAY_OPERATOR_ALERT_SINK_PATH || '',
     operatorAlertSinkTimeoutMs: Number(process.env.PAYMENT_GATEWAY_OPERATOR_ALERT_SINK_TIMEOUT_MS || 1500),
+  },
+  talk: {
+    enabled: boolFromEnv(process.env.PAYMENT_GATEWAY_ORBI_TALK_ENABLED, false),
+    baseUrl: process.env.ORBI_TALK_GATEWAY_URL || 'https://talk.orbifinancial.com',
+    intentPath: process.env.ORBI_TALK_MESSAGING_INTENT_PATH || '/v1/messaging/intents',
+    apiKey: process.env.ORBI_TALK_GATEWAY_API_KEY || '',
+    timeoutMs: Number(process.env.ORBI_TALK_GATEWAY_TIMEOUT_MS || 2500),
   },
   reconciliation: {
     exportPath: process.env.PAYMENT_GATEWAY_RECONCILIATION_EXPORT_PATH || '',

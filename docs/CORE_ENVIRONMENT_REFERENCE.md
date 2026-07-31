@@ -92,6 +92,10 @@ This reference is for maintainability only. It intentionally does not store secr
 | `ORBI_TALK_GATEWAY_API_KEY` | Runtime | Secret | No | Yes | API key used by backend-to-ORBI-Talk-Gateway requests. |
 | `ORBI_TALK_GATEWAY_USER_ID` | Runtime | Non-secret | No | Yes | Optional ORBI Talk Gateway owner/user identifier. |
 | `ORBI_TALK_GATEWAY_USER_EMAIL` | Runtime | Non-secret | No | Yes | Optional ORBI Talk Gateway owner/user email. |
+| `PAYMENT_GATEWAY_ORBI_TALK_ENABLED` | Runtime | Non-secret | No | Payment gateway only | Enables Pay Gateway messaging intents to ORBI Talk for BaaS security and activity messages. Default `false`. |
+| `ORBI_TALK_MESSAGING_INTENT_PATH` | Runtime | Non-secret | No | Payment gateway only | ORBI Talk endpoint path for signed messaging intents. Default `/v1/messaging/intents`. |
+| `ORBI_TALK_GATEWAY_TIMEOUT_MS` | Runtime | Non-secret | No | Payment gateway only | Timeout for ORBI Talk intent delivery. Default `2500`. |
+| `PAYMENT_GATEWAY_MESSAGING_DELIVERY_STORE_PATH` | Runtime | Non-secret path | No | Payment gateway only | JSON delivery evidence store path for ORBI Talk message delivery attempts. |
 
 ## ORBI Payment Gateway / Payment Bridge
 

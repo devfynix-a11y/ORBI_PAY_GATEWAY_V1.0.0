@@ -111,6 +111,11 @@ ORBI_SHOP_PAY_API_KEY=<sandbox-shop-service-key>
 ORBI_SHOP_PAY_WEBHOOK_SECRET=<sandbox-shop-webhook-secret>
 ORBI_SHOP_PAY_WEBHOOK_URL=https://shop.orbifinancial.com/api/orbi-pay/sandbox/webhooks
 ORBI_SHOP_MERCHANT_ID=<sandbox-shop-merchant-id>
+
+PAYMENT_GATEWAY_ORBI_TALK_ENABLED=false
+ORBI_TALK_GATEWAY_URL=https://talk.orbifinancial.com
+ORBI_TALK_MESSAGING_INTENT_PATH=/v1/messaging/intents
+PAYMENT_GATEWAY_MESSAGING_DELIVERY_STORE_PATH=data/messaging-deliveries.json
 ```
 
 Cloudflare Tunnel routing should be split:

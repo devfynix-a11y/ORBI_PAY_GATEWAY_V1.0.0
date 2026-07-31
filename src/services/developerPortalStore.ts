@@ -92,6 +92,8 @@ type DeveloperPortalActor = {
   email?: string;
 };
 
+export type DeveloperPortalEventHandler = (event: DeveloperPortalEvent) => void | Promise<void>;
+
 const emptyState = (): DeveloperPortalState => ({
   applications: [],
   services: [],
@@ -157,6 +159,7 @@ export class DeveloperPortalStore {
   private state: DeveloperPortalState = emptyState();
   private readonly mode: 'postgres' | 'memory';
   private readonly databaseUrl?: string;
+  private eventHandlers: DeveloperPortalEventHandler[] = [];
   private pool?: Pool;
   private initialized = false;
 
@@ -169,6 +172,10 @@ export class DeveloperPortalStore {
     const store = new DeveloperPortalStore({ mode: 'memory' });
     store.initialized = true;
     return store;
+  }
+
+  onEvent(handler: DeveloperPortalEventHandler) {
+    this.eventHandlers.push(handler);
   }
 
   async initialize() {
@@ -874,14 +881,19 @@ export class DeveloperPortalStore {
       data: Record<string, unknown>;
     },
   ) {
-    this.state.events.unshift({
+    const event = {
       eventId: `dev_evt_${crypto.randomUUID()}`,
       eventType,
       serviceCode: options.serviceCode,
       environment: options.environment,
       occurredAt: new Date().toISOString(),
       data: options.data,
-    });
+    };
+    this.state.events.unshift(event);
+    for (const handler of this.eventHandlers) {
+      Promise.resolve(handler(event)).catch(() => undefined);
+    }
+    return event;
   }
 
   private assertReady() {

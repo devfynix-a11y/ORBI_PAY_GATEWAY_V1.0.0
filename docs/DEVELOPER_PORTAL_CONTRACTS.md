@@ -977,6 +977,46 @@ developer.webhook_secret.issued
 developer.webhook_secret.revoked
 ```
 
+Messaging delivery evidence:
+
+```http
+GET /v1/developer/messaging-deliveries
+GET /v1/developer/messaging-deliveries?serviceCode=orbi-shop&status=failed
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "deliveryId": "msgdel_...",
+      "eventId": "dev_evt_...",
+      "correlationId": "dev_evt_...",
+      "serviceCode": "orbi-shop",
+      "environment": "live",
+      "templateCode": "developer.api_key.emergency_rotated",
+      "channel": "email",
+      "language": "en",
+      "recipientIdentityRef": "ops@merchant.example",
+      "status": "queued",
+      "attempt": 1,
+      "createdAt": "2026-07-30T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+Rules:
+
+```text
+Delivery evidence may show template, channel, recipient reference, status,
+attempt, safe metadata, and timestamps.
+It must never show raw OTP, PIN, password, API key, webhook secret, provider
+credential, authorization token, or signature material.
+```
+
 ## 9. Developer Portal UI Blueprint
 
 Build the first portal UI around these screens:
