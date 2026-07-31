@@ -7,6 +7,7 @@ export type PortalRole = 'developer' | 'operator' | 'admin';
 
 export type PortalAccount = {
   userId?: string;
+  username?: string;
   email: string;
   name: string;
   role: PortalRole;
@@ -25,6 +26,7 @@ export type PortalAccount = {
 
 type PortalSessionClaims = {
   sub: string;
+  username?: string;
   email: string;
   name: string;
   role: PortalRole;
@@ -92,6 +94,10 @@ const normalizeEmail = (value: unknown): string => String(value || '').trim().to
 
 const isValidEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
+const normalizeUsername = (value: unknown): string => String(value || '').trim().toLowerCase();
+
+const isValidUsername = (value: string): boolean => /^[a-z0-9][a-z0-9_-]{2,31}$/.test(value);
+
 const hashOptional = (value: unknown): string | undefined => {
   const text = String(value || '').trim();
   if (!text) return undefined;
@@ -108,6 +114,7 @@ const uniqueStrings = (value: unknown): string[] =>
 
 const publicAccount = (account: PortalAccount) => ({
   userId: account.userId,
+  username: account.username,
   email: account.email,
   name: account.name || account.email,
   role: account.role || 'developer',
@@ -289,6 +296,31 @@ export class PortalAccessStore {
     const password = String(input.password || '').trim();
     if (password.length < 12) return { ok: false as const, status: 400, error: 'Password must contain at least 12 characters.' };
     const role = roleFrom(input.role);
+    const username = normalizeUsername(input.username) || this.generatedUsernameFromEmail(input.email);
+    if (!isValidUsername(username)) {
+      return {
+        ok: false as const,
+        status: 400,
+        error: 'Username must be 3-32 characters and use letters, numbers, underscore, or hyphen.',
+      };
+    }
+    const existingIdentity = await this.db().query(
+      `select user_id, email, username
+       from public.pay_gateway_portal_users
+       where lower(email) = lower($1) or lower(username) = lower($2)
+       limit 1`,
+      [normalizeEmail(input.email), username],
+    );
+    if (existingIdentity.rows[0]) {
+      return {
+        ok: false as const,
+        status: 409,
+        error:
+          normalizeEmail(existingIdentity.rows[0].email) === normalizeEmail(input.email)
+            ? 'A portal account already exists for this email.'
+            : 'That username is already taken.',
+      };
+    }
     const salt = crypto.randomBytes(16).toString('base64url');
     const iterations = 210000;
     const userId = `portal_user_${crypto.randomUUID()}`;
@@ -299,12 +331,13 @@ export class PortalAccessStore {
         : null;
     const result = await this.db().query(
       `insert into public.pay_gateway_portal_users (
-        user_id, email, name, role, permissions, live_access, service_codes,
+        user_id, username, email, name, role, permissions, live_access, service_codes,
         password_salt, password_hash, password_iterations, totp_secret, mfa_required, enabled
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true)
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true)
       returning *`,
       [
         userId,
+        username,
         normalizeEmail(input.email),
         String(input.name || input.email || '').trim(),
         role,
@@ -322,7 +355,7 @@ export class PortalAccessStore {
     await this.writeAuditEvent(req, {
       action: 'portal.user.created',
       target: account.email,
-      metadata: { role, liveAccess: Boolean(input.liveAccess), createdUserId: userId },
+      metadata: { role, username, liveAccess: Boolean(input.liveAccess), createdUserId: userId },
     });
     return {
       ok: true as const,
@@ -335,6 +368,7 @@ export class PortalAccessStore {
 
   async signupDeveloper(req: express.Request, input: Record<string, unknown>) {
     const email = normalizeEmail(input.email);
+    const username = normalizeUsername(input.username);
     const name = String(input.name || '').trim();
     const password = String(input.password || '').trim();
     const companyName = String(input.companyName || '').trim();
@@ -342,6 +376,13 @@ export class PortalAccessStore {
     const useCase = String(input.useCase || '').trim();
 
     if (!isValidEmail(email)) return { ok: false as const, status: 400, error: 'Enter a valid business email address.' };
+    if (!isValidUsername(username)) {
+      return {
+        ok: false as const,
+        status: 400,
+        error: 'Choose a username with 3-32 characters using letters, numbers, underscore, or hyphen.',
+      };
+    }
     if (name.length < 2) return { ok: false as const, status: 400, error: 'Enter your full name.' };
     if (password.length < 12) return { ok: false as const, status: 400, error: 'Password must contain at least 12 characters.' };
     if (companyName.length < 2) return { ok: false as const, status: 400, error: 'Enter your business or project name.' };
@@ -351,20 +392,36 @@ export class PortalAccessStore {
     if (useCase.length < 12) return { ok: false as const, status: 400, error: 'Tell us briefly what you want to build with ORBI.' };
     if (input.termsAccepted !== true) return { ok: false as const, status: 400, error: 'Accept the developer terms to continue.' };
 
-    const existing = await this.db().query('select user_id from public.pay_gateway_portal_users where lower(email) = lower($1) limit 1', [email]);
-    if (existing.rows[0]) return { ok: false as const, status: 409, error: 'A developer account already exists for this email.' };
+    const existing = await this.db().query(
+      `select user_id, email, username
+       from public.pay_gateway_portal_users
+       where lower(email) = lower($1) or lower(username) = lower($2)
+       limit 1`,
+      [email, username],
+    );
+    if (existing.rows[0]) {
+      return {
+        ok: false as const,
+        status: 409,
+        error:
+          normalizeEmail(existing.rows[0].email) === email
+            ? 'A developer account already exists for this email.'
+            : 'That username is already taken.',
+      };
+    }
 
     const salt = crypto.randomBytes(16).toString('base64url');
     const iterations = 210000;
     const userId = `portal_user_${crypto.randomUUID()}`;
     const result = await this.db().query(
       `insert into public.pay_gateway_portal_users (
-        user_id, email, name, role, permissions, live_access, service_codes,
+        user_id, username, email, name, role, permissions, live_access, service_codes,
         password_salt, password_hash, password_iterations, totp_secret, mfa_required, enabled
-      ) values ($1,$2,$3,'developer',$4,false,'{}',$5,$6,$7,null,false,true)
+      ) values ($1,$2,$3,$4,'developer',$5,false,'{}',$6,$7,$8,null,false,true)
       returning *`,
       [
         userId,
+        username,
         email,
         name,
         ROLE_PERMISSIONS.developer,
@@ -379,6 +436,7 @@ export class PortalAccessStore {
       target: account.email,
       metadata: {
         companyName,
+        username,
         countryCode: countryCode || undefined,
         useCase,
         sandboxOnly: true,
@@ -493,6 +551,7 @@ export class PortalAccessStore {
   publicUserFromClaims(claims: PortalSessionClaims) {
     return {
       email: claims.email,
+      username: claims.username,
       name: claims.name,
       role: claims.role,
       liveAccess: Boolean(claims.liveAccess),
@@ -508,6 +567,7 @@ export class PortalAccessStore {
     const header = base64UrlJson({ alg: 'HS256', typ: 'ORBI_PORTAL_SESSION' });
     const payload = base64UrlJson({
       sub: account.email,
+      username: account.username,
       name: account.name || account.email,
       email: account.email,
       role: account.role || 'developer',
@@ -565,12 +625,13 @@ export class PortalAccessStore {
     if (!admin.email || !admin.passwordHash || !admin.passwordSalt) return;
     await this.db().query(
       `insert into public.pay_gateway_portal_users (
-        user_id, email, name, role, permissions, live_access, service_codes,
+        user_id, username, email, name, role, permissions, live_access, service_codes,
         password_salt, password_hash, password_iterations, totp_secret, mfa_required, enabled
-      ) values ($1,$2,$3,$4,$5,true,'{}',$6,$7,$8,$9,$10,true)
+      ) values ($1,$2,$3,$4,$5,$6,true,'{}',$7,$8,$9,$10,$11,true)
       on conflict (email) do nothing`,
       [
         `portal_user_${crypto.createHash('sha256').update(admin.email).digest('hex').slice(0, 24)}`,
+        this.generatedUsernameFromEmail(admin.email),
         normalizeEmail(admin.email),
         admin.name,
         roleFrom(admin.role),
@@ -599,6 +660,7 @@ export class PortalAccessStore {
   private accountFromRow(row: any): PortalAccount {
     return {
       userId: row.user_id,
+      username: row.username,
       email: row.email,
       name: row.name,
       role: roleFrom(row.role),
@@ -621,6 +683,7 @@ export class PortalAccessStore {
       await client.query(`
         create table if not exists public.pay_gateway_portal_users (
           user_id text primary key,
+          username text,
           email text not null unique,
           name text not null,
           role text not null check (role in ('developer','operator','admin')),
@@ -651,7 +714,25 @@ export class PortalAccessStore {
         create index if not exists pay_gateway_portal_audit_created_idx
           on public.pay_gateway_portal_audit_events (created_at desc);
       `);
+      await client.query(`
+        alter table public.pay_gateway_portal_users
+          add column if not exists username text;
+        update public.pay_gateway_portal_users
+          set username = lower(regexp_replace(split_part(email, '@', 1), '[^a-zA-Z0-9_-]+', '_', 'g')) || '_' || substr(md5(email), 1, 8)
+          where username is null or trim(username) = '';
+        alter table public.pay_gateway_portal_users
+          alter column username set not null;
+        create unique index if not exists pay_gateway_portal_users_username_unique_idx
+          on public.pay_gateway_portal_users (lower(username));
+      `);
     });
+  }
+
+  private generatedUsernameFromEmail(email: unknown) {
+    const normalized = normalizeEmail(email);
+    const local = normalized.split('@')[0] || 'user';
+    const clean = local.toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^[_-]+/, '').slice(0, 18) || 'user';
+    return `${clean}_${crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 8)}`;
   }
 
   private readBearer(req: express.Request) {
