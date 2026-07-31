@@ -29,11 +29,19 @@ Keycloak tokens must not be accepted as financial permission by themselves.
 
 ### 1B. Database consent authority
 
-- move consent receipts from local files to Postgres;
-- preserve immutable grant evidence and revocation history;
-- bind consent to subject, client/service, environment, scopes, purpose, and
-  expiry;
-- make revocation atomic and visible across all Gateway replicas.
+Status: complete
+
+- [x] move consent receipts from local files to Postgres;
+- [x] preserve immutable grant evidence and revocation history;
+- [x] bind consent to subject, client/service, environment, scopes, purpose,
+  and expiry;
+- [x] make revocation authoritative across all Gateway replicas.
+
+Evidence:
+
+- `database/migrations/001_pay_gateway_consent_authority.sql`;
+- `npm run consent:readiness`;
+- automated consent, hosted challenge, and service consent guard tests.
 
 ### 1C. Financial token exchange
 

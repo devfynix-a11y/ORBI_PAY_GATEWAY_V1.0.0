@@ -1,7 +1,4 @@
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
-import os from 'node:os';
-import path from 'node:path';
 import test from 'node:test';
 import { ConsentReceiptStore } from '../src/services/consentReceiptStore.js';
 
@@ -30,24 +27,24 @@ const createInput = () => ({
   },
 });
 
-test('consent receipt store persists active and revoked consent evidence', () => {
-  const store = new ConsentReceiptStore(path.join(os.tmpdir(), `orbi-consent-${crypto.randomUUID()}.json`));
-  const receipt = store.create(createInput());
+test('consent receipt store persists active and revoked consent evidence', async () => {
+  const store = ConsentReceiptStore.inMemory();
+  const receipt = await store.create(createInput());
 
   assert.equal(receipt.serviceCode, 'orbi-shop');
-  assert.equal(store.hasActiveConsent({
+  assert.equal(await store.hasActiveConsent({
     serviceCode: 'orbi-shop',
     subjectId: 'user_001',
     scopes: ['payments:create'],
     environment: 'live',
   }), true);
 
-  const revoked = store.revoke(receipt.consentId, {
+  const revoked = await store.revoke(receipt.consentId, {
     revokedBy: 'user_001',
     reason: 'Customer revoked checkout access.',
   });
   assert.equal(revoked.status, 'revoked');
-  assert.equal(store.hasActiveConsent({
+  assert.equal(await store.hasActiveConsent({
     serviceCode: 'orbi-shop',
     subjectId: 'user_001',
     scopes: ['payments:create'],
@@ -55,16 +52,16 @@ test('consent receipt store persists active and revoked consent evidence', () =>
   }), false);
 });
 
-test('consent receipt store exports audit evidence with filters', () => {
-  const store = new ConsentReceiptStore(path.join(os.tmpdir(), `orbi-consent-${crypto.randomUUID()}.json`));
-  const receipt = store.create({
+test('consent receipt store exports audit evidence with filters', async () => {
+  const store = ConsentReceiptStore.inMemory();
+  const receipt = await store.create({
     ...createInput(),
     serviceCode: 'orbi-shop',
     subjectId: 'user_export',
     scopes: ['payments:create'],
   });
 
-  const exportRecord = store.exportAudit({
+  const exportRecord = await store.exportAudit({
     serviceCode: 'orbi-shop',
     subjectId: 'user_export',
     status: 'active',
@@ -82,29 +79,29 @@ test('consent receipt store exports audit evidence with filters', () => {
   });
 });
 
-test('expired consent is not treated as active', () => {
-  const store = new ConsentReceiptStore(path.join(os.tmpdir(), `orbi-consent-${crypto.randomUUID()}.json`));
-  const receipt = store.create({
+test('expired consent is not treated as active', async () => {
+  const store = ConsentReceiptStore.inMemory();
+  const receipt = await store.create({
     ...createInput(),
     expiresAt: '2026-01-01T00:00:00.000Z',
   });
 
-  assert.equal(store.get(receipt.consentId).status, 'expired');
-  assert.equal(store.hasActiveConsent({
+  assert.equal((await store.get(receipt.consentId)).status, 'expired');
+  assert.equal(await store.hasActiveConsent({
     serviceCode: 'orbi-shop',
     subjectId: 'user_001',
     scopes: ['payments:create'],
   }), false);
 });
 
-test('consent evaluation identifies renewal and missing states', () => {
-  const store = new ConsentReceiptStore(path.join(os.tmpdir(), `orbi-consent-${crypto.randomUUID()}.json`));
-  const receipt = store.create({
+test('consent evaluation identifies renewal and missing states', async () => {
+  const store = ConsentReceiptStore.inMemory();
+  const receipt = await store.create({
     ...createInput(),
     expiresAt: '2026-08-01T00:00:00.000Z',
   });
 
-  const expiring = store.evaluateConsent({
+  const expiring = await store.evaluateConsent({
     serviceCode: 'orbi-shop',
     subjectId: 'user_001',
     scopes: ['payments:create'],
@@ -117,7 +114,7 @@ test('consent evaluation identifies renewal and missing states', () => {
   assert.equal(expiring.renewalRequired, true);
   assert.equal(expiring.consentId, receipt.consentId);
 
-  const missing = store.evaluateConsent({
+  const missing = await store.evaluateConsent({
     serviceCode: 'orbi-shop',
     subjectId: 'user_002',
     scopes: ['payments:create'],

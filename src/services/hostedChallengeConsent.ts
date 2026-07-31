@@ -50,7 +50,7 @@ export const hostedChallengeConsentEvidenceHash = (intent: PaymentIntent, challe
     ].join('|'))
     .digest('hex');
 
-export const createConsentReceiptFromHostedChallenge = (
+export const createConsentReceiptFromHostedChallenge = async (
   store: Pick<ConsentReceiptStore, 'create' | 'findByEvidenceHash'>,
   intent: PaymentIntent,
 ) => {
@@ -77,7 +77,7 @@ export const createConsentReceiptFromHostedChallenge = (
   if (scopes.length === 0) return null;
 
   const evidenceHash = hostedChallengeConsentEvidenceHash(intent, challenge);
-  const existing = store.findByEvidenceHash(intent.serviceCode, evidenceHash);
+  const existing = await store.findByEvidenceHash(intent.serviceCode, evidenceHash);
   if (existing) return existing;
 
   const acceptedAt = new Date().toISOString();

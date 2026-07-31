@@ -438,12 +438,12 @@ const requireConsentSubjectAccess = (req: express.Request, res: express.Response
   return next();
 };
 
-const presentConsentReceipt = (receipt: ReturnType<typeof consentReceiptStore.get>, locale: ConsentLocale = 'en') => ({
+const presentConsentReceipt = (receipt: Awaited<ReturnType<typeof consentReceiptStore.get>>, locale: ConsentLocale = 'en') => ({
   ...receipt,
   scopeSummary: consentScopeSummary(receipt.scopes, locale),
 });
 
-const deliverConsentRevocationWebhook = (receipt: ReturnType<typeof consentReceiptStore.revoke>) => {
+const deliverConsentRevocationWebhook = (receipt: Awaited<ReturnType<typeof consentReceiptStore.revoke>>) => {
   const service = payServiceRegistry.get(receipt.serviceCode);
   deliverServiceWebhookPayload(service, {
     eventId: crypto.randomUUID(),
@@ -1339,7 +1339,7 @@ app.post('/v1/challenges/:intentId/respond', async (req, res) => {
     }
     const updated = await responsePromise;
     const consentReceipt = decision === 'approve' && updated.status !== 'failed'
-      ? createConsentReceiptFromHostedChallenge(consentReceiptStore, updated)
+      ? await createConsentReceiptFromHostedChallenge(consentReceiptStore, updated)
       : null;
     const returnUrl = hostedChallengeReturnUrlForIntent(
       updated,
@@ -1847,7 +1847,7 @@ const queryPaySafeBalancesForService = async (req: express.Request, res: express
     const service = res.locals.payService as PayServiceDefinition;
     assertSignedRuntimeRequest(req, res);
     const subjectId = subjectIdForConsent(parsed.data);
-    serviceConsentGuard.assertScopedConsent(service, 'balance:read', {
+    await serviceConsentGuard.assertScopedConsent(service, 'balance:read', {
       subjectId,
       environment: 'live',
     });
@@ -1969,7 +1969,7 @@ app.post('/v1/payment-profiles', requirePayServiceAccess, async (req, res) => {
     assertSignedRuntimeMutationRequest(req, res, body as Record<string, unknown>);
     serviceConsentGuard.assertServiceScopeGranted(service, 'payment_profile:create');
     const subjectId = subjectIdForConsent(body);
-    serviceConsentGuard.assertActiveConsent(service, {
+    await serviceConsentGuard.assertActiveConsent(service, {
       subjectId,
       scopes: body.scopes,
       environment: 'live',
@@ -2652,13 +2652,13 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
   });
 });
 
-app.get('/v1/consents', requireConsentSubjectAccess, (req, res) => {
+app.get('/v1/consents', requireConsentSubjectAccess, async (req, res) => {
   try {
     const query = ConnectedConsentsQuerySchema.parse(req.query);
     const subject = res.locals.consentSubject as { subjectId: string; subjectType: 'user' | 'business' };
     const locale = query.locale || 'en';
-    const receipts = consentReceiptStore
-      .list({ subjectId: subject.subjectId, status: query.status })
+    const receipts = (await consentReceiptStore
+      .list({ subjectId: subject.subjectId, status: query.status }))
       .filter((receipt) => receipt.subjectType === subject.subjectType)
       .map((receipt) => presentConsentReceipt(receipt, locale));
     return res.json({ success: true, data: receipts });
@@ -2669,11 +2669,11 @@ app.get('/v1/consents', requireConsentSubjectAccess, (req, res) => {
   }
 });
 
-app.get('/v1/consents/:consentId', requireConsentSubjectAccess, (req, res) => {
+app.get('/v1/consents/:consentId', requireConsentSubjectAccess, async (req, res) => {
   try {
     const query = ConnectedConsentsQuerySchema.pick({ locale: true }).parse(req.query);
     const subject = res.locals.consentSubject as { subjectId: string; subjectType: 'user' | 'business' };
-    const receipt = consentReceiptStore.get(String(req.params.consentId || ''));
+    const receipt = await consentReceiptStore.get(String(req.params.consentId || ''));
     if (receipt.subjectId !== subject.subjectId || receipt.subjectType !== subject.subjectType) {
       return sendApiError(res, 404, 'CONSENT_RECEIPT_NOT_FOUND');
     }
@@ -2685,10 +2685,10 @@ app.get('/v1/consents/:consentId', requireConsentSubjectAccess, (req, res) => {
   }
 });
 
-app.post('/v1/consents/:consentId/revoke', requireConsentSubjectAccess, (req, res) => {
+app.post('/v1/consents/:consentId/revoke', requireConsentSubjectAccess, async (req, res) => {
   try {
     const subject = res.locals.consentSubject as { subjectId: string; subjectType: 'user' | 'business' };
-    const existing = consentReceiptStore.get(String(req.params.consentId || ''));
+    const existing = await consentReceiptStore.get(String(req.params.consentId || ''));
     if (existing.subjectId !== subject.subjectId || existing.subjectType !== subject.subjectType) {
       return sendApiError(res, 404, 'CONSENT_RECEIPT_NOT_FOUND');
     }
@@ -2697,7 +2697,7 @@ app.post('/v1/consents/:consentId/revoke', requireConsentSubjectAccess, (req, re
       revokedBy: subject.subjectId,
       reason: String(req.body?.reason || 'Subject revoked connected service consent.'),
     });
-    const receipt = consentReceiptStore.revoke(existing.consentId, payload);
+    const receipt = await consentReceiptStore.revoke(existing.consentId, payload);
     deliverConsentRevocationWebhook(receipt);
     return res.json({ success: true, data: presentConsentReceipt(receipt, existing.context.locale || 'en') });
   } catch (e: any) {
@@ -2966,10 +2966,10 @@ app.get('/v1/developer/events', requireOperatorDiscoveryAccess, (req, res) => {
   return res.json({ success: true, data: developerPortalStore.listEvents(serviceCode) });
 });
 
-app.post('/v1/developer/consent-receipts', requireOperatorDiscoveryAccess, (req, res) => {
+app.post('/v1/developer/consent-receipts', requireOperatorDiscoveryAccess, async (req, res) => {
   try {
     const payload = ConsentReceiptCreateSchema.parse(req.body || {});
-    const receipt = consentReceiptStore.create(payload);
+    const receipt = await consentReceiptStore.create(payload);
     return res.status(201).json({ success: true, data: receipt });
   } catch (e: any) {
     if (e instanceof z.ZodError) return sendValidationError(res, 'CONSENT_RECEIPT_INVALID', e.issues);
@@ -2978,32 +2978,32 @@ app.post('/v1/developer/consent-receipts', requireOperatorDiscoveryAccess, (req,
   }
 });
 
-app.get('/v1/developer/consent-receipts', requireOperatorDiscoveryAccess, (req, res) => {
+app.get('/v1/developer/consent-receipts', requireOperatorDiscoveryAccess, async (req, res) => {
   const serviceCode = String(req.query.serviceCode || '').trim() || undefined;
   const subjectId = String(req.query.subjectId || '').trim() || undefined;
   const status = String(req.query.status || '').trim() || undefined;
   return res.json({
     success: true,
-    data: consentReceiptStore.list({ serviceCode, subjectId, status }),
+    data: await consentReceiptStore.list({ serviceCode, subjectId, status }),
   });
 });
 
-app.get('/v1/developer/consent-receipts/export', requireOperatorDiscoveryAccess, (req, res) => {
+app.get('/v1/developer/consent-receipts/export', requireOperatorDiscoveryAccess, async (req, res) => {
   const serviceCode = String(req.query.serviceCode || '').trim() || undefined;
   const subjectId = String(req.query.subjectId || '').trim() || undefined;
   const status = String(req.query.status || '').trim() || undefined;
   const requestedBy = String(req.query.requestedBy || '').trim() || req.auditContext?.requestId;
   return res.json({
     success: true,
-    data: consentReceiptStore.exportAudit({ serviceCode, subjectId, status, requestedBy }),
+    data: await consentReceiptStore.exportAudit({ serviceCode, subjectId, status, requestedBy }),
   });
 });
 
-app.get('/v1/developer/consent-receipts/:consentId', requireOperatorDiscoveryAccess, (req, res) => {
+app.get('/v1/developer/consent-receipts/:consentId', requireOperatorDiscoveryAccess, async (req, res) => {
   try {
     return res.json({
       success: true,
-      data: consentReceiptStore.get(String(req.params.consentId || '')),
+      data: await consentReceiptStore.get(String(req.params.consentId || '')),
     });
   } catch (e: any) {
     const error = errorCodeFromException(e, 'CONSENT_RECEIPT_NOT_FOUND');
@@ -3011,10 +3011,10 @@ app.get('/v1/developer/consent-receipts/:consentId', requireOperatorDiscoveryAcc
   }
 });
 
-app.post('/v1/developer/consent-receipts/:consentId/revoke', requireOperatorDiscoveryAccess, (req, res) => {
+app.post('/v1/developer/consent-receipts/:consentId/revoke', requireOperatorDiscoveryAccess, async (req, res) => {
   try {
     const payload = ConsentRevocationSchema.parse(req.body || {});
-    const receipt = consentReceiptStore.revoke(String(req.params.consentId || ''), payload);
+    const receipt = await consentReceiptStore.revoke(String(req.params.consentId || ''), payload);
     deliverConsentRevocationWebhook(receipt);
     return res.json({ success: true, data: receipt });
   } catch (e: any) {
@@ -3168,7 +3168,7 @@ app.get('/v1/developer/consent-scopes', requireOperatorDiscoveryAccess, (_req, r
   return res.json({ success: true, data: consentScopeCatalog() });
 });
 
-app.get('/v1/developer/consent-status', requireOperatorDiscoveryAccess, (req, res) => {
+app.get('/v1/developer/consent-status', requireOperatorDiscoveryAccess, async (req, res) => {
   try {
     const query = ConsentStatusQuerySchema.parse(req.query);
     const scopes = Array.isArray(query.scopes)
@@ -3176,7 +3176,7 @@ app.get('/v1/developer/consent-status', requireOperatorDiscoveryAccess, (req, re
       : query.scopes.split(',').map((scope) => scope.trim()).filter(Boolean);
     return res.json({
       success: true,
-      data: consentReceiptStore.evaluateConsent({
+      data: await consentReceiptStore.evaluateConsent({
         serviceCode: query.serviceCode,
         subjectId: query.subjectId,
         scopes,
@@ -3487,6 +3487,7 @@ const start = async () => {
   rejectUnsafeDirectSecretsInProduction();
   await portalAccessStore.initialize();
   await developerPortalStore.initialize();
+  await consentReceiptStore.initialize();
   developerPortalStore.onEvent((event) => developerMessagingDispatcher.handleDeveloperEvent(event));
   await serviceAccessTokenRevocationStore.initialize();
   await operatorIncidentStore.initialize();

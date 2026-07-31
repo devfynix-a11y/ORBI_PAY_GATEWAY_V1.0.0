@@ -24,7 +24,7 @@ export class ServiceConsentGuard {
     }
   }
 
-  assertActiveConsent(
+  async assertActiveConsent(
     service: PayServiceDefinition,
     input: {
       subjectId: string;
@@ -35,7 +35,7 @@ export class ServiceConsentGuard {
     const portalService = this.getPortalServiceIfConfigured(service);
     if (!portalService) return;
     if (!input.subjectId) throw new Error('CONSENT_SUBJECT_REQUIRED');
-    const hasConsent = this.consentStore.hasActiveConsent({
+    const hasConsent = await this.consentStore.hasActiveConsent({
       serviceCode: service.code,
       subjectId: input.subjectId,
       scopes: input.scopes,
@@ -44,7 +44,7 @@ export class ServiceConsentGuard {
     if (!hasConsent) throw new Error('CONSENT_REQUIRED');
   }
 
-  assertScopedConsent(
+  async assertScopedConsent(
     service: PayServiceDefinition,
     scope: string,
     input: {
@@ -53,7 +53,7 @@ export class ServiceConsentGuard {
     },
   ) {
     this.assertServiceScopeGranted(service, scope);
-    this.assertActiveConsent(service, {
+    await this.assertActiveConsent(service, {
       subjectId: input.subjectId,
       scopes: [scope],
       environment: input.environment,

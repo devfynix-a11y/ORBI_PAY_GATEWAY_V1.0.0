@@ -35,30 +35,30 @@ const portalStore = (scopesGranted: string[]) => ({
 
 test('service consent guard requires granted portal scope', () => {
   const guard = new ServiceConsentGuard(portalStore(['payments:create']) as any, {
-    hasActiveConsent: () => true,
+    hasActiveConsent: async () => true,
   });
 
   assert.throws(() => guard.assertServiceScopeGranted(service, 'balance:read'), /PAY_SERVICE_SCOPE_NOT_GRANTED/);
   assert.doesNotThrow(() => guard.assertServiceScopeGranted(service, 'payments:create'));
 });
 
-test('service consent guard requires active consent for scoped subject', () => {
+test('service consent guard requires active consent for scoped subject', async () => {
   const guard = new ServiceConsentGuard(portalStore(['balance:read']) as any, {
-    hasActiveConsent: (input) =>
+    hasActiveConsent: async (input) =>
       input.serviceCode === 'orbi-shop' &&
       input.subjectId === 'user_001' &&
       input.scopes.includes('balance:read') &&
       input.environment === 'live',
   });
 
-  assert.doesNotThrow(() =>
+  await assert.doesNotReject(() =>
     guard.assertScopedConsent(service, 'balance:read', {
       subjectId: 'user_001',
       environment: 'live',
     }),
   );
 
-  assert.throws(() =>
+  await assert.rejects(() =>
     guard.assertScopedConsent(service, 'balance:read', {
       subjectId: 'user_002',
       environment: 'live',
@@ -66,12 +66,12 @@ test('service consent guard requires active consent for scoped subject', () => {
   /CONSENT_REQUIRED/);
 });
 
-test('service consent guard requires consent subject identity', () => {
+test('service consent guard requires consent subject identity', async () => {
   const guard = new ServiceConsentGuard(portalStore(['balance:read']) as any, {
-    hasActiveConsent: () => false,
+    hasActiveConsent: async () => false,
   });
 
-  assert.throws(() =>
+  await assert.rejects(() =>
     guard.assertScopedConsent(service, 'balance:read', {
       subjectId: '',
       environment: 'live',

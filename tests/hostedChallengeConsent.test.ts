@@ -1,7 +1,4 @@
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
-import os from 'node:os';
-import path from 'node:path';
 import test from 'node:test';
 import { createConsentReceiptFromHostedChallenge } from '../src/services/hostedChallengeConsent.js';
 import { ConsentReceiptStore } from '../src/services/consentReceiptStore.js';
@@ -37,9 +34,9 @@ const intent = (metadata: Record<string, unknown> = {}): PaymentIntent => ({
   },
 });
 
-test('hosted challenge approval creates consent receipt from explicit scopes', () => {
-  const store = new ConsentReceiptStore(path.join(os.tmpdir(), `orbi-consent-hosted-${crypto.randomUUID()}.json`));
-  const receipt = createConsentReceiptFromHostedChallenge(store, intent({
+test('hosted challenge approval creates consent receipt from explicit scopes', async () => {
+  const store = ConsentReceiptStore.inMemory();
+  const receipt = await createConsentReceiptFromHostedChallenge(store, intent({
     consentScopes: ['payments:create'],
     consentPurpose: 'Allow ORBI Shop checkout payment.',
     locale: 'sw',
@@ -53,20 +50,20 @@ test('hosted challenge approval creates consent receipt from explicit scopes', (
   assert.equal(receipt?.evidence.challengeId, 'challenge_001');
 });
 
-test('hosted challenge consent creation is idempotent by evidence hash', () => {
-  const store = new ConsentReceiptStore(path.join(os.tmpdir(), `orbi-consent-hosted-${crypto.randomUUID()}.json`));
+test('hosted challenge consent creation is idempotent by evidence hash', async () => {
+  const store = ConsentReceiptStore.inMemory();
   const payload = intent({ consentScopes: ['payments:create'] });
-  const first = createConsentReceiptFromHostedChallenge(store, payload);
-  const second = createConsentReceiptFromHostedChallenge(store, payload);
+  const first = await createConsentReceiptFromHostedChallenge(store, payload);
+  const second = await createConsentReceiptFromHostedChallenge(store, payload);
 
   assert.equal(first?.consentId, second?.consentId);
-  assert.equal(store.list({ serviceCode: 'orbi-shop' }).length, 1);
+  assert.equal((await store.list({ serviceCode: 'orbi-shop' })).length, 1);
 });
 
-test('hosted challenge consent skips missing subject or scopes', () => {
-  const store = new ConsentReceiptStore(path.join(os.tmpdir(), `orbi-consent-hosted-${crypto.randomUUID()}.json`));
-  const withoutScopes = createConsentReceiptFromHostedChallenge(store, intent({}));
-  const withoutSubject = createConsentReceiptFromHostedChallenge(store, {
+test('hosted challenge consent skips missing subject or scopes', async () => {
+  const store = ConsentReceiptStore.inMemory();
+  const withoutScopes = await createConsentReceiptFromHostedChallenge(store, intent({}));
+  const withoutSubject = await createConsentReceiptFromHostedChallenge(store, {
     ...intent({ consentScopes: ['payments:create'] }),
     customer: undefined,
   });

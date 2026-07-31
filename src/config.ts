@@ -27,8 +27,6 @@ export const config = {
   serviceRegistryPath: process.env.PAYMENT_GATEWAY_SERVICE_REGISTRY_PATH || 'config/services.json',
   databaseUrl: process.env.DATABASE_URL || '',
   secretEncryptionKey: process.env.ORBI_SECRET_ENCRYPTION_KEY || '',
-  consentReceiptStorePath:
-    process.env.PAYMENT_GATEWAY_CONSENT_RECEIPT_STORE_PATH || 'data/consent-receipts.json',
   webhookDeliveryStorePath:
     process.env.PAYMENT_GATEWAY_WEBHOOK_DELIVERY_STORE_PATH || 'data/webhook-deliveries.json',
   messagingDeliveryStorePath:

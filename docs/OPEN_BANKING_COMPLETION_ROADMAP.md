@@ -40,6 +40,11 @@ Existing:
   issuer
 - readiness evidence for HTTPS endpoints, exact issuer, PKCE `S256`,
   asymmetric signing, and active signing keys
+- PostgreSQL-backed consent authority with relational lookup fields,
+  validated receipt evidence, indexed subject access, idempotent evidence
+  hashes, and fail-closed startup
+- asynchronous consent enforcement so financial decisions always await the
+  authoritative store
 
 Remaining:
 
@@ -70,6 +75,10 @@ Evidence:
   2026-07-31;
 - Gateway build and all 117 automated tests passed after the readiness control
   was added.
+- `npm run consent:readiness` passed create, authorize, revoke, and deny
+  against the production PostgreSQL engine on 2026-07-31;
+- migration `database/migrations/001_pay_gateway_consent_authority.sql` was
+  applied successfully and temporary readiness evidence was removed.
 
 ## 2. Live mTLS And Transport Trust
 
