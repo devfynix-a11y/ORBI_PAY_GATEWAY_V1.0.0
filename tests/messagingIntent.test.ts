@@ -3,6 +3,7 @@ import test from 'node:test';
 import { MessagingIntentSchema } from '../src/contracts/messagingIntentContract.js';
 import { DeveloperMessagingDispatcher } from '../src/services/developerMessagingDispatcher.js';
 import { MessagingDeliveryStore } from '../src/services/messagingDeliveryStore.js';
+import { OrbiTalkClient } from '../src/services/orbiTalkClient.js';
 
 test('messaging intent contract carries safe delivery context', () => {
   const intent = MessagingIntentSchema.parse({
@@ -110,4 +111,48 @@ test('developer messaging dispatcher preserves sandbox and live environment in d
 
   assert.equal(deliveryStore.list({ serviceCode: 'sandbox-service' })[0].environment, 'sandbox');
   assert.equal(deliveryStore.list({ serviceCode: 'live-service' })[0].environment, 'live');
+});
+
+test('ORBI Talk client maps verification intent to authenticated email delivery', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedUrl = '';
+  let capturedHeaders: Record<string, string> = {};
+  let capturedBody: Record<string, unknown> = {};
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    capturedUrl = String(input);
+    capturedHeaders = init?.headers as Record<string, string>;
+    capturedBody = JSON.parse(String(init?.body || '{}'));
+    return new Response(JSON.stringify({ success: true, messageId: 'talk_email_001' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+  try {
+    const client = new OrbiTalkClient({
+      enabled: true,
+      baseUrl: 'https://talk.example',
+      intentPath: '/api/send-email',
+      apiKey: 'test-talk-key',
+      ownerEmail: 'gateway@example.com',
+      timeoutMs: 1000,
+    });
+    const result = await client.sendIntent({
+      eventId: 'portal_email_verification_001',
+      correlationId: 'portal_email_verification_001',
+      templateCode: 'developer.portal.email_verification',
+      recipientIdentityRef: 'developer@example.com',
+      language: 'en',
+      channel: 'email',
+      environment: 'sandbox',
+      safeMetadata: { verificationCode: '482913', expiresMinutes: 15 },
+    });
+    assert.equal(result.status, 'queued');
+    assert.equal(capturedUrl, 'https://talk.example/api/send-email');
+    assert.equal(capturedHeaders['x-api-key'], 'test-talk-key');
+    assert.equal(capturedBody.recipient, 'developer@example.com');
+    assert.equal(capturedBody.requestId, 'portal_email_verification_001');
+    assert.match(String(capturedBody.body), /482913/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

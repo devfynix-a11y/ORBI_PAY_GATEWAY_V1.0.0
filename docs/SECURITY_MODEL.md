@@ -151,7 +151,13 @@ Operational rules:
 - Verify the account owner through the approved support process.
 - Revoke active sessions before resetting a factor.
 - Audit the operator, reason, affected user, and reset time.
-- Never send a TOTP secret, QR payload, password, OTP, or recovery code through logs, email, chat, or support tickets.
+- Never send a TOTP secret, QR payload, password, authenticator code, or recovery code through logs, email, chat, or support tickets.
+
+## Developer Email Verification
+
+New developer accounts cannot create a portal session until their email address is verified. Gateway creates a six-digit, 15-minute verification code and stores only a keyed HMAC hash. The clear code is sent directly to ORBI Talk over authenticated server-to-server transport and is never written to portal audit metadata or the messaging delivery evidence store.
+
+Only the newest unconsumed code is valid. A code is consumed atomically, expires automatically, and stops accepting attempts after five failures. Resend requests use a server-side cooldown and return a neutral response so callers cannot discover whether an email address is registered. Existing accounts are marked verified during the additive schema migration; newly registered accounts explicitly begin unverified.
 
 ## Fail-Closed Rules
 

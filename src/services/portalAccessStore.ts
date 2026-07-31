@@ -3,6 +3,7 @@ import { Pool, type PoolClient } from 'pg';
 import type express from 'express';
 import { config } from '../config.js';
 import { decryptSecret, encryptSecret, type EncryptedSecretEnvelope } from '../security/secretVaultCrypto.js';
+import { orbiTalkClient } from './orbiTalkClient.js';
 
 export type PortalRole = 'developer' | 'operator' | 'admin';
 
@@ -24,6 +25,7 @@ export type PortalAccount = {
   lastTotpCounter?: number;
   mfaFailedAttempts?: number;
   mfaLockedUntil?: string;
+  emailVerifiedAt?: string;
   mfaRequired?: boolean;
   enabled?: boolean;
   createdAt?: string;
@@ -133,6 +135,7 @@ const publicAccount = (account: PortalAccount) => ({
   mfaRequired: Boolean(account.mfaRequired),
   mfaStatus: account.mfaStatus || (account.totpSecret || account.totpSecretEncrypted ? 'active' : 'disabled'),
   enabled: account.enabled !== false,
+  emailVerified: Boolean(account.emailVerifiedAt),
   createdAt: account.createdAt,
   updatedAt: account.updatedAt,
 });
@@ -220,6 +223,13 @@ export class PortalAccessStore {
         metadata: { reason: 'invalid_credentials' },
       });
       throw new Error('PORTAL_INVALID_CREDENTIALS');
+    }
+    if (!account.emailVerifiedAt) {
+      await this.writeAuditEvent(req, {
+        action: 'portal.auth.email_verification_required',
+        target: account.email,
+      });
+      throw new Error('PORTAL_EMAIL_VERIFICATION_REQUIRED');
     }
     const mfaRequired = portalMfaRequiredFor(account);
     const mfaActive = account.mfaStatus === 'active';
@@ -606,8 +616,9 @@ export class PortalAccessStore {
     const result = await this.db().query(
       `insert into public.pay_gateway_portal_users (
         user_id, username, email, name, role, permissions, live_access, service_codes,
-        password_salt, password_hash, password_iterations, totp_secret, mfa_required, enabled
-      ) values ($1,$2,$3,$4,'developer',$5,false,'{}',$6,$7,$8,null,false,true)
+        password_salt, password_hash, password_iterations, totp_secret, mfa_required, enabled,
+        email_verified_at
+      ) values ($1,$2,$3,$4,'developer',$5,false,'{}',$6,$7,$8,null,false,true,null)
       returning *`,
       [
         userId,
@@ -621,6 +632,7 @@ export class PortalAccessStore {
       ],
     );
     const account = this.accountFromRow(result.rows[0]);
+    const delivery = await this.issueEmailVerification(account, req, false);
     await this.writeAuditEvent(req, {
       action: 'portal.developer.signup',
       target: account.email,
@@ -637,7 +649,93 @@ export class PortalAccessStore {
       ok: true as const,
       data: {
         user: publicAccount(account),
-        nextStep: 'Sign in and start building in sandbox. Request production access when your integration is ready.',
+        verificationRequired: true,
+        verificationDelivery: delivery.status,
+        nextStep: delivery.status === 'queued' || delivery.status === 'sent'
+          ? 'Enter the verification code sent to your email.'
+          : 'Your account was created, but the verification email could not be sent. Use Resend code to try again.',
+      },
+    };
+  }
+
+  async verifyDeveloperEmail(req: express.Request, input: Record<string, unknown>) {
+    const email = normalizeEmail(input.email);
+    const code = String(input.code || '').replace(/\D/g, '');
+    if (!isValidEmail(email) || !/^\d{6}$/.test(code)) {
+      return { ok: false as const, status: 400, error: 'Enter the email and 6-digit verification code.' };
+    }
+    const account = await this.findAccount(email);
+    if (!account) return { ok: false as const, status: 400, error: 'The verification code is invalid or expired.' };
+    if (account.emailVerifiedAt) {
+      return { ok: true as const, data: { email, verified: true, alreadyVerified: true } };
+    }
+    const codeHash = this.emailVerificationHash(account.userId!, code);
+    const result = await this.db().query(
+      `update public.pay_gateway_portal_email_verifications
+       set consumed_at = now(), attempts = attempts + 1
+       where verification_id = (
+         select verification_id
+         from public.pay_gateway_portal_email_verifications
+         where user_id = $1 and consumed_at is null and expires_at > now()
+         order by created_at desc
+         limit 1
+       )
+       and code_hash = $2 and attempts < 5
+       returning verification_id`,
+      [account.userId, codeHash],
+    );
+    if (!result.rows[0]) {
+      await this.db().query(
+        `update public.pay_gateway_portal_email_verifications
+         set attempts = attempts + 1
+         where verification_id = (
+           select verification_id
+           from public.pay_gateway_portal_email_verifications
+           where user_id = $1 and consumed_at is null and expires_at > now()
+           order by created_at desc limit 1
+         )`,
+        [account.userId],
+      );
+      await this.writeAuditEvent(req, {
+        action: 'portal.developer.email_verification_failed',
+        target: email,
+        metadata: { reason: 'invalid_expired_or_attempt_limit' },
+      });
+      return { ok: false as const, status: 400, error: 'The verification code is invalid or expired.' };
+    }
+    await this.db().query(
+      'update public.pay_gateway_portal_users set email_verified_at = now(), updated_at = now() where user_id = $1',
+      [account.userId],
+    );
+    await this.writeAuditEvent(req, {
+      action: 'portal.developer.email_verified',
+      target: email,
+      metadata: { userId: account.userId },
+    });
+    return { ok: true as const, data: { email, verified: true } };
+  }
+
+  async resendDeveloperEmailVerification(req: express.Request, input: Record<string, unknown>) {
+    const email = normalizeEmail(input.email);
+    if (!isValidEmail(email)) return { ok: false as const, status: 400, error: 'Enter a valid email address.' };
+    const account = await this.findAccount(email);
+    // Keep the response neutral so this endpoint cannot enumerate accounts.
+    if (!account || account.emailVerifiedAt) {
+      return { ok: true as const, data: { accepted: true, nextStep: 'If verification is required, a new code will be sent.' } };
+    }
+    const delivery = await this.issueEmailVerification(account, req, true);
+    if (delivery.status === 'rate_limited') {
+      return {
+        ok: true as const,
+        data: { accepted: true, nextStep: 'If verification is required, a new code will be sent.' },
+      };
+    }
+    return {
+      ok: true as const,
+      data: {
+        accepted: true,
+        delivery: delivery.status,
+        nextStep: 'If verification is required, a new code will be sent.',
       },
     };
   }
@@ -1061,6 +1159,79 @@ export class PortalAccessStore {
     return { ok: true as const, claims: mfa.claims, action };
   }
 
+  private emailVerificationHash(userId: string, code: string) {
+    return crypto
+      .createHmac('sha256', config.portal.authSecret)
+      .update(`portal-email-verification:${userId}:${code}`)
+      .digest('hex');
+  }
+
+  private async issueEmailVerification(account: PortalAccount, req: express.Request, enforceCooldown: boolean) {
+    const cooldown = Math.max(30, config.portal.emailVerificationResendSeconds);
+    if (enforceCooldown) {
+      const recent = await this.db().query(
+        `select verification_id
+         from public.pay_gateway_portal_email_verifications
+         where user_id = $1 and created_at > now() - ($2 * interval '1 second')
+         limit 1`,
+        [account.userId, cooldown],
+      );
+      if (recent.rows[0]) return { status: 'rate_limited' as const };
+    }
+    const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+    const ttlSeconds = Math.max(300, config.portal.emailVerificationTtlSeconds);
+    await this.withClient(async (client) => {
+      await client.query('begin');
+      try {
+        await client.query(
+          `update public.pay_gateway_portal_email_verifications
+           set consumed_at = now()
+           where user_id = $1 and consumed_at is null`,
+          [account.userId],
+        );
+        await client.query(
+          `insert into public.pay_gateway_portal_email_verifications (
+             verification_id, user_id, code_hash, expires_at
+           ) values ($1,$2,$3,now() + ($4 * interval '1 second'))`,
+          [
+            `portal_email_verification_${crypto.randomUUID()}`,
+            account.userId,
+            this.emailVerificationHash(account.userId!, code),
+            ttlSeconds,
+          ],
+        );
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      }
+    });
+    const eventId = `portal_email_${crypto.randomUUID()}`;
+    const delivery = await orbiTalkClient.sendIntent({
+      eventId,
+      correlationId: eventId,
+      templateCode: 'developer.portal.email_verification',
+      recipientIdentityRef: account.email,
+      language: 'en',
+      channel: 'email',
+      environment: String(config.providerMode).toLowerCase() === 'live' ? 'live' : 'sandbox',
+      safeMetadata: {
+        verificationCode: code,
+        expiresMinutes: Math.ceil(ttlSeconds / 60),
+        developerName: account.name,
+      },
+    });
+    await this.writeAuditEvent(req, {
+      action: 'portal.developer.email_verification_dispatched',
+      target: account.email,
+      metadata: {
+        deliveryStatus: delivery.status,
+        providerMessageId: delivery.providerMessageId,
+      },
+    });
+    return { status: delivery.status };
+  }
+
   private accountFromRow(row: any): PortalAccount {
     return {
       userId: row.user_id,
@@ -1082,6 +1253,7 @@ export class PortalAccessStore {
         : Number(row.last_totp_counter),
       mfaFailedAttempts: Number(row.mfa_failed_attempts || 0),
       mfaLockedUntil: iso(row.mfa_locked_until),
+      emailVerifiedAt: iso(row.email_verified_at),
       mfaRequired: Boolean(row.mfa_required),
       enabled: Boolean(row.enabled),
       createdAt: iso(row.created_at),
@@ -1111,6 +1283,7 @@ export class PortalAccessStore {
           last_totp_counter bigint,
           mfa_failed_attempts integer not null default 0,
           mfa_locked_until timestamptz,
+          email_verified_at timestamptz default now(),
           enabled boolean not null default true,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
@@ -1147,6 +1320,18 @@ export class PortalAccessStore {
           created_at timestamptz not null default now(),
           unique (user_id, code_hash)
         );
+        create table if not exists public.pay_gateway_portal_email_verifications (
+          verification_id text primary key,
+          user_id text not null references public.pay_gateway_portal_users(user_id) on delete cascade,
+          code_hash text not null,
+          attempts integer not null default 0,
+          expires_at timestamptz not null,
+          consumed_at timestamptz,
+          created_at timestamptz not null default now()
+        );
+        create index if not exists pay_gateway_portal_email_verification_active_idx
+          on public.pay_gateway_portal_email_verifications (user_id, created_at desc)
+          where consumed_at is null;
         create index if not exists pay_gateway_portal_recovery_codes_unused_idx
           on public.pay_gateway_portal_recovery_codes (user_id)
           where used_at is null;
@@ -1164,7 +1349,8 @@ export class PortalAccessStore {
           add column if not exists mfa_status text not null default 'disabled',
           add column if not exists last_totp_counter bigint,
           add column if not exists mfa_failed_attempts integer not null default 0,
-          add column if not exists mfa_locked_until timestamptz;
+          add column if not exists mfa_locked_until timestamptz,
+          add column if not exists email_verified_at timestamptz default now();
         update public.pay_gateway_portal_users
           set mfa_status = 'active'
           where totp_secret is not null and mfa_status = 'disabled';

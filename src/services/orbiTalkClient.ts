@@ -10,6 +10,34 @@ export type OrbiTalkSendResult = {
   error?: string;
 };
 
+const renderEmailIntent = (intent: MessagingIntent) => {
+  const metadata = intent.safeMetadata || {};
+  if (intent.templateCode === 'developer.portal.email_verification') {
+    const code = String(metadata.verificationCode || '');
+    const minutes = Number(metadata.expiresMinutes || 15);
+    return {
+      subject: 'Verify your ORBI developer account',
+      body: `Your ORBI developer verification code is ${code}. It expires in ${minutes} minutes. If you did not create this account, you can ignore this message.`,
+    };
+  }
+  if (intent.templateCode === 'developer.service.approved') {
+    return {
+      subject: 'Your ORBI integration was approved',
+      body: 'Your ORBI integration request has been approved. Sign in to the Developer Portal to continue.',
+    };
+  }
+  if (intent.templateCode.includes('rotation')) {
+    return {
+      subject: 'ORBI credential security update',
+      body: 'A credential rotation activity occurred on your ORBI integration. Sign in to review the audited change.',
+    };
+  }
+  return {
+    subject: 'ORBI developer account update',
+    body: 'There is a new update on your ORBI developer account. Sign in to the Developer Portal for details.',
+  };
+};
+
 export class OrbiTalkClient {
   constructor(private readonly options = config.talk) {}
 
@@ -20,7 +48,18 @@ export class OrbiTalkClient {
     if (!this.options.apiKey) return { status: 'failed', error: 'ORBI_TALK_API_KEY_REQUIRED' };
 
     const url = new URL(this.options.intentPath, this.options.baseUrl);
-    const body = JSON.stringify(parsed);
+    const email = renderEmailIntent(parsed);
+    const body = JSON.stringify({
+      recipient: parsed.recipientIdentityRef,
+      channel: parsed.channel,
+      subject: email.subject,
+      body: email.body,
+      ownerEmail: this.options.ownerEmail,
+      messageType: parsed.templateCode.includes('verification') ? 'otp' : 'transactional',
+      requestId: parsed.eventId,
+      senderName: 'ORBI Pay',
+      platformName: 'ORBI Pay',
+    });
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const nonce = crypto.randomUUID();
     const signature = crypto
@@ -40,6 +79,7 @@ export class OrbiTalkClient {
           'x-orbi-talk-timestamp': timestamp,
           'x-orbi-talk-nonce': nonce,
           'x-orbi-talk-signature': `sha256=${signature}`,
+          'x-api-key': this.options.apiKey,
           'x-orbi-environment': parsed.environment === 'live' ? 'production' : 'demo',
           'x-orbi-source-service': 'orbi-pay-gateway',
         },

@@ -2313,6 +2313,8 @@ app.post('/v1/portal/auth/login', requireOperatorDiscoveryAccess, async (req, re
       ? 'Enter a valid authenticator or recovery code.'
       : error === 'PORTAL_MFA_TEMPORARILY_LOCKED'
         ? 'MFA is temporarily locked after repeated failed attempts. Try again later or contact support.'
+      : error === 'PORTAL_EMAIL_VERIFICATION_REQUIRED'
+        ? 'Verify your email address before signing in.'
       : error === 'PORTAL_INVALID_CREDENTIALS'
         ? 'Invalid email or password.'
         : error;
@@ -2322,6 +2324,14 @@ app.post('/v1/portal/auth/login', requireOperatorDiscoveryAccess, async (req, re
 
 app.post('/v1/portal/auth/signup', requireOperatorDiscoveryAccess, async (req, res) => {
   return portalResult(res, await portalAccessStore.signupDeveloper(req, req.body || {}));
+});
+
+app.post('/v1/portal/auth/email/verify', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.verifyDeveloperEmail(req, req.body || {}));
+});
+
+app.post('/v1/portal/auth/email/resend', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.resendDeveloperEmailVerification(req, req.body || {}));
 });
 
 app.get('/v1/portal/auth/session', requireOperatorDiscoveryAccess, (req, res) => {

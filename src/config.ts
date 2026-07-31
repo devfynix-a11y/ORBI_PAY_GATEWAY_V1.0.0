@@ -43,6 +43,8 @@ export const config = {
     mfaFreshnessSeconds: Number(process.env.PAYMENT_GATEWAY_PORTAL_MFA_FRESHNESS_SECONDS || 300),
     mfaMaxFailedAttempts: Number(process.env.PAYMENT_GATEWAY_PORTAL_MFA_MAX_FAILED_ATTEMPTS || 5),
     mfaLockoutSeconds: Number(process.env.PAYMENT_GATEWAY_PORTAL_MFA_LOCKOUT_SECONDS || 900),
+    emailVerificationTtlSeconds: Number(process.env.PAYMENT_GATEWAY_PORTAL_EMAIL_VERIFICATION_TTL_SECONDS || 900),
+    emailVerificationResendSeconds: Number(process.env.PAYMENT_GATEWAY_PORTAL_EMAIL_VERIFICATION_RESEND_SECONDS || 60),
     totpIssuer: process.env.PAYMENT_GATEWAY_PORTAL_TOTP_ISSUER || 'ORBI Pay Developer Portal',
     operatorMfaRequired: boolFromEnv(process.env.PAYMENT_GATEWAY_PORTAL_OPERATOR_MFA_REQUIRED, true),
     bootstrapAdmin: {
@@ -94,8 +96,9 @@ export const config = {
   talk: {
     enabled: boolFromEnv(process.env.PAYMENT_GATEWAY_ORBI_TALK_ENABLED, false),
     baseUrl: process.env.ORBI_TALK_GATEWAY_URL || 'https://talk.orbifinancial.com',
-    intentPath: process.env.ORBI_TALK_MESSAGING_INTENT_PATH || '/v1/messaging/intents',
+    intentPath: process.env.ORBI_TALK_MESSAGING_INTENT_PATH || '/api/send-email',
     apiKey: process.env.ORBI_TALK_GATEWAY_API_KEY || '',
+    ownerEmail: process.env.ORBI_TALK_GATEWAY_USER_EMAIL || '',
     timeoutMs: Number(process.env.ORBI_TALK_GATEWAY_TIMEOUT_MS || 2500),
   },
   reconciliation: {

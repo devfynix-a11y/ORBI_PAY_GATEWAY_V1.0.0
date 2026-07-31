@@ -93,7 +93,7 @@ This reference is for maintainability only. It intentionally does not store secr
 | `ORBI_TALK_GATEWAY_USER_ID` | Runtime | Non-secret | No | Yes | Optional ORBI Talk Gateway owner/user identifier. |
 | `ORBI_TALK_GATEWAY_USER_EMAIL` | Runtime | Non-secret | No | Yes | Optional ORBI Talk Gateway owner/user email. |
 | `PAYMENT_GATEWAY_ORBI_TALK_ENABLED` | Runtime | Non-secret | No | Payment gateway only | Enables Pay Gateway messaging intents to ORBI Talk for BaaS security and activity messages. Default `false`. |
-| `ORBI_TALK_MESSAGING_INTENT_PATH` | Runtime | Non-secret | No | Payment gateway only | ORBI Talk endpoint path for signed messaging intents. Default `/v1/messaging/intents`. |
+| `ORBI_TALK_MESSAGING_INTENT_PATH` | Runtime | Non-secret | No | Payment gateway only | ORBI Talk email delivery adapter used for developer security messages. Default `/api/send-email`. |
 | `ORBI_TALK_GATEWAY_TIMEOUT_MS` | Runtime | Non-secret | No | Payment gateway only | Timeout for ORBI Talk intent delivery. Default `2500`. |
 | `PAYMENT_GATEWAY_MESSAGING_DELIVERY_STORE_PATH` | Runtime | Non-secret path | No | Payment gateway only | JSON delivery evidence store path for ORBI Talk message delivery attempts. |
 
@@ -155,6 +155,8 @@ This reference is for maintainability only. It intentionally does not store secr
 | `PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_TTL_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Service access token lifetime in seconds. Default `900`, clamped between 60 and 3600. |
 | `PAYMENT_GATEWAY_OAUTH_ISSUER_URL` | Runtime | Non-secret | No | Payment gateway only | Optional OAuth metadata issuer URL. Defaults to `PAYMENT_GATEWAY_PUBLIC_BASE_URL`. |
 | `PAYMENT_GATEWAY_PORTAL_OPERATOR_MFA_REQUIRED` | Runtime | Non-secret | No | Payment gateway only | Requires MFA-verified portal sessions for operator/admin accounts and sensitive control-plane actions. Default `true`. |
+| `PAYMENT_GATEWAY_PORTAL_EMAIL_VERIFICATION_TTL_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Lifetime of a developer email verification code. Default `900` seconds. |
+| `PAYMENT_GATEWAY_PORTAL_EMAIL_VERIFICATION_RESEND_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Minimum server-side interval between verification-code sends. Default `60` seconds. |
 | `<PROVIDER>_API_BASE_URL` | Runtime | Non-secret | No | Payment gateway only | Provider API base URL declared by the provider manifest. |
 | `<PROVIDER>_CREDENTIAL_TOKEN_REF` | Runtime | Secret/config | No | Payment gateway only | Token reference to provider API credentials in vault/HSM/KMS-backed storage. |
 | `<PROVIDER>_WEBHOOK_SECRET_TOKEN_REF` | Runtime | Secret/config | No | Payment gateway only | Token reference to provider webhook verification secret. |

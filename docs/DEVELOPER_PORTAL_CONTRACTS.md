@@ -45,6 +45,27 @@ worker secrets to browsers.
 
 ## 1.2 SaaS Portal Access Model
 
+### Developer account lifecycle
+
+Developer signup and production approval are separate controls:
+
+```http
+POST /v1/portal/auth/signup
+POST /v1/portal/auth/email/verify
+POST /v1/portal/auth/email/resend
+```
+
+`signup` creates a sandbox-only account in an unverified state. The developer
+must enter the six-digit code delivered by ORBI before sign-in is allowed.
+Verification codes expire after 15 minutes, are one-time, and resend responses
+do not reveal whether an account exists.
+
+Email verification proves control of the contact address; it does not grant
+production access. The developer must separately submit a service application
+with integration name, use case, approved domains, redirect URLs, and webhook
+URLs. An authorized operator reviews that application before production scopes
+or credentials can be issued.
+
 The portal has three access levels:
 
 ```text
