@@ -199,6 +199,36 @@ export class OperatorIncidentStore {
     return updated;
   }
 
+  async markEscalated(incidentId: string, input: { escalatedBy: string; reason: string; level: string }): Promise<OperatorIncident> {
+    const incident = await this.requireIncident(incidentId);
+    if (incident.status === 'resolved') return incident;
+    const escalations = Array.isArray(incident.metadata.slaEscalations) ? incident.metadata.slaEscalations : [];
+    const updated: OperatorIncident = {
+      ...incident,
+      metadata: {
+        ...incident.metadata,
+        slaEscalations: [
+          ...escalations,
+          {
+            level: input.level,
+            reason: input.reason,
+            escalatedBy: input.escalatedBy,
+            at: new Date().toISOString(),
+          },
+        ],
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    await this.persist(updated);
+    this.incidents.set(updated.incidentId, updated);
+    return updated;
+  }
+
+  hasEscalation(incident: OperatorIncident, level: string): boolean {
+    const escalations = Array.isArray(incident.metadata.slaEscalations) ? incident.metadata.slaEscalations : [];
+    return escalations.some((entry) => asJsonObject(entry).level === level);
+  }
+
   private async ensureInitialized() {
     if (!this.initialized) await this.initialize();
   }

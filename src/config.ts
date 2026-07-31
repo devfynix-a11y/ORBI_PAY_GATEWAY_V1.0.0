@@ -96,6 +96,13 @@ export const config = {
     scheduleWindowHours: Number(process.env.PAYMENT_GATEWAY_RECONCILIATION_SCHEDULE_WINDOW_HOURS || 24),
     scheduleRunOnStart: boolFromEnv(process.env.PAYMENT_GATEWAY_RECONCILIATION_SCHEDULE_RUN_ON_START, false),
   },
+  incidentEscalation: {
+    enabled: boolFromEnv(process.env.PAYMENT_GATEWAY_INCIDENT_ESCALATION_ENABLED, false),
+    intervalMinutes: Number(process.env.PAYMENT_GATEWAY_INCIDENT_ESCALATION_INTERVAL_MINUTES || 5),
+    criticalSlaMinutes: Number(process.env.PAYMENT_GATEWAY_INCIDENT_CRITICAL_SLA_MINUTES || 15),
+    warningSlaMinutes: Number(process.env.PAYMENT_GATEWAY_INCIDENT_WARNING_SLA_MINUTES || 60),
+    requestedBy: process.env.PAYMENT_GATEWAY_INCIDENT_ESCALATION_REQUESTED_BY || 'gateway-incident-escalation',
+  },
   core: {
     baseUrl: process.env.ORBI_CORE_INTERNAL_BASE_URL || 'https://api.orbifinancial.com',
     allowPrivateHttp:

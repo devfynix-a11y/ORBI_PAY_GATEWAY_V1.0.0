@@ -79,6 +79,7 @@ import { buildDeveloperHealthSummary } from './services/developerHealthService.j
 import { serviceAccessTokenRevocationStore } from './services/serviceAccessTokenRevocationStore.js';
 import { auditEventSink } from './services/auditEventSink.js';
 import { operatorIncidentStore, type OperatorIncident } from './services/operatorIncidentStore.js';
+import { operatorIncidentEscalationScheduler } from './services/operatorIncidentEscalationScheduler.js';
 import { reconciliationEvidenceService } from './services/reconciliationEvidenceService.js';
 import { reconciliationEvidenceScheduler } from './services/reconciliationEvidenceScheduler.js';
 import {
@@ -3325,6 +3326,7 @@ const start = async () => {
   await serviceAccessTokenRevocationStore.initialize();
   await operatorIncidentStore.initialize();
   reconciliationEvidenceScheduler.start();
+  operatorIncidentEscalationScheduler.start();
 
   app.listen(config.port, () => {
     logger.info('payment_gateway_started', {

@@ -121,6 +121,11 @@ This reference is for maintainability only. It intentionally does not store secr
 | `PAYMENT_GATEWAY_RECONCILIATION_SCHEDULE_INTERVAL_MINUTES` | Runtime | Non-secret | No | Payment gateway only | Interval between scheduled reconciliation exports. Default `1440`. |
 | `PAYMENT_GATEWAY_RECONCILIATION_SCHEDULE_WINDOW_HOURS` | Runtime | Non-secret | No | Payment gateway only | Lookback window covered by each scheduled reconciliation report. Default `24`. |
 | `PAYMENT_GATEWAY_RECONCILIATION_SCHEDULE_RUN_ON_START` | Runtime | Non-secret | No | Payment gateway only | Runs reconciliation immediately after gateway boot when enabled. Default `false`; keep false in production unless intentionally backfilling. |
+| `PAYMENT_GATEWAY_INCIDENT_ESCALATION_ENABLED` | Runtime | Non-secret | No | Payment gateway only | Enables SLA escalation checks for unresolved operator incidents. Default `false`. |
+| `PAYMENT_GATEWAY_INCIDENT_ESCALATION_INTERVAL_MINUTES` | Runtime | Non-secret | No | Payment gateway only | Interval between incident SLA checks. Default `5`. |
+| `PAYMENT_GATEWAY_INCIDENT_CRITICAL_SLA_MINUTES` | Runtime | Non-secret | No | Payment gateway only | Critical incident age threshold before one-time escalation alert. Default `15`. |
+| `PAYMENT_GATEWAY_INCIDENT_WARNING_SLA_MINUTES` | Runtime | Non-secret | No | Payment gateway only | Warning incident age threshold before one-time escalation alert. Default `60`. |
+| `PAYMENT_GATEWAY_INCIDENT_ESCALATION_REQUESTED_BY` | Runtime | Non-secret | No | Payment gateway only | Actor label recorded in audit events for automated incident escalations. Default `gateway-incident-escalation`. |
 | `ORBI_CORE_INTERNAL_BASE_URL` | Runtime | Non-secret | No | Payment gateway only | Secure Core external root used by the payment gateway for signed callbacks, commonly `https://api.orbifinancial.com`. |
 | `PAYMENT_GATEWAY_INTERNAL_CORE_TRANSPORT_MODE` | Runtime | Non-secret | No | Payment gateway only | Gateway -> Core transport mode. Use `private_http` only for Docker/private Core targets with HMAC signing, `mtls` for certificate-backed internal HTTPS, or `public_https` for HTTPS-only routed deployments. |
 | `ORBI_CORE_TRUSTED_GATEWAY_EVENT_PATH` | Runtime | Non-secret | No | Payment gateway only | Core internal route for normalized trusted provider events. |

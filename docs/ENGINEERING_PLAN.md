@@ -290,6 +290,9 @@ Tasks:
     exceptions. Incidents support `open -> acknowledged -> assigned -> resolved`
     lifecycle through `/v1/operator/incidents...`, and Developer Portal
     operator/admin tools must access them through the portal gateway BFF.
+  - Current Gateway can run incident SLA escalation checks. Unresolved critical
+    and warning incidents emit one-time escalation alerts and audit evidence
+    after configurable SLA thresholds.
 - Define SLOs and error budgets.
 
 Acceptance:
