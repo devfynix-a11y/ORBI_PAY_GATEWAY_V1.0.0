@@ -42,3 +42,12 @@ test('refresh token is bound to its OAuth client', async () => {
   const result = await store.rotate(issued.refreshToken, 'another-service');
   assert.equal(result.status, 'invalid');
 });
+
+test('logout or risk revocation closes every matching subject family', async () => {
+  const store = RefreshTokenStore.inMemory();
+  const first = await store.issue(context);
+  const second = await store.issue({ ...context, consentId: 'consent-002' });
+  await store.revokeBySubject({ subjectId: context.subjectId, reason: 'logout' });
+  assert.equal((await store.rotate(first.refreshToken, context.serviceCode)).status, 'invalid');
+  assert.equal((await store.rotate(second.refreshToken, context.serviceCode)).status, 'invalid');
+});

@@ -235,6 +235,45 @@ export class RefreshTokenStore {
     });
   }
 
+  async revokeBySubject(input: {
+    subjectId: string;
+    reason: 'logout' | 'risk_action' | 'account_lock';
+    serviceCode?: string;
+    environment?: 'sandbox' | 'live';
+  }) {
+    this.assertReady();
+    if (this.mode === 'memory') {
+      const claims: FinancialAccessTokenClaims[] = [];
+      for (const token of this.memoryTokens.values()) {
+        if (token.subjectId !== input.subjectId || (input.serviceCode && token.serviceCode !== input.serviceCode) ||
+            (input.environment && token.environment !== input.environment)) continue;
+        this.revokedFamilies.add(token.familyId);
+        claims.push(...(this.memoryFamilyClaims.get(token.familyId) || []));
+      }
+      return claims;
+    }
+    return this.withClient(async (client) => {
+      await client.query('BEGIN');
+      try {
+        const families = await client.query<{ family_id: string; access_token_claims: FinancialAccessTokenClaims[] }>(
+          `UPDATE public.pay_gateway_refresh_token_families
+           SET revoked_at=COALESCE(revoked_at,now()), revoke_reason=$2, updated_at=now()
+           WHERE subject_id=$1
+             AND ($3::text IS NULL OR service_code=$3)
+             AND ($4::text IS NULL OR environment=$4)
+           RETURNING family_id,access_token_claims`,
+          [input.subjectId, input.reason, input.serviceCode || null, input.environment || null],
+        );
+        if (families.rows.length) await client.query(
+          `UPDATE public.pay_gateway_refresh_tokens SET revoked_at=COALESCE(revoked_at,now()) WHERE family_id=ANY($1::text[])`,
+          [families.rows.map((row) => row.family_id)],
+        );
+        await client.query('COMMIT');
+        return families.rows.flatMap((row) => row.access_token_claims || []);
+      } catch (error) { await client.query('ROLLBACK'); throw error; }
+    });
+  }
+
   private async insertToken(client: PoolClient, token: string, familyId: string) {
     await client.query(
       `INSERT INTO public.pay_gateway_refresh_tokens (token_hash,family_id,expires_at)

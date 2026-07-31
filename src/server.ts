@@ -389,6 +389,13 @@ const ConnectedConsentsQuerySchema = z.object({
   locale: z.enum(['en', 'sw']).optional(),
 });
 
+const OAuthSubjectRevocationSchema = z.object({
+  subjectId: z.string().trim().min(1).max(160),
+  reason: z.enum(['logout', 'risk_action', 'account_lock']),
+  serviceCode: z.string().trim().min(2).max(80).optional(),
+  environment: z.enum(['sandbox', 'live']).optional(),
+});
+
 const SandboxTransferSchema = z.object({
   fromAccountId: z.string().trim().min(1),
   toAccountId: z.string().trim().min(1),
@@ -2583,6 +2590,38 @@ app.post('/v1/internal/core/service-payment-events', async (req, res) => {
   } catch (e: any) {
     logger.error('core_service_payment_event_failed', { error: e.message });
     const error = errorCodeFromException(e, 'CORE_SERVICE_PAYMENT_EVENT_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error, 403), error);
+  }
+});
+
+app.post('/v1/internal/core/oauth/revoke-subject', async (req, res) => {
+  try {
+    verifySignedInternalHeaders({
+      method: req.method, path: req.path, body: req.body,
+      workerId: '', scopes: [], signingSecret: config.worker.signingSecret,
+      headers: req.headers, requiredScope: 'gateway:oauth:revoke-subject',
+    });
+    const input = OAuthSubjectRevocationSchema.parse(req.body || {});
+    const claims = await refreshTokenStore.revokeBySubject(input);
+    for (const tokenClaims of claims) {
+      await serviceAccessTokenRevocationStore.recordRevocation({
+        claims: tokenClaims, revokedBy: `core:${input.reason}`,
+        reason: `Subject token family revoked because of ${input.reason}.`,
+        metadata: { subjectId: input.subjectId, serviceCode: input.serviceCode, environment: input.environment },
+      });
+    }
+    void auditEventSink.emit({
+      eventType: 'oauth.subject_tokens.revoked', severity: input.reason === 'risk_action' ? 'critical' : 'warning',
+      outcome: 'success', requestId: res.locals.auditContext?.requestId,
+      traceId: res.locals.auditContext?.traceId, correlationId: res.locals.auditContext?.correlationId,
+      actor: { serviceCode: 'orbi-core', subjectId: input.subjectId, environment: input.environment },
+      resource: { type: 'oauth_subject', subjectId: input.subjectId },
+      metadata: { reason: input.reason, serviceCode: input.serviceCode, revokedAccessTokenCount: claims.length },
+    });
+    return res.json({ success: true, data: { revoked: true, revokedAccessTokenCount: claims.length } });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'OAUTH_SUBJECT_REVOCATION_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'OAUTH_SUBJECT_REVOCATION_FAILED');
     return sendApiError(res, httpStatusForGatewayError(error, 403), error);
   }
 });

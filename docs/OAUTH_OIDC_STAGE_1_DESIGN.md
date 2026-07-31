@@ -129,6 +129,8 @@ Implemented controls:
 - active consent, service status, active client key, and scopes are revalidated
   before every refreshed access token is issued;
 - consent withdrawal and service suspension/archive revoke related families;
+- signed Core logout, account-lock, and risk events revoke every matching
+  subject family and its still-valid financial access tokens;
 - RFC 7009 `/oauth/revoke` accepts a refresh token from its authenticated
   owning client and revokes the family;
 - rotating tokens expire after 30 days and a family has a non-extendable
