@@ -55,6 +55,7 @@ export const rejectUnsafeDirectSecretsInProduction = () => {
     'PAYMENT_GATEWAY_OPERATOR_DISCOVERY_API_KEY',
     'WORKER_SIGNING_SECRET',
     'ORBI_SHOP_PAY_API_KEY',
+    'ORBI_TALK_GATEWAY_API_KEY',
   ]);
 
   const directSecretKeys = Object.keys(process.env)
