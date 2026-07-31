@@ -306,7 +306,90 @@ src/contracts/platformContract.ts
 tests/platformContract.test.ts
 ```
 
-## 5. Platform User Models
+## 5. Developer Account vs Financial Account
+
+Developer Portal accounts are integration accounts. They let a builder read
+docs, use sandbox, request scopes, manage webhook configuration, and receive
+API credentials. A developer account does not receive money, does not own a
+wallet, and does not create ledger authority by itself.
+
+Money movement requires an ORBI financial identity owned by Core:
+
+```text
+Developer account
+-> build/test integration
+-> request live access
+-> onboard/link merchant, seller, organization, SACCOS, or agent financial profile
+-> Core creates/links payment profile and wallet/reserve authority
+-> Gateway submits payment, escrow, webhook, and lifecycle requests to Core
+```
+
+The rule is simple:
+
+```text
+Integration access lives in Pay Gateway.
+Financial truth lives in ORBI Core.
+```
+
+### POS Example
+
+A POS software company can register a Developer Portal account first and build
+against sandbox without owning a receiving wallet. When a shop wants to receive
+real money through that POS, the shop must link or create an ORBI merchant
+financial account.
+
+```json
+{
+  "posDeveloper": "Tag POS Limited",
+  "merchant": "Zakaria Supermarket",
+  "merchantPaymentProfileId": "pp_merchant_...",
+  "merchantFinancialStatus": "approved",
+  "posTerminalId": "POS-DAR-001"
+}
+```
+
+The POS creates a checkout/payment request using the merchant payment profile:
+
+```js
+await orbi.payments.createIntent({
+  amount: 25000,
+  currency: 'TZS',
+  paymentProfileId: 'pp_merchant_...',
+  reference: 'POS-ORDER-1001',
+  returnUrl: 'https://pos.example.com/orbi/return',
+  webhookUrl: 'https://pos.example.com/api/orbi/webhooks'
+}, {
+  idempotencyKey: 'payment-intent:pos:POS-ORDER-1001'
+});
+```
+
+The POS developer owns software behavior and order screens. ORBI owns hosted
+authorization, payment profile validity, ledger posting, escrow reserve,
+receipts, reconciliation, and signed payment updates.
+
+### Organization/SACCOS Rule
+
+An organization such as a SACCOS can maintain its own member records, products,
+contribution schedules, and member portal. It can only create ORBI-powered
+financial capability through approved scopes and Gateway endpoints. The
+organization never writes directly to Core tables and never creates wallets by
+raw database access.
+
+Approved organization flows use contracts such as:
+
+```http
+POST /v1/business/registrations
+POST /v1/identity/resolve
+POST /v1/payment-profiles
+POST /v1/payment-intents
+POST /v1/paysafe/escrows
+```
+
+Core decides whether a wallet, reserve, escrow, or payment profile can exist.
+Gateway enforces developer credentials, scopes, allowlists, consent,
+idempotency, and signed webhook delivery.
+
+## 6. Platform User Models
 
 External platforms may have their own users, but financial capability is linked
 through ORBI identity and payment profiles.
@@ -410,7 +493,7 @@ Guest checkout may create a payment/escrow record, but it should not create a
 durable ORBI payment profile unless the customer explicitly signs up or links
 one.
 
-## 6. Identity Resolve Contract
+## 7. Identity Resolve Contract
 
 Use identity resolve to confirm an ORBI customer before creating a payment
 profile or starting a financial request.
