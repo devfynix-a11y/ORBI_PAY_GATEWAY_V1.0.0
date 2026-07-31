@@ -764,6 +764,10 @@ Portal UI rule:
 Show the one-time secret once.
 Require operator to confirm it has been copied.
 Never show it again.
+Tell the developer to store it only in server secret storage.
+Never place it in browser code, mobile apps, Git, logs, screenshots, chat
+messages, support tickets, or shared documents.
+If the secret is copied to an unsafe place, rotate it before live payments.
 Service profile cards show keyId, environment, status, fingerprint, issuedAt,
 and expiry/revocation dates only.
 ```

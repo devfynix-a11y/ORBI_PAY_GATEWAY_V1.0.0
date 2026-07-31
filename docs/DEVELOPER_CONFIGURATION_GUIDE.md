@@ -49,6 +49,15 @@ Never use sandbox keys on live endpoints or live keys on sandbox endpoints.
 Keep these variables only on the merchant server. Do not expose them in
 browsers, Vite client bundles, APKs, mobile apps, or public JavaScript.
 
+Treat ORBI keys like bank credentials:
+
+```text
+Store them in a server secret manager or protected server environment file.
+Never put them in browser code, mobile apps, Git, logs, screenshots, chat
+messages, support tickets, or shared documents.
+If a key is exposed, rotate it immediately before accepting more live payments.
+```
+
 ```env
 ORBI_PAY_GATEWAY_BASE_URL=https://sandbox-pay.orbifinancial.com
 ORBI_PAY_ENVIRONMENT=Demo
