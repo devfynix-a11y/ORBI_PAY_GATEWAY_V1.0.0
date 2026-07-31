@@ -17,17 +17,17 @@ Contract versioning, lifecycle vocabulary, and error codes are maintained in
 
 ```text
 External platform
--> ORBI Pay Gateway
+-> ORBI Pay API
 -> ORBI hosted challenge when required
--> ORBI Core
--> ledger, PaySafe, risk, receipt, notification, reconciliation
+-> ORBI payment processing
+-> PaySafe, risk checks, receipt, notification, reconciliation
 -> signed webhook and return URL back to the external platform
 ```
 
 The external platform owns its product, order, delivery, storefront, customer
-experience, and local user profile. ORBI owns financial identity, hosted
-authorization, payment profile authority, escrow lifecycle, ledger movement,
-and reconciliation truth.
+experience, and local user profile. ORBI owns financial identity verification,
+hosted authorization, payment profile approval, PaySafe lifecycle, transaction
+posting, and reconciliation truth.
 
 ## 2. Required Headers
 
@@ -49,8 +49,8 @@ unless the customer starts a new operation.
 
 ## 3. Endpoint Directory
 
-These are the public Gateway contracts for external services. Core internal
-worker endpoints are intentionally omitted from merchant documentation.
+These are the public ORBI Pay API contracts for external services. Internal
+operations are intentionally omitted from merchant documentation.
 
 ### Service And Readiness
 
@@ -102,7 +102,7 @@ GET /v1/paysafe/balances?phone=<phone>
 GET /v1/paysafe/balances?email=<email>
 ```
 
-PaySafe action routes request a lifecycle action. Core decides if the action is
+PaySafe action routes request a lifecycle action. ORBI decides if the action is
 allowed.
 
 ### Merchant Views
@@ -114,7 +114,7 @@ GET /v1/merchant/settlements
 ```
 
 These routes return sanitized merchant-scoped projections. They do not expose
-wallet rows, ledger internals, provider credentials, or customer secrets.
+customer secrets, provider credentials, or account authority.
 
 ### Provider Webhooks
 
@@ -123,7 +123,7 @@ POST /v1/webhooks/:providerCode
 ```
 
 This endpoint is for provider callbacks, not merchant callbacks. Merchant
-callbacks are sent by Gateway to the merchant `webhookUrl` or configured
+callbacks are sent by ORBI to the merchant `webhookUrl` or configured
 service webhook URL.
 
 ## 4. Public Response Shapes
@@ -160,7 +160,7 @@ Rules:
 `requestId` maps to the `x-request-id` response header where available.
 Success responses may add optional fields without breaking `v1`.
 Clients must ignore unknown optional fields.
-Clients must not depend on diagnostic internals such as Core submission traces.
+Clients must not depend on diagnostic internals or temporary processing labels.
 ```
 
 ### Payment Intent Response
@@ -210,8 +210,8 @@ failed
 cancelled
 ```
 
-Gateway must not expose internal processing names such as
-`submitted_to_core` or `pending` as public final contract statuses.
+ORBI must not expose temporary internal processing labels as public final
+contract statuses.
 
 ### Hosted Challenge Response
 
@@ -258,7 +258,7 @@ PIN, or token.
 
 ### PaySafe Escrow Intent Response
 
-PaySafe creation through Gateway returns the same public intent envelope with:
+PaySafe creation returns the same public intent envelope with:
 
 ```json
 {
@@ -272,7 +272,7 @@ PaySafe creation through Gateway returns the same public intent envelope with:
 }
 ```
 
-Once funds are held, PaySafe lifecycle actions continue through Core rules.
+Once funds are held, PaySafe lifecycle actions continue through ORBI rules.
 External services may request release, refund, or dispute, but cannot bypass
 escrow policy.
 
@@ -311,24 +311,24 @@ tests/platformContract.test.ts
 Developer Portal accounts are integration accounts. They let a builder read
 docs, use sandbox, request scopes, manage webhook configuration, and receive
 API credentials. A developer account does not receive money, does not own a
-wallet, and does not create ledger authority by itself.
+wallet, and does not become a receiving account by itself.
 
-Money movement requires an ORBI financial identity owned by Core:
+Money movement requires an approved ORBI financial profile:
 
 ```text
 Developer account
 -> build/test integration
 -> request live access
 -> onboard/link merchant, seller, organization, SACCOS, or agent financial profile
--> Core creates/links payment profile and wallet/reserve authority
--> Gateway submits payment, escrow, webhook, and lifecycle requests to Core
+-> ORBI verifies the profile and enables the approved payment capabilities
+-> your integration uses the approved payment profile for checkout, escrow, or payouts
 ```
 
 The rule is simple:
 
 ```text
-Integration access lives in Pay Gateway.
-Financial truth lives in ORBI Core.
+Developer access lets you build.
+Financial profiles let an approved business receive or move money.
 ```
 
 ### POS Example
@@ -364,16 +364,15 @@ await orbi.payments.createIntent({
 ```
 
 The POS developer owns software behavior and order screens. ORBI owns hosted
-authorization, payment profile validity, ledger posting, escrow reserve,
+authorization, payment profile validity, transaction posting, PaySafe holds,
 receipts, reconciliation, and signed payment updates.
 
 ### Organization/SACCOS Rule
 
 An organization such as a SACCOS can maintain its own member records, products,
 contribution schedules, and member portal. It can only create ORBI-powered
-financial capability through approved scopes and Gateway endpoints. The
-organization never writes directly to Core tables and never creates wallets by
-raw database access.
+financial capability after ORBI approval and customer/member authorization
+where required.
 
 Approved organization flows use contracts such as:
 
@@ -385,9 +384,9 @@ POST /v1/payment-intents
 POST /v1/paysafe/escrows
 ```
 
-Core decides whether a wallet, reserve, escrow, or payment profile can exist.
-Gateway enforces developer credentials, scopes, allowlists, consent,
-idempotency, and signed webhook delivery.
+ORBI decides whether a payment profile, PaySafe hold, collection, payout, or
+balance permission is allowed. Your integration receives clean payment
+references and signed updates without handling ORBI secrets or customer PINs.
 
 ## 6. Platform User Models
 
@@ -428,8 +427,8 @@ login/signup, receives a payment profile, and stores only references:
 }
 ```
 
-Shop owns seller products and orders. ORBI owns settlement authority, PaySafe
-escrow, merchant approval, ledger, and payout controls.
+Shop owns seller products and orders. ORBI owns payment authorization, PaySafe
+escrow, merchant approval, settlement proof, and payout controls.
 
 ### SACCOS Member Example
 
@@ -465,7 +464,7 @@ wallet links, or protected disbursements, the SACCOS links a payment profile:
 ```
 
 The SACCOS may store member records, contribution schedules, loan files, and
-meeting history. ORBI still owns payment confirmation, ledger posting,
+meeting history. ORBI still owns payment confirmation, transaction posting,
 settlement proof, dispute handling, and financial audit trail.
 
 ### Guest Buyer Example
@@ -519,7 +518,7 @@ resolver policy. A successful lookup is not authority to move funds.
 
 ## 7. Business Registration Contract
 
-Use business registration when an external platform needs Core to create or
+Use business registration when an external platform needs ORBI to create or
 review business access such as merchant, agent, organization, SACCOS operator,
 or seller settlement access.
 
@@ -571,12 +570,12 @@ SACCOS/organization example:
 }
 ```
 
-At least one of `userId`, `email`, or `phone` is required. Core may create a
+At least one of `userId`, `email`, or `phone` is required. ORBI may create a
 service access request, require review, or reject the request based on policy.
 
 ## 8. Payment Profile Contract
 
-Payment profiles link an external platform identity to a Core-owned ORBI
+Payment profiles link an external platform identity to an approved ORBI
 financial identity.
 
 ```http
@@ -618,7 +617,8 @@ authority, raw tokens, or challenge evidence.
 
 ## 9. Hosted Challenge Contract
 
-When Core requires customer authorization, Gateway returns a hosted challenge:
+When ORBI requires customer authorization, the response returns a hosted
+challenge:
 
 ```json
 {
@@ -631,11 +631,11 @@ When Core requires customer authorization, Gateway returns a hosted challenge:
 ```
 
 The external platform should redirect the user to `challengeUrl`. The hosted
-page collects OTP/PIN/passkey/consent evidence and submits it to Gateway. Gateway
-continues the operation through Core.
+page collects OTP/PIN/passkey/consent evidence and continues the payment
+operation safely.
 
-When hosted challenge approval includes explicit consent metadata, Gateway also
-creates a consent receipt. This receipt is idempotent by payment intent and Core
+When hosted challenge approval includes explicit consent metadata, ORBI also
+creates a consent receipt. This receipt is idempotent by payment intent and
 challenge evidence, so repeated browser submits or network retries do not create
 duplicate consent records.
 
@@ -652,7 +652,7 @@ Required metadata for auto consent receipt creation:
 }
 ```
 
-If `consentScopes` or a stable subject identity is missing, Gateway still lets
+If `consentScopes` or a stable subject identity is missing, ORBI still lets
 the payment challenge complete but does not create a consent receipt.
 
 SDK event handling:
@@ -721,8 +721,8 @@ decision=reject
 reason=customer_declined
 ```
 
-Gateway must mark the intent as cancelled/declined and notify Core or the
-external platform according to the challenge state.
+ORBI marks the intent as cancelled/declined and notifies the external platform
+according to the challenge state.
 
 ## 10. Payment Intent Contract
 
@@ -757,8 +757,8 @@ Content-Type: application/json
 }
 ```
 
-Gateway stores the intent, authenticates the service, signs the internal request
-to Core, then returns `processing`, `requires_action`, `completed`, or `failed`.
+ORBI records the intent, authenticates the service, and returns `processing`,
+`requires_action`, `completed`, or `failed`.
 
 Read intent:
 
@@ -795,7 +795,7 @@ POST /v1/paysafe/escrows/:escrowId/refund
 POST /v1/paysafe/escrows/:escrowId/dispute
 ```
 
-External platforms may request actions, but Core decides validity. Third-party
+External platforms may request actions, but ORBI decides validity. Third-party
 checkout can skip only the initial native app escrow invitation when hosted
 challenge has already authenticated the payer and service context. After money
 is held, the standard escrow rules apply:
@@ -935,7 +935,7 @@ Expected payment-status response shape:
 
 ## 13. Webhook Event Contract
 
-Gateway signs service webhooks:
+ORBI signs service webhooks:
 
 ```http
 x-orbi-pay-service-code: <service-code>
@@ -1015,7 +1015,7 @@ webhooks:receive
 ```
 
 Service registration should grant the minimum scopes needed by that service.
-Merchant identity is not enough to move money; action scopes and Core policy
+Merchant identity is not enough to move money; action scopes and ORBI policy
 must both allow the operation.
 
 Service access token flow:
@@ -1037,7 +1037,7 @@ Authorization: Bearer <access_token>
 Use requested scopes narrowly. For example, a checkout server creating only a
 PaySafe hold should request `escrow:create`, not every granted scope. Live
 financial requests still require environment headers, idempotency keys, signed
-request headers, allowlists, consent where applicable, and Core policy approval.
+request headers, allowlists, consent where applicable, and ORBI policy approval.
 
 Runtime gateway enforcement:
 
@@ -1087,5 +1087,5 @@ Use return URLs only for user experience.
 Reuse idempotency keys on network retry.
 Never send wallet IDs as authority.
 Never infer balance or payment status from UI redirect alone.
-Never bypass Core escrow lifecycle after funds are held.
+Never bypass ORBI PaySafe lifecycle after funds are held.
 ```
