@@ -80,6 +80,10 @@ Future hardening adds mTLS on top of HMAC. HMAC must remain permanently enabled.
 
 ## Active Hardening Memory
 
+The authoritative 10-stage completion backlog is
+[`OPEN_BANKING_COMPLETION_ROADMAP.md`](./OPEN_BANKING_COMPLETION_ROADMAP.md).
+Execute it in order and retain acceptance evidence for each stage.
+
 The gateway hardening sequence must be executed step by step:
 
 ```text
