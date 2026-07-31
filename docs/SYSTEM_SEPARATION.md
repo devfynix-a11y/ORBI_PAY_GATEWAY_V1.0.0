@@ -47,6 +47,28 @@ ORBI Talk Gateway is the communication and template service.
 - never handles payment execution or ledger mutation
 - is used by ORBI Core for transactional, security, support, marketing, and operator messages
 
+## Messaging Intent Rule
+
+Core and Pay Gateway must not send direct ad-hoc email, SMS, WhatsApp, or push
+messages. They emit signed messaging intents to ORBI Talk.
+
+Messaging intents carry safe references only:
+
+```txt
+eventId
+correlationId
+templateCode
+recipientIdentityRef
+language
+channel
+serviceCode
+environment
+safe metadata such as key fingerprint, status, amount, or escrow reference
+```
+
+Messaging intents must never include raw OTP values, passwords, PINs, API keys,
+webhook signing secrets, provider credentials, or full wallet authority data.
+
 ## Naming Rules
 
 - `ORBI_PAY_GATEWAY_BASE_URL` in Core means ORBI Pay Gateway only.

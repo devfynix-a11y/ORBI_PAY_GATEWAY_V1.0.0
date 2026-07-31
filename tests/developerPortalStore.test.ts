@@ -225,6 +225,45 @@ test('developer portal key lifecycle keeps grace window then revokes on cutover'
   assert.equal(store.resolveApiKey(second.oneTimeSecret), undefined);
 });
 
+test('developer portal emergency key rotation issues a one-time secret and audits old key status', async () => {
+  const store = DeveloperPortalStore.inMemory();
+  const application = await store.submitApplication({
+    legalName: 'Emergency Merchant Ltd',
+    displayName: 'Emergency Merchant',
+    contactEmail: 'ops@emergency.example',
+    businessType: 'merchant',
+    countryCode: 'TZ',
+    requestedEnvironments: ['live'],
+    requestedScopes: ['payments:create'],
+    browserOrigins: ['https://emergency.example'],
+    redirectUrls: ['https://emergency.example/orbi/return'],
+    webhookUrls: ['https://emergency.example/api/orbi/webhooks'],
+    useCases: ['Emergency key recovery'],
+    termsAccepted: true,
+  });
+  const service = await store.approveApplication(application.applicationId, { initialStatus: 'active' });
+  const first = await store.issueApiKey(service.serviceCode, {
+    environment: 'live',
+    reason: 'Issue initial live key for emergency rotation test.',
+    requestedBy: 'operator@orbi.example',
+  });
+
+  const rotated = await store.emergencyRotateApiKey(service.serviceCode, {
+    environment: 'live',
+    reason: 'Confirmed live API key exposure during incident response.',
+    requestedBy: 'developer@emergency.example',
+    exposureType: 'confirmed_exposure',
+  });
+
+  assert.equal(rotated.oneTimeSecret.startsWith('orbi_live_'), true);
+  assert.equal(rotated.previousKeys[0]?.nextStatus, 'revoked');
+  assert.equal(JSON.stringify(store.getService(service.serviceCode)).includes(rotated.oneTimeSecret), false);
+  assert.equal(store.resolveApiKey(first.oneTimeSecret), undefined);
+  assert.equal(store.resolveApiKey(rotated.oneTimeSecret)?.key.keyId, rotated.key.keyId);
+  assert.equal(store.getService(service.serviceCode).keys.find((key) => key.keyId === first.key.keyId)?.status, 'revoked');
+  assert.equal(store.listEvents(service.serviceCode).some((event) => event.eventType === 'developer.api_key.emergency_rotated'), true);
+});
+
 test('developer portal webhook secret lifecycle supports cutover and explicit revoke', async () => {
   const store = DeveloperPortalStore.inMemory();
   const application = await store.submitApplication({

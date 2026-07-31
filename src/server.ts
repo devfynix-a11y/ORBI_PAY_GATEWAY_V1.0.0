@@ -60,6 +60,7 @@ import {
   DeveloperAllowlistUpdateSchema,
   DeveloperApiKeyRotationDecisionSchema,
   DeveloperApiKeyRotationRequestSchema,
+  DeveloperEmergencyApiKeyRotationSchema,
   DeveloperSecretIssueRequestSchema,
   DeveloperScopeDecisionSchema,
   DeveloperScopeRequestSchema,
@@ -2274,8 +2275,10 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/integration-health$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/scope-requests$/, permission: 'developer:request_access', developerAllowed: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/api-key-rotations$/, permission: 'developer:request_access', developerAllowed: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/api-keys\/emergency-rotate$/, permission: 'developer:request_access', developerAllowed: true, confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/webhook-secret-rotations$/, permission: 'developer:request_access', developerAllowed: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/api-key-rotations$/, permission: 'developer:manage_keys', confirmation: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/api-keys\/emergency-rotate$/, permission: 'developer:manage_keys', confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/webhook-secrets\/issue$/, permission: 'developer:manage_keys', confirmation: true },
   { pattern: /^\/v1\/developer\/webhook-deliveries\/[^/]+\/replay$/, permission: 'developer:replay_webhooks', confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/api-keys\/issue$/, permission: 'developer:manage_keys', confirmation: true },
@@ -2731,6 +2734,18 @@ app.post('/v1/developer/services/:serviceCode/api-keys/issue', requireOperatorDi
   } catch (e: any) {
     if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_API_KEY_ISSUE_INVALID', e.issues);
     const error = errorCodeFromException(e, 'DEVELOPER_API_KEY_ISSUE_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/services/:serviceCode/api-keys/emergency-rotate', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperEmergencyApiKeyRotationSchema.parse(req.body || {});
+    const result = await developerPortalStore.emergencyRotateApiKey(String(req.params.serviceCode || ''), payload);
+    return res.status(201).json({ success: true, data: result });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_API_KEY_EMERGENCY_ROTATION_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_API_KEY_EMERGENCY_ROTATION_FAILED');
     return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 });

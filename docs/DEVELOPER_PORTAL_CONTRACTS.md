@@ -720,7 +720,7 @@ Move the previous active key to pending_cutover during rotation window.
 Accept both active and pending_cutover keys during approved cutover.
 Allow explicit cutover.
 Revoke old key after cutover or expiry.
-Allow emergency revoke with operator reason.
+Allow emergency self-rotation with MFA, clear reason, and audit event.
 Emit audit event.
 Never expose keys through API reads.
 ```
@@ -771,6 +771,81 @@ If the secret is copied to an unsafe place, rotate it before live payments.
 Service profile cards show keyId, environment, status, fingerprint, issuedAt,
 and expiry/revocation dates only.
 ```
+
+Emergency self-rotation:
+
+```http
+POST /v1/developer/services/:serviceCode/api-keys/emergency-rotate
+Content-Type: application/json
+```
+
+```json
+{
+  "environment": "live",
+  "requestedBy": "ops@merchant.example",
+  "reason": "Confirmed live API key exposure from an accidentally shared server log.",
+  "exposureType": "confirmed_exposure",
+  "revokePreviousImmediately": true,
+  "overlapMinutes": 0,
+  "metadata": {
+    "incidentId": "sec_2026_07_30_001"
+  }
+}
+```
+
+Emergency rotation is available to the owning developer account and to ORBI
+operators. It must require an active portal session, MFA/confirmation, and a
+clear reason. The response returns the new API key secret once only.
+
+```json
+{
+  "success": true,
+  "data": {
+    "key": {
+      "keyId": "key_...",
+      "environment": "live",
+      "status": "active",
+      "fingerprint": "7b4fd1...",
+      "issuedAt": "2026-07-30T00:00:00.000Z"
+    },
+    "oneTimeSecret": "orbi_live_...",
+    "previousKeys": [
+      {
+        "keyId": "key_old",
+        "fingerprint": "2bc9a1...",
+        "nextStatus": "revoked"
+      }
+    ],
+    "overlapMinutes": 0
+  }
+}
+```
+
+Emergency behavior:
+
+```text
+confirmed_exposure or revokePreviousImmediately=true -> old active key is revoked immediately.
+suspected_exposure -> old active key moves to pending_cutover for a short live cutover window.
+lost_key -> issue new key and move old active key to pending_cutover unless immediate revoke is requested.
+routine_fast_rotation -> same endpoint shape, but still audited as emergency rotation.
+```
+
+Audit event:
+
+```text
+developer.api_key.emergency_rotated
+```
+
+Messaging intent:
+
+```text
+developer.api_key.emergency_rotated -> ORBI Talk
+```
+
+The message must include the service name/code, environment, new key
+fingerprint, old key next status, rotation reason category, and timestamp. It
+must never include the raw API key secret. Delivery evidence should be visible
+to operators as notification status, not as message secrets.
 
 Revoke API key:
 

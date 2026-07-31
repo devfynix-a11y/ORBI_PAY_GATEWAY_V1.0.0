@@ -158,6 +158,7 @@ Data sources:
 ```text
 POST /v1/developer/services/:serviceCode/api-keys/issue
 POST /v1/developer/services/:serviceCode/api-key-rotations
+POST /v1/developer/services/:serviceCode/api-keys/emergency-rotate
 POST /v1/developer/services/:serviceCode/api-keys/:keyId/revoke
 POST /v1/developer/api-key-rotations/:rotationId/decision
 POST /v1/developer/services/:serviceCode/webhook-secrets/issue
@@ -173,8 +174,11 @@ One-time secrets are shown once.
 Only fingerprints remain visible afterward.
 Copy action requires operator acknowledgement.
 Never log or persist raw secret in portal UI state.
-Issue, rotate, revoke, and cutover actions require MFA-verified operator/admin
-session, explicit confirmation, and a clear reason.
+Developers can request routine rotation and perform emergency self-rotation on
+their own approved integrations.
+Emergency rotation requires MFA/confirmation, a clear reason, and shows the new
+key once.
+Operator-only actions remain issue, explicit revoke, and rotation decisions.
 ```
 
 ### Scopes And Consent

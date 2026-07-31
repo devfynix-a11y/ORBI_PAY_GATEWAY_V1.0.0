@@ -234,6 +234,80 @@ No live financial secret depends on local JSON fallback or undocumented
 operator memory, and every secret has custody, rotation, and recovery evidence.
 ```
 
+### Stage 3B: OrbiTalk Identity And Security Messaging
+
+Goal:
+
+```text
+Use ORBI Talk as the official messaging rail for BaaS identity and security
+events without letting payment services send ad-hoc emails/SMS directly.
+```
+
+Why:
+
+```text
+Developers need fast, clear messages for OTP, email confirmation, API key
+rotation, webhook incidents, PaySafe actions, and risk alerts. These messages
+must be template-controlled, language-aware, audited, and retryable.
+```
+
+Design:
+
+- Core remains the identity, wallet, risk, ledger, and challenge authority.
+- Pay Gateway remains the BaaS/API boundary and emits messaging intents for
+  gateway-owned events such as developer key rotation, webhook replay failure,
+  service approval, domain approval, and hosted challenge updates.
+- ORBI Talk Gateway owns SMS, email, push, WhatsApp where supported, templates,
+  delivery queues, retries, language routing, and delivery receipts.
+- Gateway/Core must never pass raw passwords, PINs, OTP secrets, API keys, or
+  webhook signing secrets to notification payloads.
+- Messages must reference safe public data only: masked service code, key
+  fingerprint, event id, action name, environment, timestamp, and support path.
+- Every messaging request must carry `correlationId`, `eventId`,
+  `serviceCode`, `recipientIdentityRef`, `language`, `channel`, and
+  `templateCode`.
+
+Initial template families:
+
+```text
+identity.otp.requested
+identity.email.confirmation
+developer.api_key.rotation_requested
+developer.api_key.emergency_rotated
+developer.webhook_secret.rotation_requested
+developer.service.approved
+developer.service.rejected
+developer.domain.allowlist.updated
+paysafe.action.required
+paysafe.release.requested
+paysafe.refund.requested
+paysafe.dispute.opened
+gateway.webhook.delivery_failed
+gateway.webhook.replay_completed
+gateway.risk.action_required
+```
+
+Implementation phases:
+
+1. Define `MessagingIntent` contract shared by Core, Pay Gateway, and OrbiTalk.
+2. Add gateway adapter `OrbiTalkClient` with HMAC/mTLS-ready service auth.
+3. Emit messaging intents for developer key rotation and emergency rotation.
+4. Emit messaging intents for service approval/rejection and domain updates.
+5. Add hosted challenge OTP/email confirmation templates.
+6. Add PaySafe BaaS templates for action-required, release, refund, dispute,
+   expiry, and auto-refund events.
+7. Store delivery evidence and expose safe delivery status in Developer Portal.
+8. Add replay/retry controls for failed messaging deliveries without duplicating
+   financial actions.
+
+Acceptance:
+
+```text
+Security and BaaS messages are delivered through ORBI Talk with audited
+template, recipient, channel, language, correlation id, delivery status, and
+retry evidence. Payment services do not send direct unaudited emails/SMS.
+```
+
 ### Stage 4: Reconciliation Evidence Layer
 
 Goal:

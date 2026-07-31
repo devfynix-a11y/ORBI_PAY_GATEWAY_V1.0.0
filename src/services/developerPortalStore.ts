@@ -7,6 +7,7 @@ import type {
   DeveloperAllowlistUpdateSchema,
   DeveloperApiKeyRotationDecisionSchema,
   DeveloperApiKeyRotationRequestSchema,
+  DeveloperEmergencyApiKeyRotationSchema,
   DeveloperPortalEventSchema,
   DeveloperScopeDecisionSchema,
   DeveloperScopeRequestSchema,
@@ -563,6 +564,61 @@ export class DeveloperPortalStore {
     });
     await this.persist();
     return { service, key: record, oneTimeSecret: secret };
+  }
+
+  async emergencyRotateApiKey(serviceCode: string, request: z.infer<typeof DeveloperEmergencyApiKeyRotationSchema>) {
+    this.assertReady();
+    const service = this.getMutableService(serviceCode);
+    const now = new Date().toISOString();
+    const keyId = `key_${crypto.randomUUID()}`;
+    const secret = oneTimeSecret(`orbi_${request.environment}`);
+    const revokePreviousImmediately = request.revokePreviousImmediately ?? request.exposureType === 'confirmed_exposure';
+    const overlapMinutes = revokePreviousImmediately ? 0 : request.overlapMinutes ?? (request.environment === 'live' ? 15 : 30);
+    const previousKeys = (service.keys || []).filter((key) =>
+      key.environment === request.environment &&
+      key.status === 'active'
+    );
+    const record = {
+      keyId,
+      environment: request.environment,
+      status: 'active' as const,
+      fingerprint: fingerprint(secret),
+      issuedAt: now,
+    };
+
+    service.keys = [
+      ...(service.keys || []).map((key) => {
+        if (key.environment !== request.environment || key.status !== 'active') return key;
+        return revokePreviousImmediately
+          ? { ...key, status: 'revoked' as const, revokedAt: now }
+          : { ...key, status: 'pending_cutover' as const };
+      }),
+      record,
+    ];
+    service.keyStatus = 'active';
+    service.updatedAt = now;
+
+    this.addEvent('developer.api_key.emergency_rotated', {
+      serviceCode: service.serviceCode,
+      environment: request.environment,
+      data: {
+        keyId,
+        fingerprint: record.fingerprint,
+        requestedBy: request.requestedBy,
+        reason: request.reason,
+        exposureType: request.exposureType,
+        revokePreviousImmediately,
+        overlapMinutes,
+        previousKeyFingerprints: previousKeys.map((key) => key.fingerprint),
+        metadata: request.metadata || {},
+      },
+    });
+    await this.persist();
+    return { service, key: record, oneTimeSecret: secret, previousKeys: previousKeys.map((key) => ({
+      keyId: key.keyId,
+      fingerprint: key.fingerprint,
+      nextStatus: revokePreviousImmediately ? 'revoked' : 'pending_cutover',
+    })), overlapMinutes };
   }
 
   async revokeApiKey(

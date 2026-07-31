@@ -230,6 +230,16 @@ export const DeveloperSecretIssueRequestSchema = z.object({
   reason: z.string().trim().min(10).max(1000),
 });
 
+export const DeveloperEmergencyApiKeyRotationSchema = z.object({
+  environment: DeveloperPortalEnvironmentSchema,
+  reason: z.string().trim().min(10).max(1000),
+  requestedBy: z.string().trim().min(3).max(180),
+  exposureType: z.enum(['suspected_exposure', 'confirmed_exposure', 'lost_key', 'routine_fast_rotation']).default('suspected_exposure'),
+  revokePreviousImmediately: z.boolean().optional(),
+  overlapMinutes: z.number().int().min(0).max(60).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
 export const DeveloperSecretRevokeRequestSchema = z.object({
   revokedBy: z.string().trim().min(3).max(180),
   reason: z.string().trim().min(10).max(1000),
@@ -266,6 +276,7 @@ export const DeveloperPortalEventSchema = z
       'developer.api_key.rotation_approved',
       'developer.api_key.rotation_rejected',
       'developer.api_key.rotated',
+      'developer.api_key.emergency_rotated',
       'developer.api_key.issued',
       'developer.api_key.revoked',
       'developer.webhook_secret.rotation_requested',

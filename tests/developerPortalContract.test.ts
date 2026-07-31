@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   DeveloperAllowlistUpdateSchema,
   DeveloperApiKeyRotationRequestSchema,
+  DeveloperEmergencyApiKeyRotationSchema,
   DeveloperPortalEventSchema,
   DeveloperScopeRequestSchema,
   DeveloperServiceApplicationSchema,
@@ -187,6 +188,26 @@ test('api key rotation request carries environment and actor context', () => {
       currentKeyId: 'key_2026_07',
       rotationReason: 'Routine quarterly sandbox key rotation.',
       requestedBy: 'ops@orbishop.example',
+    }),
+  );
+});
+
+test('emergency api key rotation requires clear actor and reason', () => {
+  assert.doesNotThrow(() =>
+    DeveloperEmergencyApiKeyRotationSchema.parse({
+      environment: 'live',
+      requestedBy: 'ops@orbishop.example',
+      reason: 'Confirmed key exposure from an accidentally shared server log.',
+      exposureType: 'confirmed_exposure',
+      revokePreviousImmediately: true,
+    }),
+  );
+
+  assert.throws(() =>
+    DeveloperEmergencyApiKeyRotationSchema.parse({
+      environment: 'live',
+      requestedBy: 'ops@orbishop.example',
+      reason: 'rotate',
     }),
   );
 });

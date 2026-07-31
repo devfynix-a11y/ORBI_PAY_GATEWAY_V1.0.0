@@ -77,6 +77,26 @@ ORBI_PAY_SERVICE_KEY=orbi_live_xxx
 ORBI_PAY_WEBHOOK_SECRET=orbi_whsec_live_xxx
 ```
 
+Emergency key rotation:
+
+```text
+If you think an ORBI key was exposed, open Developer Portal -> Keys & Secrets
+and use Emergency rotate immediately. ORBI will create a new one-time key,
+audit the action, and either revoke the old active key immediately or keep a
+short cutover window if you choose suspected exposure.
+```
+
+After emergency rotation:
+
+```text
+Copy the new key once.
+Update your server secret manager or protected environment file.
+Restart only the services that need the new key.
+Never paste the key into browser code, mobile apps, Git, logs, screenshots,
+chat messages, or support tickets.
+Retry failed requests with the same idempotency key after the server is updated.
+```
+
 ## 3. Required Request Headers
 
 The official SDK exchanges the service key for a short-lived access token and
