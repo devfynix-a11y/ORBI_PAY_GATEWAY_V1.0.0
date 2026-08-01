@@ -111,6 +111,7 @@ import { createConsentReceiptFromHostedChallenge } from './services/hostedChalle
 import { sandboxSimulatorStore } from './services/sandboxSimulatorStore.js';
 import { oauthAuthorizationStore } from './services/oauthAuthorizationStore.js';
 import { refreshTokenStore } from './services/refreshTokenStore.js';
+import { pushedAuthorizationRequestStore } from './services/pushedAuthorizationRequestStore.js';
 import type {
   GatewayPaymentRequest,
   GatewayPaymentResponse,
@@ -303,6 +304,15 @@ const OAuthAuthorizationRequestSchema = z.object({
   state: z.string().trim().min(16).max(512),
   code_challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   code_challenge_method: z.literal('S256'),
+});
+
+const OAuthAuthorizeRequestUriSchema = z.object({
+  client_id: z.string().trim().min(2).max(80),
+  request_uri: z.string().trim().regex(/^urn:ietf:params:oauth:request_uri:orbi:[A-Za-z0-9_-]{43}$/),
+});
+
+const OAuthPushedAuthorizationRequestSchema = OAuthAuthorizationRequestSchema.extend({
+  client_secret: z.string().trim().min(1).optional(),
 });
 
 const OAuthTokenControlRequestSchema = z.object({
@@ -607,6 +617,7 @@ const oauthAuthorizationServerMetadata = () => {
   return {
     issuer,
     authorization_endpoint: `${issuer}/oauth/authorize`,
+    pushed_authorization_request_endpoint: `${issuer}/oauth/par`,
     token_endpoint: `${issuer}/oauth/token`,
     introspection_endpoint: `${issuer}/oauth/introspect`,
     revocation_endpoint: `${issuer}/oauth/revoke`,
@@ -621,6 +632,7 @@ const oauthAuthorizationServerMetadata = () => {
     scopes_supported: DeveloperScopeSchema.options,
     response_types_supported: ['code'],
     code_challenge_methods_supported: ['S256'],
+    require_pushed_authorization_requests: false,
     token_endpoint_auth_signing_alg_values_supported: ['HS256'],
   };
 };
@@ -1538,12 +1550,52 @@ ${record.requestedScopes.map((scope) => `<div class="scope">${htmlEscape(scope)}
 <form method="post" action="/oauth/authorize/decision"><input type="hidden" name="request_id" value="${htmlEscape(record.requestId)}"><input type="hidden" name="approval_token" value="${htmlEscape(record.approvalToken)}"><div class="actions"><button class="deny" name="decision" value="deny">Decline</button><button class="allow" name="decision" value="approve">Allow access</button></div></form>
 <small>You can revoke this access later. ORBI never shares your password or PIN with this service.</small></main></body></html>`;
 
-app.get('/oauth/authorize', async (req, res) => {
-  const parsed = OAuthAuthorizationRequestSchema.safeParse(req.query);
-  if (!parsed.success) return sendValidationError(res, 'OAUTH_AUTHORIZATION_REQUEST_INVALID', parsed.error.issues);
+const createOAuthAuthorizationRedirect = async (
+  input: z.infer<typeof OAuthAuthorizationRequestSchema>,
+  res: express.Response,
+) => {
+  const environment = oauthRuntimeDeveloperEnvironment();
+  const service = developerPortalStore.getService(input.client_id);
+  if (service.status !== 'active' || !service.environments.includes(environment)) {
+    throw new Error('OAUTH_CLIENT_NOT_ACTIVE');
+  }
+  if (!service.redirectUrls.includes(input.redirect_uri)) throw new Error('OAUTH_REDIRECT_URI_NOT_ALLOWED');
+  const scopes = requestedOAuthScopes(input.scope);
+  if (!scopes.length || scopes.some((scope) => !service.scopesGranted.includes(scope as never))) {
+    throw new Error('PAY_SERVICE_SCOPE_NOT_GRANTED');
+  }
+  const requestId = `oauth_req_${crypto.randomUUID()}`;
+  const upstreamState = randomOAuthValue();
+  const nonce = randomOAuthValue();
+  const upstreamVerifier = randomOAuthValue(48);
+  const upstreamChallenge = crypto.createHash('sha256').update(upstreamVerifier).digest('base64url');
+  const approvalToken = randomOAuthValue();
+  await oauthAuthorizationStore.create({
+    requestId, upstreamState, serviceCode: service.serviceCode, environment,
+    redirectUri: input.redirect_uri, requestedScopes: scopes,
+    clientState: input.state, codeChallenge: input.code_challenge,
+    nonce, upstreamVerifier, approvalToken,
+    expiresAt: new Date(Date.now() + config.security.oauthAuthorizationRequestTtlSeconds * 1000).toISOString(),
+  });
+  const identityAuthorize = new URL(`${config.security.oidcIdentityIssuer}/protocol/openid-connect/auth`);
+  identityAuthorize.search = new URLSearchParams({
+    response_type: 'code', client_id: config.security.oidcAuthorizationClientId,
+    redirect_uri: oauthCallbackUrl(), scope: 'openid', state: upstreamState, nonce,
+    code_challenge: upstreamChallenge, code_challenge_method: 'S256',
+  }).toString();
+  return res.redirect(302, identityAuthorize.toString());
+};
+
+const oauthPushedAuthorizationRequestHandler = async (req: express.Request, res: express.Response) => {
+  res.setHeader('cache-control', 'no-store');
+  res.setHeader('pragma', 'no-cache');
+  const parsed = OAuthPushedAuthorizationRequestSchema.safeParse(req.body || {});
+  if (!parsed.success) return sendValidationError(res, 'OAUTH_PAR_REQUEST_INVALID', parsed.error.issues);
   try {
     const environment = oauthRuntimeDeveloperEnvironment();
+    const authenticated = authenticateOAuthClient(req, parsed.data);
     const service = developerPortalStore.getService(parsed.data.client_id);
+    if (authenticated.service.code !== service.serviceCode) throw new Error('OAUTH_CLIENT_AUTH_INVALID');
     if (service.status !== 'active' || !service.environments.includes(environment)) {
       throw new Error('OAUTH_CLIENT_NOT_ACTIVE');
     }
@@ -1552,26 +1604,59 @@ app.get('/oauth/authorize', async (req, res) => {
     if (!scopes.length || scopes.some((scope) => !service.scopesGranted.includes(scope as never))) {
       throw new Error('PAY_SERVICE_SCOPE_NOT_GRANTED');
     }
-    const requestId = `oauth_req_${crypto.randomUUID()}`;
-    const upstreamState = randomOAuthValue();
-    const nonce = randomOAuthValue();
-    const upstreamVerifier = randomOAuthValue(48);
-    const upstreamChallenge = crypto.createHash('sha256').update(upstreamVerifier).digest('base64url');
-    const approvalToken = randomOAuthValue();
-    await oauthAuthorizationStore.create({
-      requestId, upstreamState, serviceCode: service.serviceCode, environment,
-      redirectUri: parsed.data.redirect_uri, requestedScopes: scopes,
-      clientState: parsed.data.state, codeChallenge: parsed.data.code_challenge,
-      nonce, upstreamVerifier, approvalToken,
-      expiresAt: new Date(Date.now() + config.security.oauthAuthorizationRequestTtlSeconds * 1000).toISOString(),
+    const record = await pushedAuthorizationRequestStore.create({
+      serviceCode: service.serviceCode,
+      environment,
+      payload: {
+        response_type: parsed.data.response_type,
+        client_id: parsed.data.client_id,
+        redirect_uri: parsed.data.redirect_uri,
+        scope: scopes.join(' '),
+        state: parsed.data.state,
+        code_challenge: parsed.data.code_challenge,
+        code_challenge_method: parsed.data.code_challenge_method,
+      },
+    }, config.security.oauthPushedAuthorizationRequestTtlSeconds);
+    void auditEventSink.emit({
+      eventType: 'oauth.par.created', severity: 'info', outcome: 'success',
+      requestId: res.locals.auditContext?.requestId, traceId: res.locals.auditContext?.traceId,
+      correlationId: res.locals.auditContext?.correlationId,
+      actor: { serviceCode: service.serviceCode, environment },
+      resource: { type: 'oauth_pushed_authorization_request' },
+      metadata: { scopes, expiresAt: record.expiresAt },
     });
-    const identityAuthorize = new URL(`${config.security.oidcIdentityIssuer}/protocol/openid-connect/auth`);
-    identityAuthorize.search = new URLSearchParams({
-      response_type: 'code', client_id: config.security.oidcAuthorizationClientId,
-      redirect_uri: oauthCallbackUrl(), scope: 'openid', state: upstreamState, nonce,
-      code_challenge: upstreamChallenge, code_challenge_method: 'S256',
-    }).toString();
-    return res.redirect(302, identityAuthorize.toString());
+    return res.status(201).json({
+      request_uri: record.requestUri,
+      expires_in: config.security.oauthPushedAuthorizationRequestTtlSeconds,
+    });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'OAUTH_PAR_REQUEST_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error, 400), error);
+  }
+};
+
+app.post('/oauth/par', express.urlencoded({ extended: false }), oauthPushedAuthorizationRequestHandler);
+app.post('/v1/oauth/par', express.urlencoded({ extended: false }), oauthPushedAuthorizationRequestHandler);
+
+app.get('/oauth/authorize', async (req, res) => {
+  const requestUriParsed = OAuthAuthorizeRequestUriSchema.safeParse(req.query);
+  if (requestUriParsed.success) {
+    try {
+      const service = developerPortalStore.getService(requestUriParsed.data.client_id);
+      const pushed = await pushedAuthorizationRequestStore.consume(requestUriParsed.data.request_uri, service.serviceCode);
+      const parsedPayload = OAuthAuthorizationRequestSchema.safeParse(pushed.payload);
+      if (!parsedPayload.success) return sendValidationError(res, 'OAUTH_PAR_REQUEST_INVALID', parsedPayload.error.issues);
+      if (parsedPayload.data.client_id !== requestUriParsed.data.client_id) throw new Error('OAUTH_CLIENT_AUTH_INVALID');
+      return createOAuthAuthorizationRedirect(parsedPayload.data, res);
+    } catch (e: any) {
+      const error = errorCodeFromException(e, 'OAUTH_AUTHORIZATION_FAILED');
+      return sendApiError(res, httpStatusForGatewayError(error, 400), error);
+    }
+  }
+  const parsed = OAuthAuthorizationRequestSchema.safeParse(req.query);
+  if (!parsed.success) return sendValidationError(res, 'OAUTH_AUTHORIZATION_REQUEST_INVALID', parsed.error.issues);
+  try {
+    return createOAuthAuthorizationRedirect(parsed.data, res);
   } catch (e: any) {
     return sendApiError(res, httpStatusForGatewayError(errorCodeFromException(e, 'OAUTH_AUTHORIZATION_FAILED'), 400), errorCodeFromException(e, 'OAUTH_AUTHORIZATION_FAILED'));
   }
@@ -3992,6 +4077,7 @@ const start = async () => {
   await developerPortalStore.initialize();
   await consentReceiptStore.initialize();
   await oauthAuthorizationStore.initialize();
+  await pushedAuthorizationRequestStore.initialize();
   await refreshTokenStore.initialize();
   developerPortalStore.onEvent((event) => developerMessagingDispatcher.handleDeveloperEvent(event));
   await serviceAccessTokenRevocationStore.initialize();

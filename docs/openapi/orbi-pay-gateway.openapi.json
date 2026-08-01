@@ -70,6 +70,7 @@
                   "properties": {
                     "issuer": { "type": "string", "format": "uri" },
                     "authorization_endpoint": { "type": "string", "format": "uri" },
+                    "pushed_authorization_request_endpoint": { "type": "string", "format": "uri" },
                     "token_endpoint": { "type": "string", "format": "uri" },
                     "introspection_endpoint": { "type": "string", "format": "uri" },
                     "revocation_endpoint": { "type": "string", "format": "uri" },
@@ -81,12 +82,69 @@
                     "scopes_supported": { "type": "array", "items": { "type": "string" } },
                     "response_types_supported": { "type": "array", "items": { "type": "string" } },
                     "code_challenge_methods_supported": { "type": "array", "items": { "type": "string" } },
+                    "require_pushed_authorization_requests": { "type": "boolean" },
                     "token_endpoint_auth_signing_alg_values_supported": { "type": "array", "items": { "type": "string" } }
                   }
                 }
               }
             }
           }
+        }
+      }
+    },
+    "/oauth/par": {
+      "post": {
+        "tags": ["Runtime"],
+        "summary": "Register a pushed authorization request before starting OAuth consent",
+        "operationId": "createPushedAuthorizationRequest",
+        "security": [{ "ServiceBasicAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "response_type",
+                  "client_id",
+                  "redirect_uri",
+                  "scope",
+                  "state",
+                  "code_challenge",
+                  "code_challenge_method"
+                ],
+                "properties": {
+                  "response_type": { "const": "code" },
+                  "client_id": { "type": "string" },
+                  "redirect_uri": { "type": "string", "format": "uri" },
+                  "scope": { "type": "string" },
+                  "state": { "type": "string", "minLength": 16 },
+                  "code_challenge": { "type": "string", "minLength": 43, "maxLength": 43 },
+                  "code_challenge_method": { "const": "S256" },
+                  "client_secret": { "type": "string", "writeOnly": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Pushed authorization request created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["request_uri", "expires_in"],
+                  "properties": {
+                    "request_uri": { "type": "string" },
+                    "expires_in": { "type": "integer", "minimum": 1 }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -103,7 +161,8 @@
           { "name": "scope", "in": "query", "required": true, "schema": { "type": "string" } },
           { "name": "state", "in": "query", "required": true, "schema": { "type": "string", "minLength": 16 } },
           { "name": "code_challenge", "in": "query", "required": true, "schema": { "type": "string", "minLength": 43, "maxLength": 43 } },
-          { "name": "code_challenge_method", "in": "query", "required": true, "schema": { "const": "S256" } }
+          { "name": "code_challenge_method", "in": "query", "required": true, "schema": { "const": "S256" } },
+          { "name": "request_uri", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Use with client_id after creating a PAR record." }
         ],
         "responses": {
           "302": { "description": "Redirect to ORBI Identity" },

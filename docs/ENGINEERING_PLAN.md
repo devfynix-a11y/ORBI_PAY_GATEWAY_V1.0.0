@@ -198,6 +198,8 @@ Tasks:
 
 - Define OAuth2 client registration through Developer Portal approval.
 - Add authorization-code + PKCE for browser/mobile-safe consent.
+- Add pushed authorization requests (PAR) so browser consent starts from a
+  short-lived `request_uri` instead of long query payloads.
 - Add client-credentials for server-to-server approved services.
 - Add token introspection and revocation.
 - Persist service access token revocations in Postgres so revoked tokens remain
@@ -205,6 +207,8 @@ Tasks:
 - Bind access tokens to service, environment, scopes, consent receipt, and
   risk profile.
 - Keep API keys only as bootstrap credentials for token exchange.
+- Next hardening adds signed authorization request objects, stronger client
+  authentication, and sender-constrained tokens.
 
 Acceptance:
 

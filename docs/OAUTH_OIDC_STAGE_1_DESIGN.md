@@ -156,3 +156,34 @@ Implemented controls:
 - refresh rotation and reuse-detection tests;
 - revocation propagation test across process restart;
 - OpenAPI, SDK, runbook, and operator audit examples.
+
+## Stage 2 Foundation: Pushed Authorization Requests
+
+Gateway now exposes:
+
+```text
+POST /oauth/par
+POST /v1/oauth/par
+```
+
+Developers send the normal authorization-code + PKCE parameters to PAR using
+their approved OAuth client credential. Gateway validates the client, exact
+redirect URI, approved scopes, runtime environment, and service status before
+returning:
+
+```json
+{
+  "request_uri": "urn:ietf:params:oauth:request_uri:orbi:...",
+  "expires_in": 90
+}
+```
+
+The browser then opens:
+
+```text
+GET /oauth/authorize?client_id=<service-code>&request_uri=<request-uri>
+```
+
+The `request_uri` is one-time, short-lived, stored as a hash, and bound to the
+OAuth client and environment. This prepares ORBI for signed request objects,
+stronger client authentication, and sender-constrained access tokens.

@@ -33,6 +33,7 @@ test('postman collection covers core developer sandbox flows', () => {
 
   for (const required of [
     'Resolve Identity',
+    'Create Pushed Authorization Request',
     'Link Payment Profile',
     'Create Checkout Payment Intent',
     'Open Hosted Challenge',

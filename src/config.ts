@@ -91,6 +91,8 @@ export const config = {
       Number(process.env.PAYMENT_GATEWAY_OAUTH_AUTHORIZATION_REQUEST_TTL_SECONDS || 600),
     oauthAuthorizationCodeTtlSeconds:
       Number(process.env.PAYMENT_GATEWAY_OAUTH_AUTHORIZATION_CODE_TTL_SECONDS || 120),
+    oauthPushedAuthorizationRequestTtlSeconds:
+      Number(process.env.PAYMENT_GATEWAY_OAUTH_PAR_TTL_SECONDS || 90),
     financialTokenAudience:
       process.env.PAYMENT_GATEWAY_FINANCIAL_TOKEN_AUDIENCE || 'orbi-pay-api',
     financialTokenTtlSeconds:

@@ -25,6 +25,7 @@ test('openapi spec declares stable gateway contract metadata', () => {
 
 test('openapi spec covers runtime SDK endpoints', () => {
   const requiredRuntimePaths = [
+    '/oauth/par',
     '/oauth/token',
     '/v1/payment-intents',
     '/v1/payment-intents/{intentId}',

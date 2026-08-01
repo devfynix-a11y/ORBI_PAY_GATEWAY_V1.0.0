@@ -49,17 +49,22 @@ Existing:
   verification and consent-bound runtime tokens
 - immediate consent and subject revalidation whenever a financial token is
   used
-
-Remaining:
-
 - authorization-code flow with PKCE `S256`
 - exact redirect-URI matching
 - one-time authorization codes
 - refresh-token rotation and reuse detection
-- consent-bound token claims
-- audience/resource binding
-- user/session logout and consent revocation propagation
+- consent-bound token claims and audience/resource binding
+- signed logout, risk action, account-lock, and consent revocation propagation
+  to token families
+- pushed authorization requests through `/oauth/par` and `/v1/oauth/par`
+
+Remaining:
+
 - SDK methods for authorization URL, callback exchange, refresh, and revoke
+- signed authorization request objects (JAR)
+- stronger OAuth client authentication such as `private_key_jwt`
+- sender-constrained access tokens through mTLS certificate binding or DPoP
+- PAR requirement switch for high-risk live integrations after SDK parity
 
 Acceptance:
 
@@ -82,6 +87,12 @@ Evidence:
   against the production PostgreSQL engine on 2026-07-31;
 - migration `database/migrations/001_pay_gateway_consent_authority.sql` was
   applied successfully and temporary readiness evidence was removed.
+- Gateway build and all 126 automated tests passed after refresh-token
+  rotation, reuse detection, and subject revocation propagation were added on
+  2026-07-31.
+- migration `database/migrations/004_pay_gateway_oauth_par.sql` adds
+  PostgreSQL-backed PAR records. PAR request URIs are hashed, short-lived,
+  one-time, client-bound, and environment-bound.
 
 ## 2. Live mTLS And Transport Trust
 

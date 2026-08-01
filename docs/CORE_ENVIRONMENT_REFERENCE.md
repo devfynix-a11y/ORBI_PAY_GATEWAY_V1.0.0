@@ -153,6 +153,7 @@ This reference is for maintainability only. It intentionally does not store secr
 | `PAYMENT_GATEWAY_FINANCIAL_RATE_LIMIT_MAX_SUBJECTS` | Runtime | Non-secret | No | Payment gateway only | Maximum in-memory rate-limit subjects retained per process. Default `50000`. |
 | `PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET` | Runtime | Secret | Yes in production | Payment gateway only | HMAC signing secret for short-lived service access tokens issued by `/oauth/token`. Keep separate from portal sessions and Core worker signing. |
 | `PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_TTL_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Service access token lifetime in seconds. Default `900`, clamped between 60 and 3600. |
+| `PAYMENT_GATEWAY_OAUTH_PAR_TTL_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Short lifetime in seconds for OAuth pushed authorization request `request_uri` records. Default `90`. |
 | `PAYMENT_GATEWAY_OAUTH_ISSUER_URL` | Runtime | Non-secret | No | Payment gateway only | Optional OAuth metadata issuer URL. Defaults to `PAYMENT_GATEWAY_PUBLIC_BASE_URL`. |
 | `PAYMENT_GATEWAY_PORTAL_OPERATOR_MFA_REQUIRED` | Runtime | Non-secret | No | Payment gateway only | Requires MFA-verified portal sessions for operator/admin accounts and sensitive control-plane actions. Default `true`. |
 | `PAYMENT_GATEWAY_PORTAL_EMAIL_VERIFICATION_TTL_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Lifetime of a developer email verification code. Default `900` seconds. |

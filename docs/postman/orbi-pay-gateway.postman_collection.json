@@ -29,6 +29,36 @@
       "name": "Runtime",
       "item": [
         {
+          "name": "Create Pushed Authorization Request",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                { "key": "username", "value": "orbi-shop", "type": "string" },
+                { "key": "password", "value": "{{service_key}}", "type": "string" }
+              ]
+            },
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" },
+              { "key": "x-request-id", "value": "{{request_id}}" }
+            ],
+            "url": "{{base_url}}/oauth/par",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "response_type", "value": "code", "type": "text" },
+                { "key": "client_id", "value": "orbi-shop", "type": "text" },
+                { "key": "redirect_uri", "value": "https://merchant.example.com/orbi/oauth/callback", "type": "text" },
+                { "key": "scope", "value": "payments:create consent:read", "type": "text" },
+                { "key": "state", "value": "merchant-state-{{$timestamp}}", "type": "text" },
+                { "key": "code_challenge", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "type": "text" },
+                { "key": "code_challenge_method", "value": "S256", "type": "text" }
+              ]
+            }
+          }
+        },
+        {
           "name": "Resolve Identity",
           "request": {
             "method": "POST",
