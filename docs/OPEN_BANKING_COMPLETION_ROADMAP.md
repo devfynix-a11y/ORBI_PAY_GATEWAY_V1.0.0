@@ -57,12 +57,13 @@ Existing:
 - signed logout, risk action, account-lock, and consent revocation propagation
   to token families
 - pushed authorization requests through `/oauth/par` and `/v1/oauth/par`
+- `private_key_jwt` client authentication foundation for OAuth token, PAR,
+  introspection, and revocation endpoints using developer service JWKS metadata
 
 Remaining:
 
 - SDK methods for authorization URL, callback exchange, refresh, and revoke
 - signed authorization request objects (JAR)
-- stronger OAuth client authentication such as `private_key_jwt`
 - sender-constrained access tokens through mTLS certificate binding or DPoP
 - PAR requirement switch for high-risk live integrations after SDK parity
 
@@ -93,6 +94,9 @@ Evidence:
 - migration `database/migrations/004_pay_gateway_oauth_par.sql` adds
   PostgreSQL-backed PAR records. PAR request URIs are hashed, short-lived,
   one-time, client-bound, and environment-bound.
+- `private_key_jwt` assertions require signed JWTs with approved service JWKS,
+  exact issuer/subject, endpoint audience, short lifetime, and replay-safe
+  `jti`.
 
 ## 2. Live mTLS And Transport Trust
 

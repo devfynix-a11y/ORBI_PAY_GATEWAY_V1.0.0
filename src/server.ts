@@ -31,6 +31,10 @@ import {
   assertNonceNotReplayed,
 } from './security/financialRequestGuard.js';
 import {
+  PRIVATE_KEY_JWT_ASSERTION_TYPE,
+  verifyOAuthPrivateKeyJwt,
+} from './security/oauthClientAssertion.js';
+import {
   createRequestAuditContext,
   hasSignedInternalRequestHeaders,
   isInternalGatewayPath,
@@ -252,7 +256,10 @@ const PaySafeEscrowActionSchema = z.object({
 
 const OAuthClientCredentialsTokenRequestSchema = z.object({
   grant_type: z.literal('client_credentials'),
+  client_id: z.string().trim().min(2).max(80).optional(),
   client_secret: z.string().trim().min(1).optional(),
+  client_assertion_type: z.literal(PRIVATE_KEY_JWT_ASSERTION_TYPE).optional(),
+  client_assertion: z.string().trim().min(1).optional(),
   scope: z.union([
     z.string().trim(),
     z.array(z.string().trim()),
@@ -261,7 +268,10 @@ const OAuthClientCredentialsTokenRequestSchema = z.object({
 
 const OAuthTokenExchangeRequestSchema = z.object({
   grant_type: z.literal(TOKEN_EXCHANGE_GRANT_TYPE),
+  client_id: z.string().trim().min(2).max(80).optional(),
   client_secret: z.string().trim().min(1).optional(),
+  client_assertion_type: z.literal(PRIVATE_KEY_JWT_ASSERTION_TYPE).optional(),
+  client_assertion: z.string().trim().min(1).optional(),
   subject_token: z.string().trim().min(1),
   subject_token_type: z.string().trim().min(1),
   requested_token_type: z.string().trim().min(1).optional(),
@@ -313,11 +323,16 @@ const OAuthAuthorizeRequestUriSchema = z.object({
 
 const OAuthPushedAuthorizationRequestSchema = OAuthAuthorizationRequestSchema.extend({
   client_secret: z.string().trim().min(1).optional(),
+  client_assertion_type: z.literal(PRIVATE_KEY_JWT_ASSERTION_TYPE).optional(),
+  client_assertion: z.string().trim().min(1).optional(),
 });
 
 const OAuthTokenControlRequestSchema = z.object({
+  client_id: z.string().trim().min(2).max(80).optional(),
   token: z.string().trim().min(1),
   client_secret: z.string().trim().min(1).optional(),
+  client_assertion_type: z.literal(PRIVATE_KEY_JWT_ASSERTION_TYPE).optional(),
+  client_assertion: z.string().trim().min(1).optional(),
 });
 
 const PaySafeBalanceQuerySchema = z.object({
@@ -626,14 +641,14 @@ const oauthAuthorizationServerMetadata = () => {
     subject_token_types_supported: [ACCESS_TOKEN_TYPE],
     requested_token_types_supported: [ACCESS_TOKEN_TYPE],
     audiences_supported: [config.security.financialTokenAudience],
-    token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
-    revocation_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
-    introspection_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
+    token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post', 'private_key_jwt'],
+    revocation_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post', 'private_key_jwt'],
+    introspection_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post', 'private_key_jwt'],
     scopes_supported: DeveloperScopeSchema.options,
     response_types_supported: ['code'],
     code_challenge_methods_supported: ['S256'],
     require_pushed_authorization_requests: false,
-    token_endpoint_auth_signing_alg_values_supported: ['HS256'],
+    token_endpoint_auth_signing_alg_values_supported: ['RS256', 'PS256', 'ES256'],
   };
 };
 
@@ -1593,7 +1608,7 @@ const oauthPushedAuthorizationRequestHandler = async (req: express.Request, res:
   if (!parsed.success) return sendValidationError(res, 'OAUTH_PAR_REQUEST_INVALID', parsed.error.issues);
   try {
     const environment = oauthRuntimeDeveloperEnvironment();
-    const authenticated = authenticateOAuthClient(req, parsed.data);
+    const authenticated = await authenticateOAuthClient(req, parsed.data);
     const service = developerPortalStore.getService(parsed.data.client_id);
     if (authenticated.service.code !== service.serviceCode) throw new Error('OAUTH_CLIENT_AUTH_INVALID');
     if (service.status !== 'active' || !service.environments.includes(environment)) {
@@ -1836,7 +1851,7 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
         expires_at: new Date(issued.claims.exp * 1000).toISOString(),
       });
     }
-    const authenticated = authenticateOAuthClient(req, parsed.data);
+    const authenticated = await authenticateOAuthClient(req, parsed.data);
     if (!authenticated.credential.environment || !authenticated.credential.keyId || !authenticated.credential.fingerprint) {
       throw new Error('OAUTH_CLIENT_AUTH_INVALID');
     }
@@ -1950,7 +1965,60 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
 app.post('/oauth/token', serviceTokenHandler);
 app.post('/v1/oauth/token', serviceTokenHandler);
 
-const authenticateOAuthClient = (req: express.Request, body: { client_secret?: string }) => {
+const oauthEndpointAudiences = (req: express.Request) => {
+  const issuer = gatewayIssuerUrl();
+  const path = req.path.replace(/^\/v1(?=\/oauth\/)/, '');
+  return [
+    `${issuer}${req.path}`,
+    `${issuer}${path}`,
+  ];
+};
+
+const serviceClientJwks = (service: ReturnType<typeof developerPortalStore.getService>) => {
+  const metadata = service.metadata as Record<string, unknown> | undefined;
+  const oauth = metadata?.oauthClient && typeof metadata.oauthClient === 'object'
+    ? metadata.oauthClient as Record<string, unknown>
+    : {};
+  return oauth.jwks || metadata?.oauthClientJwks || metadata?.privateKeyJwtJwks;
+};
+
+const authenticateOAuthClient = async (
+  req: express.Request,
+  body: {
+    client_id?: string;
+    client_secret?: string;
+    client_assertion_type?: string;
+    client_assertion?: string;
+  },
+) => {
+  if (body.client_assertion || body.client_assertion_type) {
+    const service = developerPortalStore.getService(String(body.client_id || ''));
+    if (service.status !== 'active') throw new Error('OAUTH_CLIENT_NOT_ACTIVE');
+    const claims = await verifyOAuthPrivateKeyJwt({
+      assertionType: body.client_assertion_type,
+      assertion: body.client_assertion,
+      clientId: service.serviceCode,
+      jwks: serviceClientJwks(service),
+      expectedAudiences: oauthEndpointAudiences(req),
+    });
+    const claimedEnvironment = String(claims.environment || claims.orbi_environment || '').trim();
+    const environment = claimedEnvironment === 'sandbox' || claimedEnvironment === 'live'
+      ? claimedEnvironment
+      : service.environments.length === 1
+        ? service.environments[0]
+        : undefined;
+    if (!environment || !service.environments.includes(environment)) throw new Error('OAUTH_CLIENT_ASSERTION_ENVIRONMENT_INVALID');
+    return {
+      service: serviceDefinitionFromDeveloperService(service),
+      credential: {
+        source: 'developer_portal' as const,
+        environment,
+        keyId: 'private_key_jwt',
+        fingerprint: 'private_key_jwt',
+        tokenType: 'api_key' as const,
+      },
+    };
+  }
   const clientSecret = tokenRequestClientSecret(req, body);
   if (!clientSecret || isServiceAccessToken(clientSecret) || isFinancialAccessToken(clientSecret)) {
     throw new Error('OAUTH_CLIENT_AUTH_INVALID');
@@ -1975,7 +2043,7 @@ const serviceTokenIntrospectionHandler = async (req: express.Request, res: expre
   }
 
   try {
-    const authenticated = authenticateOAuthClient(req, parsed.data);
+    const authenticated = await authenticateOAuthClient(req, parsed.data);
     if (isFinancialAccessToken(parsed.data.token)) {
       let claims;
       try {
@@ -2040,7 +2108,7 @@ const serviceTokenRevocationHandler = async (req: express.Request, res: express.
   }
 
   try {
-    const authenticated = authenticateOAuthClient(req, parsed.data);
+    const authenticated = await authenticateOAuthClient(req, parsed.data);
     if (parsed.data.token.startsWith('orbi_rt_')) {
       const revoked = await refreshTokenStore.revokeToken(
         parsed.data.token, authenticated.service.code, 'oauth_client_revoked',

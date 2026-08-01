@@ -370,7 +370,7 @@ Response:
     "client_credentials",
     "urn:ietf:params:oauth:grant-type:token-exchange"
   ],
-  "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+  "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post", "private_key_jwt"],
   "scopes_supported": ["identity:resolve", "payments:create", "escrow:create"]
 }
 ```

@@ -187,3 +187,31 @@ GET /oauth/authorize?client_id=<service-code>&request_uri=<request-uri>
 The `request_uri` is one-time, short-lived, stored as a hash, and bound to the
 OAuth client and environment. This prepares ORBI for signed request objects,
 stronger client authentication, and sender-constrained access tokens.
+
+## Stronger OAuth Client Authentication
+
+Gateway supports `private_key_jwt` for OAuth client authentication on:
+
+```text
+POST /oauth/par
+POST /oauth/token
+POST /oauth/introspect
+POST /oauth/revoke
+```
+
+The developer service must have an approved public JWKS in service metadata
+under `oauthClient.jwks`, `oauthClientJwks`, or `privateKeyJwtJwks`.
+
+The signed client assertion must include:
+
+```text
+iss = <service-code>
+sub = <service-code>
+aud = exact OAuth endpoint URL
+jti = unique assertion id
+exp = short expiry, max 5 minutes
+environment or orbi_environment = sandbox | live when the service has both
+```
+
+Gateway accepts `RS256`, `PS256`, and `ES256`. Every `jti` is replay-checked,
+so the same assertion cannot be reused.

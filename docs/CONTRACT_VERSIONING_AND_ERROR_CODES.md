@@ -160,7 +160,11 @@ stable.
 | `SERVICE_ACCESS_TOKEN_INVALID` | Bearer access token is malformed or signature verification failed. | Request a fresh token with valid service credentials. |
 | `SERVICE_ACCESS_TOKEN_EXPIRED` | Bearer access token is expired. | Request a fresh token and retry. |
 | `OAUTH_TOKEN_REQUEST_INVALID` | Token request payload failed validation. | Send `grant_type=client_credentials` and optional space-separated `scope`. |
-| `OAUTH_CLIENT_AUTH_INVALID` | Token request client credentials are missing or invalid. | Use Basic auth, `client_secret`, or `x-orbi-pay-service-key` with a Developer Portal API key secret. |
+| `OAUTH_CLIENT_AUTH_INVALID` | Token request client credentials are missing or invalid. | Use Basic auth, `client_secret`, `x-orbi-pay-service-key`, or a valid `private_key_jwt` client assertion. |
+| `OAUTH_CLIENT_ASSERTION_INVALID` | OAuth `private_key_jwt` is malformed, unsigned by the registered key, has the wrong issuer/subject/audience, or is expired. | Rebuild the assertion with the approved service private key and exact endpoint audience. |
+| `OAUTH_CLIENT_ASSERTION_JTI_REQUIRED` | OAuth `private_key_jwt` did not include a unique `jti`. | Generate a fresh assertion id for every request. |
+| `OAUTH_CLIENT_ASSERTION_ENVIRONMENT_INVALID` | OAuth `private_key_jwt` did not clearly bind to sandbox/live for a multi-environment service. | Add `environment` or `orbi_environment` claim with `sandbox` or `live`. |
+| `OAUTH_CLIENT_JWKS_NOT_CONFIGURED` | The developer service has no approved JWKS for `private_key_jwt`. | Register and approve the service public JWKS before using `private_key_jwt`. |
 | `OAUTH_DEVELOPER_PORTAL_SERVICE_REQUIRED` | Token exchange was attempted with a legacy service registry key. | Migrate service to Developer Portal issued keys. |
 | `OAUTH_REFRESH_TOKEN_INVALID` | Refresh token is unknown, expired, revoked, belongs to another client, or its family is no longer active. | Start a fresh authorization-code flow; do not retry the same token. |
 | `OAUTH_REFRESH_TOKEN_REUSE_DETECTED` | A previously consumed refresh token was presented again and the token family was revoked. | Stop all retries, discard family tokens, and require fresh customer authorization. Investigate possible token theft. |
