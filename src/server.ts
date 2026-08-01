@@ -35,6 +35,10 @@ import {
   verifyOAuthPrivateKeyJwt,
 } from './security/oauthClientAssertion.js';
 import {
+  expectedDpopHtuForRequest,
+  verifyDpopProof,
+} from './security/dpopProof.js';
+import {
   createRequestAuditContext,
   hasSignedInternalRequestHeaders,
   isInternalGatewayPath,
@@ -649,12 +653,24 @@ const oauthAuthorizationServerMetadata = () => {
     code_challenge_methods_supported: ['S256'],
     require_pushed_authorization_requests: false,
     token_endpoint_auth_signing_alg_values_supported: ['RS256', 'PS256', 'ES256'],
+    dpop_signing_alg_values_supported: ['ES256', 'RS256', 'PS256'],
   };
 };
 
 const requestedOAuthScopes = (scope: z.infer<typeof OAuthTokenRequestSchema>['scope']): string[] => {
   const raw = Array.isArray(scope) ? scope.join(' ') : String(scope || '');
   return [...new Set(raw.split(/\s+/).map((value) => value.trim()).filter(Boolean))];
+};
+
+const dpopBindingForTokenRequest = async (req: express.Request) => {
+  const proof = req.get('dpop')?.trim();
+  if (!proof) return undefined;
+  const verified = await verifyDpopProof({
+    proof,
+    method: req.method,
+    htu: expectedDpopHtuForRequest(req),
+  });
+  return verified.jkt;
 };
 
 const assertServiceCredentialEnvironment = (
@@ -1495,7 +1511,7 @@ app.get('/v1/providers/:providerCode/health', async (req, res) => {
 
 const requirePayServiceAccess = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
-    const authenticated = authenticatePayServiceCredential(payServiceRegistry.activeServices(), req);
+    const authenticated = await authenticatePayServiceCredential(payServiceRegistry.activeServices(), req);
     if (authenticated.credential.tokenType === 'financial_access') {
       const consent = await consentReceiptStore.get(authenticated.credential.consentId || '');
       if (
@@ -1744,6 +1760,8 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
   }
 
   try {
+    const cnfJkt = await dpopBindingForTokenRequest(req);
+    const tokenType = cnfJkt ? 'DPoP' : 'Bearer';
     if (parsed.data.grant_type === 'authorization_code') {
       const service = developerPortalStore.getService(parsed.data.client_id);
       if (service.status !== 'active') throw new Error('OAUTH_CLIENT_NOT_ACTIVE');
@@ -1760,6 +1778,7 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
         subject: authorization.subjectId, serviceCode: service.serviceCode,
         keyId: key.keyId, fingerprint: key.fingerprint, environment: authorization.environment,
         scopes, consentId: authorization.consentId, identityIssuer: config.security.oidcIdentityIssuer,
+        cnfJkt,
       });
       const refresh = await refreshTokenStore.issue({
         serviceCode: service.serviceCode, environment: authorization.environment,
@@ -1776,7 +1795,7 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
         metadata: { scopes, grantType: 'authorization_code' },
       });
       return res.json({
-        access_token: issued.accessToken, token_type: 'Bearer', expires_in: issued.expiresIn,
+        access_token: issued.accessToken, token_type: tokenType, expires_in: issued.expiresIn,
         refresh_token: refresh.refreshToken,
         scope: scopes.join(' '), consent_id: authorization.consentId,
         service_code: service.serviceCode, environment: authorization.environment,
@@ -1832,6 +1851,7 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
         subject: rotation.context.subjectId, serviceCode: service.serviceCode,
         keyId: key.keyId, fingerprint: key.fingerprint, environment: rotation.context.environment,
         scopes, consentId: rotation.context.consentId, identityIssuer: rotation.context.identityIssuer,
+        cnfJkt,
       });
       await refreshTokenStore.recordAccessToken(rotation.context.familyId, issued.claims);
       void auditEventSink.emit({
@@ -1843,7 +1863,7 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
         metadata: { scopes },
       });
       return res.json({
-        access_token: issued.accessToken, token_type: 'Bearer', expires_in: issued.expiresIn,
+        access_token: issued.accessToken, token_type: tokenType, expires_in: issued.expiresIn,
         refresh_token: rotation.refreshToken, scope: scopes.join(' '),
         consent_id: rotation.context.consentId, service_code: service.serviceCode,
         environment: rotation.context.environment, audience: issued.claims.aud,
@@ -1880,6 +1900,7 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
         fingerprint: authenticated.credential.fingerprint,
         environment: authenticated.credential.environment,
         grantedScopes,
+        cnfJkt,
       });
       void auditEventSink.emit({
         eventType: 'oauth.financial_access_token.issued',
@@ -1907,7 +1928,7 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
       return res.json({
         access_token: issued.accessToken,
         issued_token_type: ACCESS_TOKEN_TYPE,
-        token_type: 'Bearer',
+        token_type: tokenType,
         expires_in: issued.expiresIn,
         scope: issued.claims.scopes.join(' '),
         consent_id: issued.claims.consentId,
@@ -1924,6 +1945,7 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
       fingerprint: authenticated.credential.fingerprint,
       environment: authenticated.credential.environment,
       scopes: issuedScopes,
+      cnfJkt,
     });
     void auditEventSink.emit({
       eventType: 'oauth.service_access_token.issued',
@@ -1948,7 +1970,7 @@ const serviceTokenHandler = async (req: express.Request, res: express.Response) 
     });
     return res.json({
       access_token: issued.accessToken,
-      token_type: 'Bearer',
+      token_type: tokenType,
       expires_in: issued.expiresIn,
       scope: issued.claims.scopes.join(' '),
       service_code: issued.claims.serviceCode,
@@ -2023,7 +2045,7 @@ const authenticateOAuthClient = async (
   if (!clientSecret || isServiceAccessToken(clientSecret) || isFinancialAccessToken(clientSecret)) {
     throw new Error('OAUTH_CLIENT_AUTH_INVALID');
   }
-  const authenticated = authenticatePayServiceCredential(payServiceRegistry.activeServices(), {
+  const authenticated = await authenticatePayServiceCredential(payServiceRegistry.activeServices(), {
     get: (name: string) => {
       const normalized = name.toLowerCase();
       if (normalized === 'x-orbi-pay-service-key') return clientSecret;

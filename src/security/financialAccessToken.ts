@@ -19,6 +19,7 @@ export const FinancialAccessTokenClaimsSchema = z.object({
   consentId: z.string().trim().min(1),
   identityIssuer: z.string().url(),
   identitySessionId: z.string().trim().min(1).optional(),
+  cnf: z.object({ jkt: z.string().trim().min(20) }).optional(),
   iat: z.number().int().positive(),
   exp: z.number().int().positive(),
   jti: z.string().trim().min(1),
@@ -47,6 +48,7 @@ export const issueFinancialAccessToken = (input: {
   consentId: string;
   identityIssuer: string;
   identitySessionId?: string;
+  cnfJkt?: string;
   audience?: string;
   ttlSeconds?: number;
 }) => {
@@ -66,6 +68,7 @@ export const issueFinancialAccessToken = (input: {
     consentId: input.consentId,
     identityIssuer: input.identityIssuer,
     identitySessionId: input.identitySessionId,
+    cnf: input.cnfJkt ? { jkt: input.cnfJkt } : undefined,
     iat: now,
     exp: now + ttl,
     jti: `fat_${crypto.randomUUID()}`,

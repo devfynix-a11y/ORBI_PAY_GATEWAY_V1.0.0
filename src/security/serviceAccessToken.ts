@@ -15,6 +15,7 @@ export const ServiceAccessTokenClaimsSchema = z.object({
   fingerprint: z.string().trim().min(8),
   environment: z.enum(['sandbox', 'live']),
   scopes: z.array(z.string().trim().min(1)).min(1),
+  cnf: z.object({ jkt: z.string().trim().min(20) }).optional(),
   iat: z.number().int().positive(),
   exp: z.number().int().positive(),
   jti: z.string().trim().min(1),
@@ -44,6 +45,7 @@ export const issueServiceAccessToken = (input: {
   fingerprint: string;
   environment: 'sandbox' | 'live';
   scopes: string[];
+  cnfJkt?: string;
   ttlSeconds?: number;
 }) => {
   const now = Math.floor(Date.now() / 1000);
@@ -58,6 +60,7 @@ export const issueServiceAccessToken = (input: {
     fingerprint: input.fingerprint,
     environment: input.environment,
     scopes: [...new Set(input.scopes.map((scope) => scope.trim()).filter(Boolean))],
+    cnf: input.cnfJkt ? { jkt: input.cnfJkt } : undefined,
     iat: now,
     exp: now + ttlSeconds,
     jti: `sat_${crypto.randomUUID()}`,

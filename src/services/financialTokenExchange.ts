@@ -30,6 +30,7 @@ export class FinancialTokenExchangeService {
     fingerprint: string;
     environment: 'sandbox' | 'live';
     grantedScopes: string[];
+    cnfJkt?: string;
   }) {
     if (input.subjectTokenType !== ACCESS_TOKEN_TYPE) {
       throw new Error('OAUTH_SUBJECT_TOKEN_TYPE_UNSUPPORTED');
@@ -68,6 +69,7 @@ export class FinancialTokenExchangeService {
       identityIssuer: identity.issuer,
       identitySessionId: identity.sessionId,
       audience: input.audience,
+      cnfJkt: input.cnfJkt,
     });
   }
 }

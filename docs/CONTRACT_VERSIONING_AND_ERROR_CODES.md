@@ -165,6 +165,14 @@ stable.
 | `OAUTH_CLIENT_ASSERTION_JTI_REQUIRED` | OAuth `private_key_jwt` did not include a unique `jti`. | Generate a fresh assertion id for every request. |
 | `OAUTH_CLIENT_ASSERTION_ENVIRONMENT_INVALID` | OAuth `private_key_jwt` did not clearly bind to sandbox/live for a multi-environment service. | Add `environment` or `orbi_environment` claim with `sandbox` or `live`. |
 | `OAUTH_CLIENT_JWKS_NOT_CONFIGURED` | The developer service has no approved JWKS for `private_key_jwt`. | Register and approve the service public JWKS before using `private_key_jwt`. |
+| `DPOP_PROOF_REQUIRED` | Access token is sender-constrained but the request did not include a DPoP proof. | Send `Authorization: DPoP <token>` and a fresh `DPoP` proof header. |
+| `DPOP_PROOF_INVALID` | DPoP proof is malformed or missing required claims. | Rebuild the proof with `htu`, `htm`, `iat`, and `jti`. |
+| `DPOP_PUBLIC_KEY_REQUIRED` | DPoP proof did not include a usable public JWK. | Sign with a supported key and include only the public JWK in the JWT header. |
+| `DPOP_ALG_UNSUPPORTED` | DPoP proof used an unsupported signing algorithm. | Use `ES256`, `RS256`, or `PS256`. |
+| `DPOP_HTM_MISMATCH` | DPoP proof method does not match the HTTP request. | Rebuild the proof for the exact method being sent. |
+| `DPOP_HTU_MISMATCH` | DPoP proof URL does not match the HTTP request URL. | Rebuild the proof for the exact Gateway URL being called. |
+| `DPOP_PROOF_STALE` | DPoP proof timestamp is outside the freshness window. | Generate a new proof immediately before sending the request. |
+| `DPOP_KEY_MISMATCH` | DPoP proof key does not match the access token binding. | Use the same proof key that was used when requesting the token. |
 | `OAUTH_DEVELOPER_PORTAL_SERVICE_REQUIRED` | Token exchange was attempted with a legacy service registry key. | Migrate service to Developer Portal issued keys. |
 | `OAUTH_REFRESH_TOKEN_INVALID` | Refresh token is unknown, expired, revoked, belongs to another client, or its family is no longer active. | Start a fresh authorization-code flow; do not retry the same token. |
 | `OAUTH_REFRESH_TOKEN_REUSE_DETECTED` | A previously consumed refresh token was presented again and the token family was revoked. | Stop all retries, discard family tokens, and require fresh customer authorization. Investigate possible token theft. |

@@ -430,6 +430,10 @@ Rules:
 - Token scope must be a subset of granted Developer Portal scopes.
 - Token environment is inherited from the API key: sandbox or live.
 - Runtime requests may use Authorization: Bearer <access_token>.
+- If the token request includes a valid `DPoP` header, Gateway returns
+  `token_type: "DPoP"` and binds the token to that proof key. Runtime requests
+  must then send `Authorization: DPoP <access_token>` plus a fresh `DPoP`
+  proof for the exact URL and method.
 - Financial runtime signatures may be calculated with the access token while it is valid.
 - Access tokens cannot be exchanged for new access tokens.
 - Production requires PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_SECRET.
@@ -478,6 +482,10 @@ be approved for both the developer service and that consent. Audience,
 environment, developer key, and consent are immutable token claims. Every
 runtime use checks that consent is still active, so revocation takes effect
 without waiting for token expiry.
+
+For sender-constrained integrations, request this token with a `DPoP` proof.
+Gateway will return `token_type: "DPoP"` and require a new proof on each
+runtime request.
 
 Introspection:
 

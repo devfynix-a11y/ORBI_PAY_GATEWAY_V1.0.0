@@ -26,11 +26,11 @@ const requestWithKey = (key: string) => ({
   },
 }) as Request;
 
-test('pay service auth resolves live environment from production key prefix', () => {
+test('pay service auth resolves live environment from production key prefix', async () => {
   process.env.TEST_PAY_SERVICE_TOKEN_REF = 'env://TEST_PAY_SERVICE_SECRET';
   process.env.TEST_PAY_SERVICE_SECRET = 'orbi_live_test_secret';
 
-  const authenticated = authenticatePayServiceCredential([service], requestWithKey('orbi_live_test_secret'));
+  const authenticated = await authenticatePayServiceCredential([service], requestWithKey('orbi_live_test_secret'));
 
   assert.equal(authenticated.service.code, 'merchant-test');
   assert.equal(authenticated.credential.source, 'service_registry');
@@ -38,13 +38,12 @@ test('pay service auth resolves live environment from production key prefix', ()
   assert.equal(developerEnvironmentForRuntime('production'), 'live');
 });
 
-test('pay service auth resolves sandbox environment from demo key prefix', () => {
+test('pay service auth resolves sandbox environment from demo key prefix', async () => {
   process.env.TEST_PAY_SERVICE_TOKEN_REF = 'env://TEST_PAY_SERVICE_SECRET';
   process.env.TEST_PAY_SERVICE_SECRET = 'orbi_sandbox_test_secret';
 
-  const authenticated = authenticatePayServiceCredential([service], requestWithKey('orbi_sandbox_test_secret'));
+  const authenticated = await authenticatePayServiceCredential([service], requestWithKey('orbi_sandbox_test_secret'));
 
   assert.equal(authenticated.credential.environment, 'sandbox');
   assert.equal(developerEnvironmentForRuntime('demo'), 'sandbox');
 });
-

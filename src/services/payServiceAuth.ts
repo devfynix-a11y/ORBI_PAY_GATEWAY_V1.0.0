@@ -5,6 +5,7 @@ import { resolveTokenSecret } from '../security/tokenResolver.js';
 import { isServiceAccessToken, verifyServiceAccessToken } from '../security/serviceAccessToken.js';
 import { isFinancialAccessToken, verifyFinancialAccessToken } from '../security/financialAccessToken.js';
 import { developerPortalStore } from './developerPortalStore.js';
+import { expectedDpopHtuForRequest, verifyDpopProof } from '../security/dpopProof.js';
 
 export type RuntimeEnvironment = 'demo' | 'production';
 export type DeveloperEnvironment = 'sandbox' | 'live';
@@ -31,7 +32,7 @@ const safeEqual = (left: string, right: string): boolean => {
 };
 
 export const extractServiceApiKey = (req: Request): string => {
-  const bearer = req.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  const bearer = req.get('authorization')?.match(/^(Bearer|DPoP)\s+(.+)$/i)?.[2]?.trim();
   return bearer || req.get('x-orbi-pay-service-key') || req.get('x-api-key') || '';
 };
 
@@ -119,20 +120,34 @@ export const assertPayServiceApiKey = (service: PayServiceDefinition, req: Reque
   }
 };
 
-export const authenticatePayServiceRequest = (
-  services: PayServiceDefinition[],
+const assertSenderConstrainedAccessToken = async (
   req: Request,
-): PayServiceDefinition => authenticatePayServiceCredential(services, req).service;
+  cnf?: { jkt: string },
+) => {
+  if (!cnf?.jkt) return;
+  await verifyDpopProof({
+    proof: req.get('dpop'),
+    method: req.method,
+    htu: expectedDpopHtuForRequest(req),
+    expectedJkt: cnf.jkt,
+  });
+};
 
-export const authenticatePayServiceCredential = (
+export const authenticatePayServiceRequest = async (
   services: PayServiceDefinition[],
   req: Request,
-): AuthenticatedPayService => {
+): Promise<PayServiceDefinition> => (await authenticatePayServiceCredential(services, req)).service;
+
+export const authenticatePayServiceCredential = async (
+  services: PayServiceDefinition[],
+  req: Request,
+): Promise<AuthenticatedPayService> => {
   const provided = extractServiceApiKey(req);
   if (!provided) throw new Error('PAY_SERVICE_AUTH_FAILED');
 
   if (isServiceAccessToken(provided)) {
     const claims = verifyServiceAccessToken(provided);
+    await assertSenderConstrainedAccessToken(req, claims.cnf);
     const service = developerPortalStore.getService(claims.serviceCode);
     if (service.status !== 'active') throw new Error('PAY_SERVICE_AUTH_FAILED');
     const key = (service.keys || []).find((item) =>
@@ -161,6 +176,7 @@ export const authenticatePayServiceCredential = (
 
   if (isFinancialAccessToken(provided)) {
     const claims = verifyFinancialAccessToken(provided);
+    await assertSenderConstrainedAccessToken(req, claims.cnf);
     const service = developerPortalStore.getService(claims.serviceCode);
     if (service.status !== 'active') throw new Error('PAY_SERVICE_AUTH_FAILED');
     const key = (service.keys || []).find((item) =>

@@ -59,12 +59,17 @@ Existing:
 - pushed authorization requests through `/oauth/par` and `/v1/oauth/par`
 - `private_key_jwt` client authentication foundation for OAuth token, PAR,
   introspection, and revocation endpoints using developer service JWKS metadata
+- DPoP sender-constrained token foundation: `/oauth/token` can bind issued
+  access tokens to a proof key, and runtime requests enforce fresh DPoP proofs
+  whenever a token contains `cnf.jkt`
 
 Remaining:
 
 - SDK methods for authorization URL, callback exchange, refresh, and revoke
 - signed authorization request objects (JAR)
-- sender-constrained access tokens through mTLS certificate binding or DPoP
+- SDK-level DPoP proof generation and production enforcement switch for
+  high-risk live integrations
+- mTLS certificate-bound access-token profile for certified bank/provider links
 - PAR requirement switch for high-risk live integrations after SDK parity
 
 Acceptance:
@@ -97,6 +102,9 @@ Evidence:
 - `private_key_jwt` assertions require signed JWTs with approved service JWKS,
   exact issuer/subject, endpoint audience, short lifetime, and replay-safe
   `jti`.
+- DPoP proof tests verify key thumbprint binding, endpoint/method matching,
+  freshness, and replay rejection. Gateway build and all 133 automated tests
+  passed after the DPoP foundation was added.
 
 ## 2. Live mTLS And Transport Trust
 

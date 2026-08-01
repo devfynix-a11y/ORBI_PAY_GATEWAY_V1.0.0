@@ -83,7 +83,8 @@
                     "response_types_supported": { "type": "array", "items": { "type": "string" } },
                     "code_challenge_methods_supported": { "type": "array", "items": { "type": "string" } },
                     "require_pushed_authorization_requests": { "type": "boolean" },
-                    "token_endpoint_auth_signing_alg_values_supported": { "type": "array", "items": { "type": "string" }, "example": ["RS256", "PS256", "ES256"] }
+                    "token_endpoint_auth_signing_alg_values_supported": { "type": "array", "items": { "type": "string" }, "example": ["RS256", "PS256", "ES256"] },
+                    "dpop_signing_alg_values_supported": { "type": "array", "items": { "type": "string" }, "example": ["ES256", "RS256", "PS256"] }
                   }
                 }
               }
@@ -257,7 +258,7 @@
                     "access_token": { "type": "string", "writeOnly": true },
                     "refresh_token": { "type": "string", "writeOnly": true },
                     "issued_token_type": { "type": "string" },
-                    "token_type": { "const": "Bearer" },
+                    "token_type": { "enum": ["Bearer", "DPoP"] },
                     "expires_in": { "type": "integer" },
                     "scope": { "type": "string" },
                     "consent_id": { "type": "string" },

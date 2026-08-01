@@ -215,3 +215,41 @@ environment or orbi_environment = sandbox | live when the service has both
 
 Gateway accepts `RS256`, `PS256`, and `ES256`. Every `jti` is replay-checked,
 so the same assertion cannot be reused.
+
+## Sender-Constrained Token Foundation: DPoP
+
+Gateway now supports DPoP proof binding for `/oauth/token` and runtime API
+requests.
+
+If a developer sends a valid `DPoP` header when requesting a token, Gateway
+binds the issued access token to that public key thumbprint and returns:
+
+```json
+{
+  "token_type": "DPoP"
+}
+```
+
+Every runtime request using that token must then send:
+
+```text
+Authorization: DPoP <access_token>
+DPoP: <fresh signed proof JWT>
+```
+
+The proof must include:
+
+```text
+htu = exact request URL
+htm = exact HTTP method
+iat = current Unix timestamp
+jti = unique proof id
+```
+
+Gateway verifies the public JWK in the proof, accepts `ES256`, `RS256`, and
+`PS256`, rejects stale proofs, blocks proof replay, and rejects requests where
+the DPoP key does not match the access token binding.
+
+Compatibility rule: existing unbound `Bearer` tokens continue to work while SDK
+parity is completed. High-risk live integrations should be moved to DPoP or
+mTLS-bound tokens before certification.
