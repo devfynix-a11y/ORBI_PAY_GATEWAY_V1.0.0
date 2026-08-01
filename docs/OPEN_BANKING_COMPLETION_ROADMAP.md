@@ -62,13 +62,15 @@ Existing:
 - DPoP sender-constrained token foundation: `/oauth/token` can bind issued
   access tokens to a proof key, and runtime requests enforce fresh DPoP proofs
   whenever a token contains `cnf.jkt`
+- official Node and Python SDK helpers for authorization URL preparation,
+  pushed authorization requests, callback code exchange, refresh-token renewal,
+  and SDK-managed PKCE
 
 Remaining:
 
-- SDK methods for authorization URL, callback exchange, refresh, and revoke
 - signed authorization request objects (JAR)
-- SDK-level DPoP proof generation and production enforcement switch for
-  high-risk live integrations
+- production enforcement switch for SDK-managed DPoP on high-risk live
+  integrations
 - mTLS certificate-bound access-token profile for certified bank/provider links
 - PAR requirement switch for high-risk live integrations after SDK parity
 
@@ -105,6 +107,36 @@ Evidence:
 - DPoP proof tests verify key thumbprint binding, endpoint/method matching,
   freshness, and replay rejection. Gateway build and all 133 automated tests
   passed after the DPoP foundation was added.
+- SDK release `0.1.6` adds OAuth connection helpers for Node and Python and
+  was published to npm and PyPI on 2026-08-01.
+
+## Active Production Completion Sprint
+
+Status: started
+
+Focus:
+
+- Developer Portal must remain frontend-only and backend-driven. The browser
+  must not connect to financial databases or hold operator/API secrets.
+- Developers start in sandbox. Production access requires submitted business
+  details, URLs, requested permissions, review, approval, and one-time live
+  credential handover.
+- Operators/admins manage approvals, suspensions, incidents, key issuance,
+  key rotation, webhook replay, portal users, and audit logs.
+- Developers can view only their own integrations, request permissions, rotate
+  their own keys, and replay only their own payment update deliveries.
+- Sandbox and live must expose the same developer contract while using
+  separate credentials, base URLs, audit trails, and simulator behavior.
+
+Immediate backlog:
+
+- complete domain ownership verification before live credential issuance;
+- finish customer-facing consent review and revoke screens;
+- add password recovery with strong identity proofing;
+- add downloadable evidence packs for approved integrations;
+- add service-level health scoring and launch readiness checklist;
+- expand SDK examples for Node, Python, PHP, and webhook replay without raw
+  HTTP as the primary path.
 
 ## 2. Live mTLS And Transport Trust
 

@@ -66,6 +66,7 @@ If a key is exposed, rotate it immediately before accepting more live payments.
 ORBI_PAY_GATEWAY_BASE_URL=https://sandbox-pay.orbifinancial.com
 ORBI_PAY_ENVIRONMENT=Demo
 ORBI_PAY_SERVICE_KEY=orbi_sandbox_xxx
+ORBI_PAY_OAUTH_CLIENT_ID=your-approved-client-id
 ORBI_PAY_WEBHOOK_SECRET=orbi_whsec_sandbox_xxx
 ORBI_PAY_RETURN_URL=https://merchant.example.com/orbi/return
 ORBI_PAY_CANCEL_URL=https://merchant.example.com/orbi/cancel
@@ -78,6 +79,7 @@ Production uses:
 ORBI_PAY_GATEWAY_BASE_URL=https://pay.orbifinancial.com
 ORBI_PAY_ENVIRONMENT=Production
 ORBI_PAY_SERVICE_KEY=orbi_live_xxx
+ORBI_PAY_OAUTH_CLIENT_ID=your-approved-live-client-id
 ORBI_PAY_WEBHOOK_SECRET=orbi_whsec_live_xxx
 ```
 
@@ -131,6 +133,31 @@ createOrbi({
 New production integrations should use `authMode: 'access_token'`.
 For stronger protection, also enable `dpop: true` in the SDK config.
 
+## 4. Connect A Customer Or Seller Account
+
+Use the SDK when a customer, seller, member, or business needs to connect their
+ORBI account to your platform. Do not hand-build OAuth URLs unless ORBI support
+asks you to debug a specific issue.
+
+```ts
+const prepared = await orbi.oauth.pushedAuthorizeUrl({
+  redirectUri: process.env.ORBI_PAY_RETURN_URL!,
+  scopes: ['payment_profile:read', 'payments:create'],
+});
+
+// Store prepared.state and prepared.codeVerifier in the server session.
+return response.redirect(303, prepared.url);
+
+const token = await orbi.oauth.exchangeCode({
+  code: request.query.code,
+  redirectUri: process.env.ORBI_PAY_RETURN_URL!,
+  codeVerifier: savedSession.codeVerifier,
+});
+```
+
+Use the returned token only on your trusted server. Keep refresh tokens in
+server secret storage and rotate them through the SDK.
+
 Identity lookup, business registration, payment profile, and financial runtime
 requests must declare the environment and include a valid SDK signature.
 Sensitive reads are signed with an empty body. Business registration, payment
@@ -164,7 +191,7 @@ Use the same `correlationId` across the checkout request, hosted challenge,
 webhook handler, and order update so support can follow one payment without
 manual database investigation.
 
-## 4. Merchant PaySafe Readiness
+## 5. Merchant PaySafe Readiness
 
 For merchant-scoped PaySafe/payment requests, Developer Portal or operator
 setup must provide:
@@ -211,7 +238,7 @@ settlement wallet/rules for release and payout lifecycle
 If any of these are missing, the request must fail closed with a merchant
 readiness error.
 
-## 5. Checkout Payment Intent
+## 6. Checkout Payment Intent
 
 Use the SDK wrapper. Developers should not hand-roll raw HTTP unless building a
 new SDK.
@@ -243,7 +270,7 @@ If `challengeUrl` is returned, redirect the customer to the hosted challenge.
 When the challenge completes, use webhook + intent read as payment truth.
 Return URL is UX continuation only.
 
-## 6. Webhook Receiver
+## 7. Webhook Receiver
 
 Webhook receiver must:
 
@@ -267,7 +294,7 @@ const event = orbi.webhooks.parse({
 });
 ```
 
-## 7. Sandbox Simulation
+## 8. Sandbox Simulation
 
 Sandbox has the same developer contract shape as live:
 
@@ -319,7 +346,7 @@ sbx_saccos_member      member  TZS 500,000
 sbx_agent_dar          agent   TZS 750,000
 ```
 
-## 8. Go-Live Checklist
+## 9. Go-Live Checklist
 
 Before switching to Production:
 
@@ -340,7 +367,7 @@ payment status reconciliation job is tested
 sandbox keys are removed from production server env
 ```
 
-## 9. Common Misconfigurations
+## 10. Common Misconfigurations
 
 ```text
 PAY_GATEWAY_ENVIRONMENT_REQUIRED:

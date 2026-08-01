@@ -2953,6 +2953,7 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/services\/[^/]+\/api-key-rotations$/, permission: 'developer:request_access', developerAllowed: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/api-keys\/emergency-rotate$/, permission: 'developer:request_access', developerAllowed: true, confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/webhook-secret-rotations$/, permission: 'developer:request_access', developerAllowed: true },
+  { pattern: /^\/v1\/developer\/webhook-deliveries\/[^/]+\/replay$/, permission: 'developer:request_access', developerAllowed: true, confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/api-key-rotations$/, permission: 'developer:manage_keys', confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/api-keys\/emergency-rotate$/, permission: 'developer:manage_keys', confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/webhook-secrets\/issue$/, permission: 'developer:manage_keys', confirmation: true },
@@ -3184,6 +3185,18 @@ app.post('/v1/portal/gateway', requireOperatorDiscoveryAccess, async (req, res) 
   }
   if (developerScoped && requestedServiceCode && !developerPortalStore.portalUserCanAccessService(requestedServiceCode, ownerFilter)) {
     return sendApiError(res, 403, 'PORTAL_GATEWAY_SERVICE_ACCESS_DENIED');
+  }
+  if (developerScoped && /^\/v1\/developer\/webhook-deliveries\/[^/]+\/replay$/.test(path)) {
+    const deliveryId = decodeURIComponent(path.split('/').at(-2) || '');
+    let delivery;
+    try {
+      delivery = webhookDeliveryStore.get(deliveryId);
+    } catch {
+      return sendApiError(res, 404, 'WEBHOOK_DELIVERY_NOT_FOUND');
+    }
+    if (!developerPortalStore.portalUserCanAccessService(delivery.serviceCode, ownerFilter)) {
+      return sendApiError(res, 403, 'PORTAL_GATEWAY_SERVICE_ACCESS_DENIED');
+    }
   }
 
   const scopeDecisionPath = /^\/v1\/developer\/scope-requests\/[^/]+\/decision$/.test(path);
