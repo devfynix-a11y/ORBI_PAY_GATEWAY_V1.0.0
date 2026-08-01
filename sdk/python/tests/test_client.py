@@ -111,6 +111,58 @@ class PythonSdkTest(unittest.TestCase):
         self.assertEqual(calls[1]["headers"]["authorization"], "DPoP orbi_at_python_dpop_test")
         self.assertRegex(calls[1]["headers"]["dpop"], r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
 
+    def test_oauth_authorization_helpers_build_url_and_exchange_code(self):
+        calls = []
+
+        def fake_fetch(url, method, headers, body):
+            calls.append({"url": url, "method": method, "headers": headers, "body": body})
+            if url.endswith("/oauth/par"):
+                return 201, {
+                    "request_uri": "urn:ietf:params:oauth:request_uri:orbi:test_request",
+                    "expires_in": 90,
+                }
+            if url.endswith("/oauth/token"):
+                return 200, {
+                    "access_token": "orbi_ft_python_test",
+                    "token_type": "DPoP",
+                    "refresh_token": "orbi_rt_python_test",
+                    "expires_in": 300,
+                    "scope": "payments:create",
+                }
+            return 404, {}
+
+        orbi = Orbi(
+            base_url="https://sandbox-pay.orbifinancial.com",
+            service_key="sk_test",
+            oauth_client_id="orbi-shop",
+            dpop=True,
+            fetch=fake_fetch,
+        )
+        prepared = orbi.oauth.authorize_url({
+            "redirect_uri": "https://merchant.example/callback",
+            "scopes": ["payments:create"],
+            "state": "state_1234567890123456",
+            "code_verifier": "a" * 64,
+        })
+        self.assertIn("/oauth/authorize?", prepared["url"])
+        self.assertIn("client_id=orbi-shop", prepared["url"])
+
+        pushed = orbi.oauth.pushed_authorize_url({
+            "redirect_uri": "https://merchant.example/callback",
+            "scopes": ["payments:create"],
+            "state": "state_1234567890123456",
+            "code_verifier": "a" * 64,
+        })
+        self.assertEqual(pushed["request_uri"], "urn:ietf:params:oauth:request_uri:orbi:test_request")
+
+        token = orbi.oauth.exchange_code({
+            "code": "code_12345678901234567890",
+            "redirect_uri": "https://merchant.example/callback",
+            "code_verifier": pushed["code_verifier"],
+        })
+        self.assertEqual(token["access_token"], "orbi_ft_python_test")
+        self.assertRegex(calls[1]["headers"]["dpop"], r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
+
     def test_sensitive_runtime_read_is_signed(self):
         captured = {}
 

@@ -1,5 +1,14 @@
 # ORBI Pay Gateway SDK Changelog
 
+## 0.1.6
+
+- Added SDK-first OAuth customer connection helpers for Node and Python:
+  authorization URL preparation, pushed authorization requests, callback code
+  exchange, and refresh token renewal.
+- Added PKCE generation inside the SDK so developers do not need to hand-build
+  verifier/challenge logic.
+- Updated SDK docs with simple customer/seller/member connection examples.
+
 ## 0.1.5
 
 - Added SDK-managed stronger token binding for Node with `dpop: true`.

@@ -27,6 +27,9 @@ import type {
   IdentityResolveRequest,
   OrbiApiResponse,
   OAuthAuthorizationServerMetadata,
+  OAuthAuthorizationUrlRequest,
+  OAuthAuthorizationUrlResult,
+  OAuthTokenResponse,
   OAuthTokenIntrospection,
   OAuthTokenRevocationResult,
   OrbiPayGatewayConfig,
@@ -70,6 +73,7 @@ export class OrbiPayGatewayClient {
   private readonly baseUrl: string;
   private readonly serviceKey: string;
   private readonly operatorKey?: string;
+  private readonly oauthClientId?: string;
   private readonly environment?: OrbiRuntimeEnvironment;
   private readonly authMode: 'access_token' | 'api_key';
   private readonly dpop: boolean;
@@ -94,6 +98,7 @@ export class OrbiPayGatewayClient {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
     this.serviceKey = config.serviceKey || '';
     this.operatorKey = config.operatorKey;
+    this.oauthClientId = config.oauthClientId;
     this.environment = config.environment;
     this.authMode = config.authMode || 'api_key';
     this.dpop = Boolean(config.dpop);
@@ -118,6 +123,91 @@ export class OrbiPayGatewayClient {
       throw new OrbiPayGatewayError(error, response.status, body);
     }
     return body as OAuthAuthorizationServerMetadata;
+  }
+
+  createOAuthAuthorizationUrl(input: OAuthAuthorizationUrlRequest): OAuthAuthorizationUrlResult {
+    const state = input.state || randomUrlToken(32);
+    const codeVerifier = input.codeVerifier || randomUrlToken(64);
+    const codeChallenge = pkceChallenge(codeVerifier);
+    const clientId = input.clientId || this.oauthClientIdOrThrow();
+    const url = new URL(`${this.baseUrl}/oauth/authorize`);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('client_id', clientId);
+    url.searchParams.set('redirect_uri', input.redirectUri);
+    url.searchParams.set('scope', input.scopes.join(' '));
+    url.searchParams.set('state', state);
+    url.searchParams.set('code_challenge', codeChallenge);
+    url.searchParams.set('code_challenge_method', 'S256');
+    return { url: url.toString(), state, codeVerifier, codeChallenge };
+  }
+
+  async createPushedOAuthAuthorizationUrl(input: OAuthAuthorizationUrlRequest): Promise<OAuthAuthorizationUrlResult> {
+    const state = input.state || randomUrlToken(32);
+    const codeVerifier = input.codeVerifier || randomUrlToken(64);
+    const codeChallenge = pkceChallenge(codeVerifier);
+    const clientId = input.clientId || this.oauthClientIdOrThrow();
+    const body = {
+      response_type: 'code',
+      client_id: clientId,
+      redirect_uri: input.redirectUri,
+      scope: input.scopes.join(' '),
+      state,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      client_secret: this.serviceKey,
+    };
+    const response = await this.fetchImpl(`${this.baseUrl}/oauth/par`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const text = await response.text();
+    const parsed = text ? JSON.parse(text) : {};
+    if (!response.ok || !parsed?.request_uri) {
+      const error = typeof parsed?.error === 'string' ? parsed.error : `ORBI_PAY_GATEWAY_OAUTH_PAR_HTTP_${response.status}`;
+      throw new OrbiPayGatewayError(error, response.status, parsed);
+    }
+    const url = new URL(`${this.baseUrl}/oauth/authorize`);
+    url.searchParams.set('client_id', clientId);
+    url.searchParams.set('request_uri', String(parsed.request_uri));
+    return {
+      url: url.toString(),
+      state,
+      codeVerifier,
+      codeChallenge,
+      requestUri: String(parsed.request_uri),
+      expiresIn: Number(parsed.expires_in || 0) || undefined,
+    };
+  }
+
+  async exchangeOAuthAuthorizationCode(input: {
+    clientId?: string;
+    code: string;
+    redirectUri: string;
+    codeVerifier: string;
+    scope?: string | string[];
+  }): Promise<OAuthTokenResponse> {
+    return this.oauthToken({
+      grant_type: 'authorization_code',
+      client_id: input.clientId || this.oauthClientIdOrThrow(),
+      code: input.code,
+      redirect_uri: input.redirectUri,
+      code_verifier: input.codeVerifier,
+      ...(input.scope ? { scope: Array.isArray(input.scope) ? input.scope.join(' ') : input.scope } : {}),
+    });
+  }
+
+  async refreshOAuthAccessToken(input: {
+    clientId?: string;
+    refreshToken: string;
+    scope?: string | string[];
+  }): Promise<OAuthTokenResponse> {
+    return this.oauthToken({
+      grant_type: 'refresh_token',
+      client_id: input.clientId || this.oauthClientIdOrThrow(),
+      refresh_token: input.refreshToken,
+      ...(input.scope ? { scope: Array.isArray(input.scope) ? input.scope.join(' ') : input.scope } : {}),
+    });
   }
 
   async introspectAccessToken(token: string): Promise<OAuthTokenIntrospection> {
@@ -163,6 +253,26 @@ export class OrbiPayGatewayClient {
       this.accessTokenCache = undefined;
     }
     return body as OrbiApiResponse<OAuthTokenRevocationResult>;
+  }
+
+  private async oauthToken(body: Record<string, unknown>): Promise<OAuthTokenResponse> {
+    const headers: Record<string, string> = {
+      accept: 'application/json',
+      'content-type': 'application/json',
+    };
+    if (this.dpop) headers.dpop = await this.createDpopProof('POST', `${this.baseUrl}/oauth/token`);
+    const response = await this.fetchImpl(`${this.baseUrl}/oauth/token`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+    const text = await response.text();
+    const parsed = text ? JSON.parse(text) : {};
+    if (!response.ok || !parsed?.access_token) {
+      const error = typeof parsed?.error === 'string' ? parsed.error : `ORBI_PAY_GATEWAY_OAUTH_TOKEN_HTTP_${response.status}`;
+      throw new OrbiPayGatewayError(error, response.status, parsed);
+    }
+    return parsed as OAuthTokenResponse;
   }
 
   createPaymentIntent(payload: PaymentIntentCreateRequest, options: OrbiRequestOptions = {}) {
@@ -588,25 +698,11 @@ export class OrbiPayGatewayClient {
   }
 
   private async issueServiceAccessToken(scope: string): Promise<string> {
-    const response = await this.fetchImpl(`${this.baseUrl}/oauth/token`, {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-        ...(this.dpop ? { dpop: await this.createDpopProof('POST', `${this.baseUrl}/oauth/token`) } : {}),
-      },
-      body: JSON.stringify({
-        grant_type: 'client_credentials',
-        client_secret: this.serviceKey,
-        ...(scope ? { scope } : {}),
-      }),
+    const body = await this.oauthToken({
+      grant_type: 'client_credentials',
+      client_secret: this.serviceKey,
+      ...(scope ? { scope } : {}),
     });
-    const text = await response.text();
-    const body = text ? JSON.parse(text) : {};
-    if (!response.ok || !body?.access_token) {
-      const error = typeof body?.error === 'string' ? body.error : `ORBI_PAY_GATEWAY_TOKEN_HTTP_${response.status}`;
-      throw new OrbiPayGatewayError(error, response.status, body);
-    }
     const expiresInSeconds = Number(body.expires_in || 900);
     const token = String(body.access_token);
     const tokenType = String(body.token_type || 'Bearer').toLowerCase() === 'dpop' ? 'DPoP' : 'Bearer';
@@ -617,6 +713,12 @@ export class OrbiPayGatewayClient {
       expiresAtMs: Date.now() + (expiresInSeconds * 1000),
     };
     return token;
+  }
+
+  private oauthClientIdOrThrow(): string {
+    const configured = this.oauthClientId?.trim();
+    if (configured) return configured;
+    throw new Error('ORBI_PAY_GATEWAY_OAUTH_CLIENT_ID_REQUIRED');
   }
 
   private async createDpopProof(method: string, htu: string): Promise<string> {
@@ -684,6 +786,11 @@ const queryString = (query: Record<string, unknown>) => {
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const randomUrlToken = (bytes: number) => crypto.randomBytes(bytes).toString('base64url');
+
+const pkceChallenge = (verifier: string) =>
+  crypto.createHash('sha256').update(verifier).digest('base64url');
 
 const normalizeRuntimeEnvironment = (environment?: OrbiRuntimeEnvironment) => {
   if (!environment) return undefined;

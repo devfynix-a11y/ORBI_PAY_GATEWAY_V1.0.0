@@ -2,6 +2,7 @@ export type OrbiPayGatewayConfig = {
   baseUrl: string;
   serviceKey?: string;
   operatorKey?: string;
+  oauthClientId?: string;
   environment?: OrbiRuntimeEnvironment;
   authMode?: 'access_token' | 'api_key';
   dpop?: boolean;
@@ -80,6 +81,37 @@ export type OAuthTokenRevocationResult = {
   serviceCode?: string;
   environment?: string;
   revokedAt?: string;
+};
+
+export type OAuthAuthorizationUrlRequest = {
+  clientId?: string;
+  redirectUri: string;
+  scopes: string[];
+  state?: string;
+  codeVerifier?: string;
+};
+
+export type OAuthAuthorizationUrlResult = {
+  url: string;
+  state: string;
+  codeVerifier: string;
+  codeChallenge: string;
+  requestUri?: string;
+  expiresIn?: number;
+};
+
+export type OAuthTokenResponse = {
+  access_token: string;
+  token_type: 'Bearer' | 'DPoP' | string;
+  expires_in: number;
+  refresh_token?: string;
+  scope?: string;
+  consent_id?: string;
+  service_code?: string;
+  environment?: string;
+  audience?: string;
+  issued_at?: string;
+  expires_at?: string;
 };
 
 export type PaymentCustomer = {

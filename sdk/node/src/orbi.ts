@@ -84,6 +84,14 @@ export class Orbi {
 
   readonly oauth = {
     metadata: () => this.client.getOAuthAuthorizationServerMetadata(),
+    authorizeUrl: (input: Parameters<OrbiPayGatewayClient['createOAuthAuthorizationUrl']>[0]) =>
+      this.client.createOAuthAuthorizationUrl(input),
+    pushedAuthorizeUrl: (input: Parameters<OrbiPayGatewayClient['createPushedOAuthAuthorizationUrl']>[0]) =>
+      this.client.createPushedOAuthAuthorizationUrl(input),
+    exchangeCode: (input: Parameters<OrbiPayGatewayClient['exchangeOAuthAuthorizationCode']>[0]) =>
+      this.client.exchangeOAuthAuthorizationCode(input),
+    refresh: (input: Parameters<OrbiPayGatewayClient['refreshOAuthAccessToken']>[0]) =>
+      this.client.refreshOAuthAccessToken(input),
     introspect: (token: string) => this.client.introspectAccessToken(token),
     revoke: (token: string) => this.client.revokeAccessToken(token),
   };

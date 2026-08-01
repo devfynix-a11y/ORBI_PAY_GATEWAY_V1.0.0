@@ -15,7 +15,7 @@ Vite client bundles.
 ## Install
 
 ```bash
-npm install @orbifinancial/pay-gateway@^0.1.5
+npm install @orbifinancial/pay-gateway@^0.1.6
 ```
 
 Local development from this repo:
@@ -74,6 +74,44 @@ if (!state.active) {
 
 await orbi.oauth.revoke(accessToken);
 ```
+
+## Customer Login And Consent
+
+Use these helpers when your platform needs a customer, seller, member, or
+business account to connect with ORBI. The SDK prepares PKCE and the safe
+redirect URL for you. Store `state` and `codeVerifier` in your server session,
+then exchange the callback code after ORBI redirects back.
+
+```ts
+const orbi = createOrbi({
+  baseUrl: process.env.ORBI_PAY_GATEWAY_BASE_URL!,
+  serviceKey: process.env.ORBI_PAY_SERVICE_KEY!,
+  oauthClientId: process.env.ORBI_PAY_OAUTH_CLIENT_ID!,
+  authMode: 'access_token',
+  dpop: true,
+});
+
+const prepared = await orbi.oauth.pushedAuthorizeUrl({
+  redirectUri: 'https://merchant.example.com/orbi/callback',
+  scopes: ['payment_profile:read', 'payments:create'],
+});
+
+// Save prepared.state and prepared.codeVerifier in the user session.
+return response.redirect(303, prepared.url);
+
+const token = await orbi.oauth.exchangeCode({
+  code: request.query.code,
+  redirectUri: 'https://merchant.example.com/orbi/callback',
+  codeVerifier: savedSession.codeVerifier,
+});
+
+const refreshed = await orbi.oauth.refresh({
+  refreshToken: token.refresh_token!,
+});
+```
+
+Use `pushedAuthorizeUrl()` for production because it keeps request details
+server-side. `authorizeUrl()` is available for simple sandbox tests.
 
 ## CLI
 

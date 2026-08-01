@@ -166,6 +166,63 @@ test('client supports OAuth metadata, introspection, and revocation helpers', as
   assert.equal(calls[2].url, 'https://pay.example/oauth/revoke');
 });
 
+test('client builds OAuth authorization URL and exchanges callback code', async () => {
+  const calls: Array<{ url: string; init: RequestInit }> = [];
+  const orbi = createOrbi({
+    baseUrl: 'https://pay.example',
+    serviceKey: 'svc_test_key',
+    oauthClientId: 'orbi-shop',
+    dpop: true,
+    fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init || {} });
+      if (String(url).endsWith('/oauth/par')) {
+        return new Response(JSON.stringify({
+          request_uri: 'urn:ietf:params:oauth:request_uri:orbi:test_request',
+          expires_in: 90,
+        }), { status: 201, headers: { 'content-type': 'application/json' } });
+      }
+      if (String(url).endsWith('/oauth/token')) {
+        return new Response(JSON.stringify({
+          access_token: 'orbi_ft_test',
+          token_type: 'DPoP',
+          refresh_token: 'orbi_rt_test',
+          expires_in: 300,
+          scope: 'payments:create',
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('{}', { status: 404, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch,
+  });
+
+  const prepared = orbi.oauth.authorizeUrl({
+    redirectUri: 'https://merchant.example/callback',
+    scopes: ['payments:create'],
+    state: 'state_1234567890123456',
+    codeVerifier: 'a'.repeat(64),
+  });
+  assert.match(prepared.url, /^https:\/\/pay\.example\/oauth\/authorize\?/);
+  assert.match(prepared.url, /client_id=orbi-shop/);
+  assert.equal(prepared.codeVerifier, 'a'.repeat(64));
+
+  const pushed = await orbi.oauth.pushedAuthorizeUrl({
+    redirectUri: 'https://merchant.example/callback',
+    scopes: ['payments:create'],
+    state: 'state_1234567890123456',
+    codeVerifier: 'a'.repeat(64),
+  });
+  assert.equal(pushed.requestUri, 'urn:ietf:params:oauth:request_uri:orbi:test_request');
+  assert.match(pushed.url, /request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Aorbi%3Atest_request/);
+
+  const token = await orbi.oauth.exchangeCode({
+    code: 'code_12345678901234567890',
+    redirectUri: 'https://merchant.example/callback',
+    codeVerifier: pushed.codeVerifier,
+  });
+  assert.equal(token.access_token, 'orbi_ft_test');
+  assert.equal((calls[0].init.headers as Record<string, string>)['content-type'], 'application/json');
+  assert.match((calls[1].init.headers as Record<string, string>).dpop, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+});
+
 test('client signs sensitive runtime read requests', async () => {
   const calls: Array<{ url: string; init: RequestInit }> = [];
   const client = new OrbiPayGatewayClient({

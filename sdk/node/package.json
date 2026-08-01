@@ -1,6 +1,6 @@
 {
   "name": "@orbifinancial/pay-gateway",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Official ORBI Pay Gateway SDK for payment intents, PaySafe escrow, payment profiles, identity resolution, and webhook verification.",
   "type": "module",
   "main": "./dist/index.js",

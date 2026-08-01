@@ -66,6 +66,44 @@ if not state["active"]:
 orbi.oauth.revoke(access_token)
 ```
 
+## Customer Login And Consent
+
+Use these helpers when your platform needs a customer, seller, member, or
+business account to connect with ORBI. The SDK prepares PKCE and the safe
+redirect URL for you. Store `state` and `code_verifier` in your server session,
+then exchange the callback code after ORBI redirects back.
+
+```python
+orbi = Orbi(
+    base_url=os.environ["ORBI_PAY_GATEWAY_BASE_URL"],
+    service_key=os.environ["ORBI_PAY_SERVICE_KEY"],
+    oauth_client_id=os.environ["ORBI_PAY_OAUTH_CLIENT_ID"],
+    auth_mode="access_token",
+    dpop=True,
+)
+
+prepared = orbi.oauth.pushed_authorize_url({
+    "redirect_uri": "https://merchant.example.com/orbi/callback",
+    "scopes": ["payment_profile:read", "payments:create"],
+})
+
+# Save prepared["state"] and prepared["code_verifier"] in the user session.
+print(prepared["url"])
+
+token = orbi.oauth.exchange_code({
+    "code": request.args["code"],
+    "redirect_uri": "https://merchant.example.com/orbi/callback",
+    "code_verifier": saved_session["code_verifier"],
+})
+
+refreshed = orbi.oauth.refresh({
+    "refresh_token": token["refresh_token"],
+})
+```
+
+Use `pushed_authorize_url()` for production because it keeps request details
+server-side. `authorize_url()` is available for simple sandbox tests.
+
 ## Verify payment updates
 
 ```python

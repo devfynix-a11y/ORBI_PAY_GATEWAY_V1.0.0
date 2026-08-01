@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import base64
+import secrets
 import time
 import uuid
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ class OrbiPayGatewayConfig:
     base_url: str
     service_key: str | None = None
     operator_key: str | None = None
+    oauth_client_id: str | None = None
     environment: str | None = None
     auth_mode: str = "api_key"
     dpop: bool = False
@@ -47,6 +49,7 @@ class OrbiPayGatewayClient:
         base_url: str,
         service_key: str | None = None,
         operator_key: str | None = None,
+        oauth_client_id: str | None = None,
         environment: str | None = None,
         auth_mode: str = "api_key",
         dpop: bool = False,
@@ -59,6 +62,7 @@ class OrbiPayGatewayClient:
         self.base_url = base_url.rstrip("/")
         self.service_key = service_key or ""
         self.operator_key = operator_key
+        self.oauth_client_id = oauth_client_id
         self.environment = environment
         self.auth_mode = auth_mode
         self.dpop = bool(dpop)
@@ -89,6 +93,74 @@ class OrbiPayGatewayClient:
             raise OrbiPayGatewayError(str(response.get("error") or f"ORBI_PAY_GATEWAY_OAUTH_METADATA_HTTP_{status}"), status, response)
         return response
 
+    def create_oauth_authorization_url(self, payload: Json) -> Json:
+        state = str(payload.get("state") or _random_url_token(32))
+        code_verifier = str(payload.get("code_verifier") or _random_url_token(64))
+        code_challenge = _pkce_challenge(code_verifier)
+        client_id = str(payload.get("client_id") or self._oauth_client_id())
+        params = {
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": payload["redirect_uri"],
+            "scope": " ".join(payload.get("scopes") or []),
+            "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+        }
+        return {
+            "url": f"{self.base_url}/oauth/authorize?{urlencode(params)}",
+            "state": state,
+            "code_verifier": code_verifier,
+            "code_challenge": code_challenge,
+        }
+
+    def create_pushed_oauth_authorization_url(self, payload: Json) -> Json:
+        prepared = self.create_oauth_authorization_url(payload)
+        client_id = str(payload.get("client_id") or self._oauth_client_id())
+        body = {
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": payload["redirect_uri"],
+            "scope": " ".join(payload.get("scopes") or []),
+            "state": prepared["state"],
+            "code_challenge": prepared["code_challenge"],
+            "code_challenge_method": "S256",
+            "client_secret": self.service_key,
+        }
+        status, response = self.fetch(
+            f"{self.base_url}/oauth/par",
+            "POST",
+            {"accept": "application/json", "content-type": "application/json"},
+            json.dumps(body, separators=(",", ":")),
+        )
+        if status >= 400 or not response.get("request_uri"):
+            raise OrbiPayGatewayError(str(response.get("error") or f"ORBI_PAY_GATEWAY_OAUTH_PAR_HTTP_{status}"), status, response)
+        params = {"client_id": client_id, "request_uri": response["request_uri"]}
+        return {
+            **prepared,
+            "url": f"{self.base_url}/oauth/authorize?{urlencode(params)}",
+            "request_uri": response["request_uri"],
+            "expires_in": response.get("expires_in"),
+        }
+
+    def exchange_oauth_authorization_code(self, payload: Json) -> Json:
+        return self._oauth_token({
+            "grant_type": "authorization_code",
+            "client_id": payload.get("client_id") or self._oauth_client_id(),
+            "code": payload["code"],
+            "redirect_uri": payload["redirect_uri"],
+            "code_verifier": payload["code_verifier"],
+            **({"scope": " ".join(payload["scopes"]) if isinstance(payload.get("scopes"), list) else payload.get("scope")} if payload.get("scope") or payload.get("scopes") else {}),
+        })
+
+    def refresh_oauth_access_token(self, payload: Json) -> Json:
+        return self._oauth_token({
+            "grant_type": "refresh_token",
+            "client_id": payload.get("client_id") or self._oauth_client_id(),
+            "refresh_token": payload["refresh_token"],
+            **({"scope": " ".join(payload["scopes"]) if isinstance(payload.get("scopes"), list) else payload.get("scope")} if payload.get("scope") or payload.get("scopes") else {}),
+        })
+
     def introspect_access_token(self, token: str) -> Json:
         status, response = self.fetch(
             f"{self.base_url}/oauth/introspect",
@@ -113,6 +185,20 @@ class OrbiPayGatewayClient:
             self._access_token = None
             self._access_token_scope = ""
             self._access_token_expires_at = 0.0
+        return response
+
+    def _oauth_token(self, payload: Json) -> Json:
+        headers = {"accept": "application/json", "content-type": "application/json"}
+        if self.dpop:
+            headers["dpop"] = self._create_dpop_proof("POST", f"{self.base_url}/oauth/token")
+        status, response = self.fetch(
+            f"{self.base_url}/oauth/token",
+            "POST",
+            headers,
+            json.dumps(payload, separators=(",", ":")),
+        )
+        if status >= 400 or not response.get("access_token"):
+            raise OrbiPayGatewayError(str(response.get("error") or f"ORBI_PAY_GATEWAY_OAUTH_TOKEN_HTTP_{status}"), status, response)
         return response
 
     def create_payment_intent(self, payload: Json, **options: Any) -> Json:
@@ -215,27 +301,23 @@ class OrbiPayGatewayClient:
             and self._access_token_expires_at - self.access_token_refresh_skew_seconds > time.time()
         ):
             return self._access_token
-        body = json.dumps({
+        body = {
             "grant_type": "client_credentials",
             "client_secret": self.service_key,
             **({"scope": scope} if scope else {}),
-        }, separators=(",", ":"))
-        headers = {"accept": "application/json", "content-type": "application/json"}
-        if self.dpop:
-            headers["dpop"] = self._create_dpop_proof("POST", f"{self.base_url}/oauth/token")
-        status, response = self.fetch(
-            f"{self.base_url}/oauth/token",
-            "POST",
-            headers,
-            body,
-        )
-        if status >= 400 or not response.get("access_token"):
-            raise OrbiPayGatewayError(str(response.get("error") or f"ORBI_PAY_GATEWAY_TOKEN_HTTP_{status}"), status, response)
+        }
+        response = self._oauth_token(body)
         self._access_token = str(response["access_token"])
         self._access_token_type = "DPoP" if str(response.get("token_type") or "Bearer").lower() == "dpop" else "Bearer"
         self._access_token_scope = scope
         self._access_token_expires_at = time.time() + int(response.get("expires_in") or 900)
         return self._access_token
+
+    def _oauth_client_id(self) -> str:
+        value = (self.oauth_client_id or "").strip()
+        if not value:
+            raise ValueError("ORBI_PAY_GATEWAY_OAUTH_CLIENT_ID_REQUIRED")
+        return value
 
     def _create_dpop_proof(self, method: str, htu: str) -> str:
         if not self._dpop_private_key or not self._dpop_public_jwk:
@@ -275,6 +357,18 @@ class _OAuth:
 
     def metadata(self) -> Json:
         return self.client.get_oauth_metadata()
+
+    def authorize_url(self, payload: Json) -> Json:
+        return self.client.create_oauth_authorization_url(payload)
+
+    def pushed_authorize_url(self, payload: Json) -> Json:
+        return self.client.create_pushed_oauth_authorization_url(payload)
+
+    def exchange_code(self, payload: Json) -> Json:
+        return self.client.exchange_oauth_authorization_code(payload)
+
+    def refresh(self, payload: Json) -> Json:
+        return self.client.refresh_oauth_access_token(payload)
 
     def introspect(self, token: str) -> Json:
         return self.client.introspect_access_token(token)
@@ -401,6 +495,14 @@ def _b64url_json(value: Json) -> str:
 def _b64url_uint(value: int) -> str:
     size = max(1, (value.bit_length() + 7) // 8)
     return _b64url(value.to_bytes(size, "big"))
+
+
+def _random_url_token(size: int) -> str:
+    return secrets.token_urlsafe(size)[:size]
+
+
+def _pkce_challenge(verifier: str) -> str:
+    return _b64url(hashlib.sha256(verifier.encode("utf-8")).digest())
 
 
 def _query_string(query: Json) -> str:
