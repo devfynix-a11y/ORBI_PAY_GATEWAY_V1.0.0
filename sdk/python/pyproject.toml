@@ -4,10 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orbi-pay-gateway"
-version = "0.1.4"
+version = "0.1.5"
 description = "Official ORBI Pay Gateway SDK for server-side payments, PaySafe escrow, identity lookup, and webhook verification."
 readme = "README.md"
 requires-python = ">=3.10"
+dependencies = ["cryptography>=42"]
 license = "LicenseRef-Proprietary"
 authors = [{ name = "ORBI Financial" }]
 keywords = ["orbi", "payments", "paysafe", "escrow", "baas", "open-banking"]

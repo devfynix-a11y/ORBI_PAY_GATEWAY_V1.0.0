@@ -22,6 +22,7 @@ orbi = Orbi(
     base_url=os.environ["ORBI_PAY_GATEWAY_BASE_URL"],
     service_key=os.environ["ORBI_PAY_SERVICE_KEY"],
     auth_mode="access_token",
+    dpop=True,
     environment=os.environ.get("ORBI_PAY_ENVIRONMENT", "Demo"),
 )
 
@@ -77,3 +78,6 @@ event = verify_and_parse_webhook(
     secret=os.environ["ORBI_PAY_WEBHOOK_SECRET"],
 )
 ```
+
+`dpop=True` enables stronger token binding automatically. The SDK creates and
+refreshes the required proof headers for you.

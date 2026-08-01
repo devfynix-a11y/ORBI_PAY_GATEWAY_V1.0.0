@@ -4,6 +4,7 @@ export type OrbiPayGatewayConfig = {
   operatorKey?: string;
   environment?: OrbiRuntimeEnvironment;
   authMode?: 'access_token' | 'api_key';
+  dpop?: boolean;
   accessTokenScopes?: string[];
   accessTokenRefreshSkewSeconds?: number;
   requestSigning?: boolean;
@@ -56,6 +57,7 @@ export type OAuthAuthorizationServerMetadata = {
   response_types_supported?: string[];
   code_challenge_methods_supported?: string[];
   token_endpoint_auth_signing_alg_values_supported?: string[];
+  dpop_signing_alg_values_supported?: string[];
 };
 
 export type OAuthTokenIntrospection = {

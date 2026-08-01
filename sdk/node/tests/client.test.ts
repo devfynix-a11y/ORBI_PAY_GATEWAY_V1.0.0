@@ -68,6 +68,53 @@ test('client exchanges service key for access token and signs runtime request wi
   assert.match((calls[1].init.headers as Record<string, string>)['x-orbi-nonce'], /^[0-9a-f-]{36}$/);
 });
 
+test('client hides DPoP proof creation behind access token mode', async () => {
+  const calls: Array<{ url: string; init: RequestInit }> = [];
+  const client = new OrbiPayGatewayClient({
+    baseUrl: 'https://pay.example',
+    serviceKey: 'svc_test_key',
+    authMode: 'access_token',
+    dpop: true,
+    fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init || {} });
+      if (String(url).endsWith('/oauth/token')) {
+        return new Response(JSON.stringify({
+          access_token: 'orbi_at_test_dpop_access_token',
+          token_type: 'DPoP',
+          expires_in: 900,
+          scope: 'payments:create',
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        success: true,
+        data: {
+          id: 'pi_123',
+          serviceCode: 'merchant',
+          operation: 'collection',
+          reference: 'ORDER-1',
+          amount: 1000,
+          currency: 'TZS',
+          status: 'processing',
+          createdAt: '2026-07-23T00:00:00.000Z',
+          updatedAt: '2026-07-23T00:00:00.000Z',
+        },
+      }), { status: 201, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch,
+  });
+
+  await client.createPaymentIntent({
+    reference: 'ORDER-1',
+    amount: 1000,
+    currency: 'TZS',
+  }, { idempotencyKey: 'idem-order-dpop' });
+
+  const tokenHeaders = calls[0].init.headers as Record<string, string>;
+  const runtimeHeaders = calls[1].init.headers as Record<string, string>;
+  assert.match(tokenHeaders.dpop, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+  assert.equal(runtimeHeaders.authorization, 'DPoP orbi_at_test_dpop_access_token');
+  assert.match(runtimeHeaders.dpop, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+});
+
 test('client supports OAuth metadata, introspection, and revocation helpers', async () => {
   const calls: Array<{ url: string; init: RequestInit }> = [];
   const orbi = createOrbi({

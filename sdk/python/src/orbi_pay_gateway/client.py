@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import base64
 import time
 import uuid
 from dataclasses import dataclass
@@ -10,6 +11,8 @@ from typing import Any, Callable
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 Json = dict[str, Any]
@@ -30,6 +33,7 @@ class OrbiPayGatewayConfig:
     operator_key: str | None = None
     environment: str | None = None
     auth_mode: str = "api_key"
+    dpop: bool = False
     access_token_scopes: list[str] | None = None
     access_token_refresh_skew_seconds: int = 60
     request_signing: bool = True
@@ -45,6 +49,7 @@ class OrbiPayGatewayClient:
         operator_key: str | None = None,
         environment: str | None = None,
         auth_mode: str = "api_key",
+        dpop: bool = False,
         access_token_scopes: list[str] | None = None,
         access_token_refresh_skew_seconds: int = 60,
         request_signing: bool = True,
@@ -56,14 +61,18 @@ class OrbiPayGatewayClient:
         self.operator_key = operator_key
         self.environment = environment
         self.auth_mode = auth_mode
+        self.dpop = bool(dpop)
         self.access_token_scopes = access_token_scopes or []
         self.access_token_refresh_skew_seconds = max(5, access_token_refresh_skew_seconds)
         self.request_signing = request_signing
         self.request_signing_secret = request_signing_secret
         self.fetch = fetch or _default_fetch
         self._access_token: str | None = None
+        self._access_token_type = "Bearer"
         self._access_token_expires_at = 0.0
         self._access_token_scope = ""
+        self._dpop_private_key: rsa.RSAPrivateKey | None = None
+        self._dpop_public_jwk: Json | None = None
         if not self.base_url:
             raise ValueError("ORBI_PAY_GATEWAY_BASE_URL_REQUIRED")
         if not self.service_key and not self.operator_key:
@@ -161,7 +170,7 @@ class OrbiPayGatewayClient:
             raise ValueError("ORBI_PAY_GATEWAY_SERVICE_KEY_REQUIRED")
         options = options or {}
         body = None if method == "GET" else json.dumps(payload or {}, separators=(",", ":"))
-        auth_headers, signing_secret = self._service_authorization()
+        auth_headers, signing_secret = self._service_authorization(method, path)
         headers = {
             "accept": "application/json",
             **auth_headers,
@@ -187,13 +196,16 @@ class OrbiPayGatewayClient:
             raise OrbiPayGatewayError(f"ORBI_PAY_GATEWAY_HTTP_{status}", status, response)
         return response
 
-    def _service_authorization(self) -> tuple[dict[str, str], str]:
+    def _service_authorization(self, method: str, path: str) -> tuple[dict[str, str], str]:
         if self.auth_mode == "api_key":
             return {"x-orbi-pay-service-key": self.service_key}, self.service_key
         if self.auth_mode != "access_token":
             raise ValueError("ORBI_PAY_GATEWAY_AUTH_MODE_INVALID")
         token = self._get_service_access_token()
-        return {"authorization": f"Bearer {token}"}, token
+        headers = {"authorization": f"{self._access_token_type} {token}"}
+        if self._access_token_type == "DPoP":
+            headers["dpop"] = self._create_dpop_proof(method, f"{self.base_url}{path}")
+        return headers, token
 
     def _get_service_access_token(self) -> str:
         scope = " ".join(self.access_token_scopes)
@@ -208,18 +220,42 @@ class OrbiPayGatewayClient:
             "client_secret": self.service_key,
             **({"scope": scope} if scope else {}),
         }, separators=(",", ":"))
+        headers = {"accept": "application/json", "content-type": "application/json"}
+        if self.dpop:
+            headers["dpop"] = self._create_dpop_proof("POST", f"{self.base_url}/oauth/token")
         status, response = self.fetch(
             f"{self.base_url}/oauth/token",
             "POST",
-            {"accept": "application/json", "content-type": "application/json"},
+            headers,
             body,
         )
         if status >= 400 or not response.get("access_token"):
             raise OrbiPayGatewayError(str(response.get("error") or f"ORBI_PAY_GATEWAY_TOKEN_HTTP_{status}"), status, response)
         self._access_token = str(response["access_token"])
+        self._access_token_type = "DPoP" if str(response.get("token_type") or "Bearer").lower() == "dpop" else "Bearer"
         self._access_token_scope = scope
         self._access_token_expires_at = time.time() + int(response.get("expires_in") or 900)
         return self._access_token
+
+    def _create_dpop_proof(self, method: str, htu: str) -> str:
+        if not self._dpop_private_key or not self._dpop_public_jwk:
+            self._dpop_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            public_numbers = self._dpop_private_key.public_key().public_numbers()
+            self._dpop_public_jwk = {
+                "kty": "RSA",
+                "n": _b64url_uint(public_numbers.n),
+                "e": _b64url_uint(public_numbers.e),
+            }
+        header = _b64url_json({"alg": "RS256", "typ": "dpop+jwt", "jwk": self._dpop_public_jwk})
+        payload = _b64url_json({
+            "htm": method.upper(),
+            "htu": htu,
+            "iat": int(time.time()),
+            "jti": str(uuid.uuid4()),
+        })
+        signed = f"{header}.{payload}".encode("utf-8")
+        signature = self._dpop_private_key.sign(signed, padding.PKCS1v15(), hashes.SHA256())
+        return f"{header}.{payload}.{_b64url(signature)}"
 
 
 class Orbi:
@@ -352,6 +388,19 @@ def _sign_request(method: str, path: str, body: str, secret: str) -> dict[str, s
         "x-orbi-nonce": nonce,
         "x-orbi-signature": f"sha256={signature}",
     }
+
+
+def _b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _b64url_json(value: Json) -> str:
+    return _b64url(json.dumps(value, separators=(",", ":")).encode("utf-8"))
+
+
+def _b64url_uint(value: int) -> str:
+    size = max(1, (value.bit_length() + 7) // 8)
+    return _b64url(value.to_bytes(size, "big"))
 
 
 def _query_string(query: Json) -> str:

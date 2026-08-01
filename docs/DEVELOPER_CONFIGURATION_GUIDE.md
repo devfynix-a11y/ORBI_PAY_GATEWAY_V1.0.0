@@ -27,11 +27,15 @@ const orbi = createOrbi({
   baseUrl: process.env.ORBI_PAY_GATEWAY_BASE_URL!,
   serviceKey: process.env.ORBI_PAY_SERVICE_KEY!,
   authMode: 'access_token',
+  dpop: true,
   environment: process.env.ORBI_PAY_ENVIRONMENT === 'Production'
     ? 'Production'
     : 'Demo',
 });
 ```
+
+For new production integrations, keep `dpop: true`. It adds stronger request
+binding automatically through the SDK.
 
 Required key prefixes:
 
@@ -105,7 +109,7 @@ sends these automatically for signed runtime requests.
 ```http
 content-type: application/json
 accept: application/json
-authorization: Bearer <short-lived-orbi-access-token>
+authorization: Bearer or DPoP <short-lived-orbi-access-token>
 x-orbi-environment: demo|production
 idempotency-key: <stable-operation-key>
 x-request-id: <optional-trace-id>
@@ -125,6 +129,7 @@ createOrbi({
 ```
 
 New production integrations should use `authMode: 'access_token'`.
+For stronger protection, also enable `dpop: true` in the SDK config.
 
 Identity lookup, business registration, payment profile, and financial runtime
 requests must declare the environment and include a valid SDK signature.

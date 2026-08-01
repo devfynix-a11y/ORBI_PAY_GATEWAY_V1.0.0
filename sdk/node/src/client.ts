@@ -72,6 +72,7 @@ export class OrbiPayGatewayClient {
   private readonly operatorKey?: string;
   private readonly environment?: OrbiRuntimeEnvironment;
   private readonly authMode: 'access_token' | 'api_key';
+  private readonly dpop: boolean;
   private readonly accessTokenScopes: string[];
   private readonly accessTokenRefreshSkewSeconds: number;
   private readonly requestSigning: boolean;
@@ -79,10 +80,15 @@ export class OrbiPayGatewayClient {
   private readonly fetchImpl: typeof fetch;
   private accessTokenCache?: {
     token: string;
+    tokenType: 'Bearer' | 'DPoP';
     expiresAtMs: number;
     scope: string;
   };
   private accessTokenPromise?: Promise<string>;
+  private dpopKeyPair?: {
+    privateKey: crypto.KeyObject;
+    publicJwk: JsonWebKey;
+  };
 
   constructor(config: OrbiPayGatewayConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -90,6 +96,7 @@ export class OrbiPayGatewayClient {
     this.operatorKey = config.operatorKey;
     this.environment = config.environment;
     this.authMode = config.authMode || 'api_key';
+    this.dpop = Boolean(config.dpop);
     this.accessTokenScopes = config.accessTokenScopes || [];
     this.accessTokenRefreshSkewSeconds = Math.max(5, config.accessTokenRefreshSkewSeconds ?? 60);
     this.requestSigning = config.requestSigning ?? true;
@@ -503,7 +510,7 @@ export class OrbiPayGatewayClient {
   ): Promise<OrbiApiResponse<T>> {
     if (requireServiceKey && !this.serviceKey) throw new Error('ORBI_PAY_GATEWAY_SERVICE_KEY_REQUIRED');
     const serviceAuth = includeServiceKey && this.serviceKey
-      ? await this.serviceAuthorization()
+      ? await this.serviceAuthorization(method, path)
       : undefined;
     const headers: Record<string, string> = {
       accept: 'application/json',
@@ -540,7 +547,7 @@ export class OrbiPayGatewayClient {
     return responseBody as OrbiApiResponse<T>;
   }
 
-  private async serviceAuthorization(): Promise<{
+  private async serviceAuthorization(method: string, path: string): Promise<{
     headers: Record<string, string>;
     signingSecret: string;
   }> {
@@ -551,8 +558,13 @@ export class OrbiPayGatewayClient {
       };
     }
     const token = await this.getServiceAccessToken();
+    const tokenType = this.accessTokenCache?.token === token ? this.accessTokenCache.tokenType : 'Bearer';
+    const headers: Record<string, string> = { authorization: `${tokenType} ${token}` };
+    if (tokenType === 'DPoP') {
+      headers.dpop = await this.createDpopProof(method, `${this.baseUrl}${path}`);
+    }
     return {
-      headers: { authorization: `Bearer ${token}` },
+      headers,
       signingSecret: token,
     };
   }
@@ -581,6 +593,7 @@ export class OrbiPayGatewayClient {
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
+        ...(this.dpop ? { dpop: await this.createDpopProof('POST', `${this.baseUrl}/oauth/token`) } : {}),
       },
       body: JSON.stringify({
         grant_type: 'client_credentials',
@@ -596,12 +609,32 @@ export class OrbiPayGatewayClient {
     }
     const expiresInSeconds = Number(body.expires_in || 900);
     const token = String(body.access_token);
+    const tokenType = String(body.token_type || 'Bearer').toLowerCase() === 'dpop' ? 'DPoP' : 'Bearer';
     this.accessTokenCache = {
       token,
+      tokenType,
       scope,
       expiresAtMs: Date.now() + (expiresInSeconds * 1000),
     };
     return token;
+  }
+
+  private async createDpopProof(method: string, htu: string): Promise<string> {
+    const keyPair = this.dpopKeyPair || generateDpopKeyPair();
+    this.dpopKeyPair = keyPair;
+    const header = base64urlJson({ alg: 'RS256', typ: 'dpop+jwt', jwk: keyPair.publicJwk });
+    const payload = base64urlJson({
+      htm: method.toUpperCase(),
+      htu,
+      iat: Math.floor(Date.now() / 1000),
+      jti: crypto.randomUUID(),
+    });
+    const signature = crypto
+      .createSign('RSA-SHA256')
+      .update(`${header}.${payload}`)
+      .sign(keyPair.privateKey)
+      .toString('base64url');
+    return `${header}.${payload}.${signature}`;
   }
 
   private operatorRequest<T>(
@@ -682,4 +715,18 @@ const signOrbiRuntimeRequest = (input: {
     'x-orbi-nonce': nonce,
     'x-orbi-signature': `sha256=${signature}`,
   };
+};
+
+const base64urlJson = (value: unknown): string =>
+  Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+
+const generateDpopKeyPair = () => {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicExponent: 0x10001,
+  });
+  const publicJwk = publicKey.export({ format: 'jwk' }) as JsonWebKey;
+  delete (publicJwk as Record<string, unknown>).key_ops;
+  delete (publicJwk as Record<string, unknown>).ext;
+  return { privateKey, publicJwk };
 };

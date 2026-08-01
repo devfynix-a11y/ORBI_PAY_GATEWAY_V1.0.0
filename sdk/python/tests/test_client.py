@@ -78,6 +78,39 @@ class PythonSdkTest(unittest.TestCase):
         self.assertNotIn("x-orbi-pay-service-key", calls[1]["headers"])
         self.assertIn("x-orbi-signature", calls[1]["headers"])
 
+    def test_transfers_send_can_use_dpop_bound_access_token(self):
+        calls = []
+
+        def fake_fetch(url, method, headers, body):
+            calls.append({"url": url, "method": method, "headers": headers, "body": body})
+            if url.endswith("/oauth/token"):
+                return 200, {
+                    "access_token": "orbi_at_python_dpop_test",
+                    "token_type": "DPoP",
+                    "expires_in": 900,
+                    "scope": "payments:create",
+                }
+            return 200, {"success": True, "data": {"id": "pi_1", "status": "requires_action"}}
+
+        orbi = Orbi(
+            base_url="https://sandbox-pay.orbifinancial.com",
+            service_key="sk_test",
+            environment="Demo",
+            auth_mode="access_token",
+            dpop=True,
+            access_token_scopes=["payments:create"],
+            fetch=fake_fetch,
+        )
+        response = orbi.transfers.send(
+            {"reference": "ORDER-1", "amount": 5000, "currency": "TZS"},
+            idempotency_key="payment-intent:ORDER-1",
+        )
+
+        self.assertTrue(response["success"])
+        self.assertRegex(calls[0]["headers"]["dpop"], r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
+        self.assertEqual(calls[1]["headers"]["authorization"], "DPoP orbi_at_python_dpop_test")
+        self.assertRegex(calls[1]["headers"]["dpop"], r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
+
     def test_sensitive_runtime_read_is_signed(self):
         captured = {}
 

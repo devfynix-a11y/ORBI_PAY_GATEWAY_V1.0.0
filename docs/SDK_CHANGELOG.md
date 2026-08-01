@@ -1,5 +1,12 @@
 # ORBI Pay Gateway SDK Changelog
 
+## 0.1.5
+
+- Added SDK-managed stronger token binding for Node with `dpop: true`.
+- Added SDK-managed stronger token binding for Python with `dpop=True`.
+- Updated developer setup guidance so new production integrations can enable
+  stronger token binding without writing proof headers manually.
+
 ## 0.1.4
 
 - Added SDK-first OAuth metadata helpers for Node, Python, and PHP.

@@ -15,7 +15,7 @@ Vite client bundles.
 ## Install
 
 ```bash
-npm install @orbifinancial/pay-gateway@^0.1.4
+npm install @orbifinancial/pay-gateway@^0.1.5
 ```
 
 Local development from this repo:
@@ -39,11 +39,15 @@ const orbi = createOrbi({
   baseUrl: process.env.ORBI_PAY_GATEWAY_BASE_URL!,
   serviceKey: process.env.ORBI_PAY_SERVICE_KEY!,
   authMode: 'access_token',
+  dpop: true,
   environment: process.env.ORBI_PAY_ENVIRONMENT === 'Production'
     ? 'Production'
     : 'Demo',
 });
 ```
+
+`dpop: true` enables stronger token binding automatically. The SDK creates and
+refreshes the required proof headers for you.
 
 Legacy/direct-key mode is available only for controlled migration:
 
