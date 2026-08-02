@@ -205,30 +205,30 @@ HTTPS only. Localhost callbacks, private-network callbacks, plain HTTP, and
 wildcard hosts are sandbox-only because live callbacks affect money movement,
 consent continuation, and webhook delivery truth.
 
-Live services must also complete automatic domain verification before live keys
-or live webhook secrets can be issued. The portal gives the developer a proof
-token for every hostname used by `browserOrigins`, `redirectUrls`, and
+Live services must also complete automatic DNS domain verification before live
+keys or live webhook secrets can be issued. The portal gives the developer a TXT
+record for every hostname used by `browserOrigins`, `redirectUrls`, and
 `webhookUrls`.
 
-The developer can prove ownership using either method:
+Recommended proof method:
 
 ```json
 {
-  "dnsTxt": {
-    "name": "_orbi-pay-verify.www.tag.co.tz",
-    "value": "orbi-pay-site-verification=orbi_domain_example"
-  },
-  "httpsFile": {
-    "url": "https://www.tag.co.tz/.well-known/orbi-pay-domain-verification.txt",
-    "body": "orbi_domain_example"
-  }
+  "type": "TXT",
+  "name": "_orbi-pay-verify.www.tag.co.tz",
+  "value": "orbi-pay-site-verification=orbi_domain_example"
 }
 ```
 
-The Gateway verifies DNS TXT or HTTPS file proof automatically. Every live
-hostname must be verified. If any live hostname is missing proof, integration
-health reports `DOMAIN_VERIFICATION_PENDING` and live credential issuance fails
-closed.
+The developer adds the TXT record in the DNS provider for their domain, for
+example Cloudflare, cPanel, Namecheap, GoDaddy, Route 53, or the hosting DNS
+panel. After DNS propagation, the developer clicks verify in the portal. The
+Gateway checks DNS TXT automatically. HTTPS file proof remains available only as
+a fallback when DNS access is not possible.
+
+Every live hostname must be verified. If any live hostname is missing proof,
+integration health reports `DOMAIN_VERIFICATION_PENDING` and live credential
+issuance fails closed.
 
 Domain verification endpoints:
 
