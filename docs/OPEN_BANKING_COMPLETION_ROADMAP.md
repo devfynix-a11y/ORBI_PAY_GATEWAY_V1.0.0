@@ -15,6 +15,41 @@ incidents, MFA-protected portal operations, and verified developer onboarding.
 These controls are a strong foundation, but they do not by themselves make the
 platform fully certified for every bank, jurisdiction, or clearing scheme.
 
+## ORBI BaaS Production Foundation v1
+
+Status: active controlled-production foundation
+
+This stage is not positioned as a prototype. It is the first production
+foundation for controlled rollout with approved developers and monitored
+merchant integrations. It includes the working control plane needed to operate
+developer onboarding, access approval, credential lifecycle, domain trust,
+webhook recovery, incidents, messaging, MFA, account recovery, and operational
+observability.
+
+Controlled rollout rules:
+
+- start with ORBI-owned or trusted merchants before broad public onboarding;
+- keep production access approval gated by business details, verified domains,
+  approved scopes, one-time credential handover, and operator audit evidence;
+- keep financial secrets and operator keys server-side only;
+- treat every production permission, key rotation, suspension, replay, and
+  recovery action as auditable evidence;
+- do not market the platform as fully certified Open Banking until bank,
+  regulator, legal, compliance, data-retention, and scheme-specific gates are
+  complete.
+
+Next enterprise gates:
+
+- usage metering for API calls, payment intents, webhooks, failed requests, and
+  developer-level activity;
+- billing plans for sandbox, production access, payment volume, webhook volume,
+  and premium BaaS services;
+- KYB/business verification workflow with document evidence and review history;
+- compliance evidence exports for access changes, consent receipts, key
+  rotations, incidents, webhook replay, and reconciliation;
+- long-term time-series monitoring for latency, uptime, failure rate, traffic
+  pressure, and developer risk scoring.
+
 ## 1. OAuth 2.1 And OIDC Authorization
 
 Status: in progress
@@ -136,9 +171,11 @@ Immediate backlog:
 - add richer domain verification audit evidence, including last checked time,
   proof method, and developer-facing troubleshooting hints;
 - finish customer-facing consent review and revoke screens;
-- add password recovery with strong identity proofing;
+- expand account recovery with stronger identity proofing beyond the current
+  audited password reset, session revocation, MFA-preserving recovery flow;
 - add downloadable evidence packs for approved integrations;
 - add service-level health scoring and launch readiness checklist;
+- add usage metering and billing readiness for production developer accounts;
 - expand SDK examples for Node, Python, PHP, and webhook replay without raw
   HTTP as the primary path.
 
