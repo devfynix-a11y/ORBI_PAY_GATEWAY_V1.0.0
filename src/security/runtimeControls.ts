@@ -13,6 +13,110 @@ export type SecurityHeaderInput = {
   secure?: boolean;
 };
 
+export type GatewaySecurityDenialClassification = {
+  category: string;
+  severity: 'warning' | 'error' | 'critical';
+  developerSafeReason: string;
+};
+
+const gatewaySecurityDenialMap: Record<string, GatewaySecurityDenialClassification> = {
+  PAY_GATEWAY_ORIGIN_NOT_ALLOWED: {
+    category: 'browser_origin_denied',
+    severity: 'warning',
+    developerSafeReason: 'Browser origin is not allowlisted for this integration.',
+  },
+  PAY_GATEWAY_ENVIRONMENT_REQUIRED: {
+    category: 'environment_missing',
+    severity: 'warning',
+    developerSafeReason: 'Runtime environment header is required.',
+  },
+  PAY_GATEWAY_ENVIRONMENT_INVALID: {
+    category: 'environment_invalid',
+    severity: 'warning',
+    developerSafeReason: 'Runtime environment header is invalid.',
+  },
+  PAY_GATEWAY_CREDENTIAL_ENVIRONMENT_UNBOUND: {
+    category: 'credential_environment_unbound',
+    severity: 'error',
+    developerSafeReason: 'Credential is not bound to a runtime environment.',
+  },
+  PAY_GATEWAY_ENVIRONMENT_KEY_MISMATCH: {
+    category: 'credential_environment_mismatch',
+    severity: 'error',
+    developerSafeReason: 'Credential environment does not match the request environment.',
+  },
+  PAY_GATEWAY_IDEMPOTENCY_KEY_REQUIRED: {
+    category: 'idempotency_missing',
+    severity: 'warning',
+    developerSafeReason: 'Financial mutation requires an idempotency key.',
+  },
+  PAY_GATEWAY_SIGNATURE_REQUIRED: {
+    category: 'signature_missing',
+    severity: 'critical',
+    developerSafeReason: 'Financial request signature is required.',
+  },
+  PAY_GATEWAY_SIGNATURE_TIMESTAMP_REQUIRED: {
+    category: 'signature_timestamp_missing',
+    severity: 'critical',
+    developerSafeReason: 'Financial request signature timestamp is required.',
+  },
+  PAY_GATEWAY_SIGNATURE_TIMESTAMP_INVALID: {
+    category: 'signature_timestamp_invalid',
+    severity: 'critical',
+    developerSafeReason: 'Financial request signature timestamp is invalid.',
+  },
+  PAY_GATEWAY_SIGNATURE_TIMESTAMP_STALE: {
+    category: 'signature_timestamp_stale',
+    severity: 'critical',
+    developerSafeReason: 'Financial request signature timestamp is outside the allowed window.',
+  },
+  PAY_GATEWAY_SIGNATURE_NONCE_REQUIRED: {
+    category: 'signature_nonce_missing',
+    severity: 'critical',
+    developerSafeReason: 'Financial request nonce is required.',
+  },
+  PAY_GATEWAY_SIGNATURE_SECRET_MISSING: {
+    category: 'signature_secret_missing',
+    severity: 'critical',
+    developerSafeReason: 'Financial request credential secret is missing.',
+  },
+  PAY_GATEWAY_SIGNATURE_INVALID: {
+    category: 'signature_invalid',
+    severity: 'critical',
+    developerSafeReason: 'Financial request signature did not pass verification.',
+  },
+  PAY_GATEWAY_SIGNATURE_NONCE_REPLAYED: {
+    category: 'signature_nonce_replayed',
+    severity: 'critical',
+    developerSafeReason: 'Financial request nonce was already used.',
+  },
+  PAY_GATEWAY_RATE_LIMITED: {
+    category: 'rate_limited',
+    severity: 'warning',
+    developerSafeReason: 'Integration exceeded the allowed request rate.',
+  },
+  DEVELOPER_REDIRECT_URL_NOT_ALLOWED: {
+    category: 'redirect_url_denied',
+    severity: 'warning',
+    developerSafeReason: 'Return URL is not allowlisted for this integration.',
+  },
+  DEVELOPER_WEBHOOK_URL_NOT_ALLOWED: {
+    category: 'webhook_url_denied',
+    severity: 'warning',
+    developerSafeReason: 'Webhook URL is not allowlisted for this integration.',
+  },
+  PAY_SERVICE_SCOPE_NOT_GRANTED: {
+    category: 'scope_denied',
+    severity: 'warning',
+    developerSafeReason: 'Integration does not have the required permission.',
+  },
+};
+
+export const classifyGatewaySecurityDenial = (
+  errorCode: string,
+): GatewaySecurityDenialClassification | undefined =>
+  gatewaySecurityDenialMap[errorCode.trim()];
+
 export const parseOriginAllowlist = (value: string | undefined, defaults: string[] = []): string[] => {
   const configured = String(value || '')
     .split(',')

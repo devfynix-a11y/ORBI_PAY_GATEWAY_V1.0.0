@@ -42,6 +42,7 @@ import {
   verifyDpopProof,
 } from './security/dpopProof.js';
 import {
+  classifyGatewaySecurityDenial,
   createRequestAuditContext,
   hasSignedInternalRequestHeaders,
   isInternalGatewayPath,
@@ -517,6 +518,36 @@ const sendValidationError = (
   details: issues,
 });
 
+const emitGatewaySecurityDenial = (
+  req: express.Request,
+  errorCode: string,
+  metadata: Record<string, unknown> = {},
+) => {
+  const classification = classifyGatewaySecurityDenial(errorCode);
+  if (!classification) return;
+  const auditContext = req.auditContext;
+  void auditEventSink.emit({
+    eventType: `gateway.security.${classification.category}`,
+    severity: classification.severity,
+    outcome: 'denied',
+    requestId: auditContext?.requestId,
+    traceId: auditContext?.traceId,
+    correlationId: auditContext?.correlationId,
+    resource: {
+      type: 'http_route',
+      method: req.method,
+      path: req.path,
+    },
+    metadata: {
+      errorCode,
+      reason: classification.developerSafeReason,
+      origin: req.get('origin') || undefined,
+      userAgent: req.get('user-agent') || undefined,
+      ...metadata,
+    },
+  });
+};
+
 const trustedSubjectContext = (req: express.Request) => {
   const subjectId = String(
     req.get('x-orbi-subject-id') ||
@@ -749,37 +780,63 @@ const assertFinancialRuntimeRequest = (
   res: express.Response,
   payload: Record<string, unknown> = {},
 ) => {
-  const environment = requireRuntimeEnvironment(req);
+  let environment: RuntimeEnvironment | undefined;
   const service = res.locals.payService as PayServiceDefinition | undefined;
   const credential = res.locals.payServiceCredential as AuthenticatedPayService['credential'] | undefined;
-  assertServiceCredentialEnvironment(credential, environment);
-  const subject = financialCredentialSubject(service, credential);
-  assertFinancialRateLimit(subject, {
-    windowMs: config.security.financialRateLimitWindowSeconds * 1000,
-    maxRequests: config.security.financialRateLimitMaxRequests,
-    maxSubjects: config.security.financialRateLimitMaxSubjects,
-  });
-  if (!requestIdempotencyKey(req, payload)) throw new Error('PAY_GATEWAY_IDEMPOTENCY_KEY_REQUIRED');
-  assertFinancialRequestSignature(req, subject);
-  return environment;
+  try {
+    environment = requireRuntimeEnvironment(req);
+    assertServiceCredentialEnvironment(credential, environment);
+    const subject = financialCredentialSubject(service, credential);
+    assertFinancialRateLimit(subject, {
+      windowMs: config.security.financialRateLimitWindowSeconds * 1000,
+      maxRequests: config.security.financialRateLimitMaxRequests,
+      maxSubjects: config.security.financialRateLimitMaxSubjects,
+    });
+    if (!requestIdempotencyKey(req, payload)) throw new Error('PAY_GATEWAY_IDEMPOTENCY_KEY_REQUIRED');
+    assertFinancialRequestSignature(req, subject);
+    return environment;
+  } catch (e: any) {
+    const errorCode = errorCodeFromException(e, 'PAY_GATEWAY_RUNTIME_REQUEST_DENIED');
+    emitGatewaySecurityDenial(req, errorCode, {
+      serviceCode: service?.code,
+      credentialSource: credential?.source,
+      credentialEnvironment: credential?.environment,
+      runtimeEnvironment: environment,
+      guard: 'financial_mutation',
+    });
+    throw e;
+  }
 };
 
 const assertSignedRuntimeRequest = (
   req: express.Request,
   res: express.Response,
 ) => {
-  const environment = requireRuntimeEnvironment(req);
+  let environment: RuntimeEnvironment | undefined;
   const service = res.locals.payService as PayServiceDefinition | undefined;
   const credential = res.locals.payServiceCredential as AuthenticatedPayService['credential'] | undefined;
-  assertServiceCredentialEnvironment(credential, environment);
-  const subject = financialCredentialSubject(service, credential);
-  assertFinancialRateLimit(subject, {
-    windowMs: config.security.financialRateLimitWindowSeconds * 1000,
-    maxRequests: config.security.financialRateLimitMaxRequests,
-    maxSubjects: config.security.financialRateLimitMaxSubjects,
-  });
-  assertFinancialRequestSignature(req, subject);
-  return environment;
+  try {
+    environment = requireRuntimeEnvironment(req);
+    assertServiceCredentialEnvironment(credential, environment);
+    const subject = financialCredentialSubject(service, credential);
+    assertFinancialRateLimit(subject, {
+      windowMs: config.security.financialRateLimitWindowSeconds * 1000,
+      maxRequests: config.security.financialRateLimitMaxRequests,
+      maxSubjects: config.security.financialRateLimitMaxSubjects,
+    });
+    assertFinancialRequestSignature(req, subject);
+    return environment;
+  } catch (e: any) {
+    const errorCode = errorCodeFromException(e, 'PAY_GATEWAY_RUNTIME_REQUEST_DENIED');
+    emitGatewaySecurityDenial(req, errorCode, {
+      serviceCode: service?.code,
+      credentialSource: credential?.source,
+      credentialEnvironment: credential?.environment,
+      runtimeEnvironment: environment,
+      guard: 'signed_runtime',
+    });
+    throw e;
+  }
 };
 
 const assertSignedRuntimeMutationRequest = (
@@ -1188,6 +1245,10 @@ app.use((req, res, next) => {
   }
 
   if (!isOriginAllowed(origin, allowedBrowserOrigins) && !developerOriginAllowed) {
+    emitGatewaySecurityDenial(req, 'PAY_GATEWAY_ORIGIN_NOT_ALLOWED', {
+      globalOriginAllowed: false,
+      developerOriginAllowed,
+    });
     return sendApiError(res, 403, 'PAY_GATEWAY_ORIGIN_NOT_ALLOWED');
   }
 

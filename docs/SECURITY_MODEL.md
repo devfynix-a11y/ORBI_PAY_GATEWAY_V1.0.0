@@ -92,6 +92,29 @@ events. Developers should send their own stable request or correlation ID from
 server-side integrations so failed payments, webhook retries, and support cases
 can be traced without exposing customer secrets.
 
+## Security Denial Evidence
+
+Gateway blocks are classified into explicit audit evidence events so operators
+can identify the exact control that protected the platform without reading raw
+payloads or secrets.
+
+Examples:
+
+- `gateway.security.browser_origin_denied`
+- `gateway.security.environment_missing`
+- `gateway.security.idempotency_missing`
+- `gateway.security.signature_invalid`
+- `gateway.security.signature_nonce_replayed`
+- `gateway.security.rate_limited`
+- `gateway.security.redirect_url_denied`
+- `gateway.security.webhook_url_denied`
+- `gateway.security.scope_denied`
+
+These events include request ID, trace ID, route, method, safe user-agent/origin
+context, service code where available, and a developer-safe reason. They must not
+include API keys, signatures, nonces, OTPs, PINs, passwords, access tokens, or raw
+customer financial payloads.
+
 ## Tokenized Provider Credentials
 
 Provider credentials are represented by token references such as:

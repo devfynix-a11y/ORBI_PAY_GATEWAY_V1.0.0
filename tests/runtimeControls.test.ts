@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  classifyGatewaySecurityDenial,
   createRequestAuditContext,
   hasSignedInternalRequestHeaders,
   isInternalGatewayPath,
@@ -99,4 +100,18 @@ test('production secure requests receive HSTS', () => {
 
   assert.equal(headers['strict-transport-security'], 'max-age=31536000; includeSubDomains');
   assert.equal(headers['cache-control'], 'no-store, max-age=0');
+});
+
+test('gateway security denials are classified for audit evidence', () => {
+  assert.deepEqual(classifyGatewaySecurityDenial('PAY_GATEWAY_ORIGIN_NOT_ALLOWED'), {
+    category: 'browser_origin_denied',
+    severity: 'warning',
+    developerSafeReason: 'Browser origin is not allowlisted for this integration.',
+  });
+  assert.deepEqual(classifyGatewaySecurityDenial('PAY_GATEWAY_SIGNATURE_NONCE_REPLAYED'), {
+    category: 'signature_nonce_replayed',
+    severity: 'critical',
+    developerSafeReason: 'Financial request nonce was already used.',
+  });
+  assert.equal(classifyGatewaySecurityDenial('SOME_BUSINESS_ERROR'), undefined);
 });
