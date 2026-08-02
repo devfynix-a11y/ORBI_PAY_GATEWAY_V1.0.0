@@ -24,7 +24,7 @@ This reference is for maintainability only. It intentionally does not store secr
 - monitor routes no longer reuse tenant-facing `x-api-key` authentication.
 - `PAYMENT_GATEWAY_*` variables belong to ORBI Pay Gateway runtime, provider credentials, and Core callback signing.
 - `ORBI_PAY_GATEWAY_BASE_URL` in ORBI Core means the ORBI Pay Gateway base URL only.
-- `ORBI_TALK_GATEWAY_API_KEY` is for backend-to-ORBI-Talk-Gateway messaging calls such as SMS, email, push, and templates.
+- `ORBI_TALK_GATEWAY_API_KEY` is for backend-to-ORBI-Talk-Gateway messaging calls such as SMS, email, and push. Pay Gateway sends direct transactional subject/body payloads for developer and security events.
 - Legacy ambiguous messaging names are no longer accepted. Use `ORBI_TALK_GATEWAY_*` only.
 - `ORBI_BASE_URL` is also script-only. In practice it often points to the same value as `BACKEND_URL`.
 - `NEW_SECRET` appears in the shared env file but is not present in `.env.example` and was not introduced by the new work. Its purpose should be reviewed and documented by the team.
@@ -87,7 +87,7 @@ This reference is for maintainability only. It intentionally does not store secr
 
 | Variable | Type | Secret | In Shared Env | In `.env.example` | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `ORBI_TALK_GATEWAY_URL` | Runtime | Non-secret | No | Yes | Base URL for the ORBI Talk Gateway used for SMS, email, push, and templates. |
+| `ORBI_TALK_GATEWAY_URL` | Runtime | Non-secret | No | Yes | Base URL for the ORBI Talk Gateway used for SMS, email, and push delivery. |
 | `ORBI_TALK_GATEWAY_BASE_URL` | Runtime | Non-secret | No | No | Optional alternate ORBI Talk Gateway base URL name. Prefer `ORBI_TALK_GATEWAY_URL` unless a deployment needs both names. |
 | `ORBI_TALK_GATEWAY_API_KEY` | Runtime | Secret | No | Yes | API key used by backend-to-ORBI-Talk-Gateway requests. |
 | `ORBI_TALK_GATEWAY_USER_ID` | Runtime | Non-secret | No | Yes | Optional ORBI Talk Gateway owner/user identifier. |
@@ -101,7 +101,7 @@ This reference is for maintainability only. It intentionally does not store secr
 
 | Variable | Type | Secret | In Shared Env | In `.env.example` | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `ORBI_PAY_GATEWAY_BASE_URL` | Runtime | Non-secret | Yes | Yes | Base URL for ORBI Pay Gateway, not for SMS/email templates. |
+| `ORBI_PAY_GATEWAY_BASE_URL` | Runtime | Non-secret | Yes | Yes | Base URL for ORBI Pay Gateway, not for SMS/email delivery content. |
 | `ORBI_ENABLE_CORE_PROVIDER_GATEWAY_ROUTES` | Runtime | Non-secret | No | No | Temporary migration switch for legacy Core `/v1/gateway/*` provider-execution routes. Keep unset/false in production when using the separate Payment Gateway service. |
 | `ORBI_ALLOW_STUB_PROVIDER_RECONCILIATION` | Runtime | Non-secret | No | No | Non-production-only settlement lab override. Never enable in production; live settlement requires trusted provider proof before ledger commit. |
 | `PAYMENT_GATEWAY_PORT` | Runtime | Non-secret | No | Payment gateway only | Local port for the standalone ORBI Payment Gateway service. |

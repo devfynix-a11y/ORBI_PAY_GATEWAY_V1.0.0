@@ -9,13 +9,15 @@ test('messaging intent contract carries safe delivery context', () => {
   const intent = MessagingIntentSchema.parse({
     eventId: 'dev_evt_rotation_001',
     correlationId: 'dev_evt_rotation_001',
-    templateCode: 'developer.api_key.emergency_rotated',
+    templateCode: 'developer.direct.email',
     recipientIdentityRef: 'ops@merchant.example',
     language: 'sw',
     channel: 'email',
     serviceCode: 'merchant-service',
     environment: 'live',
     safeMetadata: {
+      emailSubject: 'ORBI credential security update',
+      emailBody: 'A credential security change occurred on your ORBI integration.',
       fingerprint: 'abc123',
       status: 'revoked',
     },
@@ -51,9 +53,11 @@ test('developer messaging dispatcher records delivery evidence without raw secre
 
   const deliveries = deliveryStore.list({ serviceCode: 'merchant-service' });
   assert.equal(deliveries.length, 1);
-  assert.equal(deliveries[0].status, 'queued');
-  assert.equal(JSON.stringify(deliveries[0]).includes('orbi_live_should_not_be_recorded'), false);
-  assert.equal(deliveries[0].templateCode, 'developer.api_key.emergency_rotated');
+  const delivery = deliveries[0]!;
+  assert.equal(delivery.status, 'queued');
+  assert.equal(JSON.stringify(delivery).includes('orbi_live_should_not_be_recorded'), false);
+  assert.equal(delivery.templateCode, 'developer.direct.email');
+  assert.match(String(delivery.safeMetadata?.emailSubject), /credential/i);
 });
 
 test('developer messaging dispatcher fails closed when environment is missing', async () => {
@@ -139,12 +143,17 @@ test('ORBI Talk client maps verification intent to authenticated email delivery'
     const result = await client.sendIntent({
       eventId: 'portal_email_verification_001',
       correlationId: 'portal_email_verification_001',
-      templateCode: 'developer.portal.email_verification',
+      templateCode: 'developer.direct.email',
       recipientIdentityRef: 'developer@example.com',
       language: 'en',
       channel: 'email',
       environment: 'sandbox',
-      safeMetadata: { verificationCode: '482913', expiresMinutes: 15 },
+      safeMetadata: {
+        emailSubject: 'Verify your ORBI developer account',
+        emailBody: 'Your ORBI developer verification code is 482913. It expires in 15 minutes.',
+        verificationCode: '482913',
+        expiresMinutes: 15,
+      },
     });
     assert.equal(result.status, 'queued');
     assert.equal(capturedUrl, 'https://talk.example/api/send-email');
@@ -152,6 +161,40 @@ test('ORBI Talk client maps verification intent to authenticated email delivery'
     assert.equal(capturedBody.recipient, 'developer@example.com');
     assert.equal(capturedBody.requestId, 'portal_email_verification_001');
     assert.match(String(capturedBody.body), /482913/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('ORBI Talk client refuses direct email without explicit subject and body', async () => {
+  const originalFetch = globalThis.fetch;
+  let sent = false;
+  globalThis.fetch = (async () => {
+    sent = true;
+    return new Response('{}', { status: 200 });
+  }) as typeof fetch;
+  try {
+    const client = new OrbiTalkClient({
+      enabled: true,
+      baseUrl: 'https://talk.example',
+      intentPath: '/api/send-email',
+      apiKey: 'test-talk-key',
+      ownerEmail: 'gateway@example.com',
+      timeoutMs: 1000,
+    });
+    const result = await client.sendIntent({
+      eventId: 'portal_missing_content_001',
+      correlationId: 'portal_missing_content_001',
+      templateCode: 'developer.direct.email',
+      recipientIdentityRef: 'developer@example.com',
+      language: 'en',
+      channel: 'email',
+      environment: 'sandbox',
+      safeMetadata: {},
+    });
+    assert.equal(result.status, 'failed');
+    assert.equal(result.error, 'DIRECT_EMAIL_CONTENT_REQUIRED');
+    assert.equal(sent, false);
   } finally {
     globalThis.fetch = originalFetch;
   }

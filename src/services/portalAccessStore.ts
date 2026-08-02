@@ -262,6 +262,10 @@ export class PortalAccessStore {
           target: account.email,
           metadata: { lockedUntil: account.mfaLockedUntil },
         });
+        await this.sendPortalSecurityEmail(account, 'portal.auth.mfa_locked', {
+          reason: 'Existing MFA lockout window is still active.',
+          lockedUntil: account.mfaLockedUntil,
+        }, req);
         throw new Error('PORTAL_MFA_TEMPORARILY_LOCKED');
       }
       const usedRecoveryCode = Boolean(normalizeRecoveryCode(input.recoveryCode));
@@ -279,6 +283,13 @@ export class PortalAccessStore {
             lockedUntil: lock.lockedUntil,
           },
         });
+        if (lock.lockedUntil) {
+          await this.sendPortalSecurityEmail(account, 'portal.auth.mfa_locked', {
+            reason: usedRecoveryCode ? 'Invalid or used recovery code.' : 'Invalid or replayed authenticator code.',
+            failedAttempts: lock.failedAttempts,
+            lockedUntil: lock.lockedUntil,
+          }, req);
+        }
         throw new Error(lock.lockedUntil ? 'PORTAL_MFA_TEMPORARILY_LOCKED' : 'PORTAL_INVALID_MFA_CODE');
       }
       await this.clearMfaFailures(account);
@@ -633,12 +644,14 @@ export class PortalAccessStore {
     const delivery = await orbiTalkClient.sendIntent({
       eventId,
       correlationId: eventId,
-      templateCode: 'developer.portal.team_invitation',
+      templateCode: 'developer.direct.email',
       recipientIdentityRef: email,
       channel: 'email',
       language: 'en',
       environment: String(req.headers['x-orbi-environment'] || '').toLowerCase().includes('production') ? 'live' : 'sandbox',
       safeMetadata: {
+        emailSubject: 'You have been invited to ORBI Pay Developer Portal',
+        emailBody: `You have been invited to join ${serviceCodes.join(', ') || 'an ORBI Pay integration'}. Open this secure link to create your own staff account: ${inviteUrl}. This invitation expires soon. If you did not expect this invitation, ignore this message.`,
         inviteUrl,
         serviceCodes: serviceCodes.join(', '),
         role,
@@ -1450,12 +1463,14 @@ export class PortalAccessStore {
     const delivery = await orbiTalkClient.sendIntent({
       eventId,
       correlationId: eventId,
-      templateCode: 'developer.portal.email_verification',
+      templateCode: 'developer.direct.email',
       recipientIdentityRef: account.email,
       language: 'en',
       channel: 'email',
       environment: String(config.providerMode).toLowerCase() === 'live' ? 'live' : 'sandbox',
       safeMetadata: {
+        emailSubject: 'Verify your ORBI developer account',
+        emailBody: `Your ORBI developer verification code is ${code}. It expires in ${Math.ceil(ttlSeconds / 60)} minutes. If you did not create this account, you can ignore this message.`,
         verificationCode: code,
         expiresMinutes: Math.ceil(ttlSeconds / 60),
         developerName: account.name,
@@ -1470,6 +1485,33 @@ export class PortalAccessStore {
       },
     });
     return { status: delivery.status };
+  }
+
+  private async sendPortalSecurityEmail(account: PortalAccount, eventType: string, metadata: Record<string, unknown>, req?: express.Request) {
+    const environment = String(req?.headers?.['x-orbi-environment'] || '').toLowerCase().includes('production')
+      ? 'live'
+      : String(config.providerMode).toLowerCase() === 'live'
+        ? 'live'
+        : 'sandbox';
+    const eventId = `portal_security_${crypto.randomUUID()}`;
+    const lockedUntil = metadata.lockedUntil ? ` Lockout ends at ${String(metadata.lockedUntil)}.` : '';
+    const reason = metadata.reason ? ` Detail: ${String(metadata.reason)}` : '';
+    await orbiTalkClient.sendIntent({
+      eventId,
+      correlationId: eventId,
+      templateCode: 'developer.direct.email',
+      recipientIdentityRef: account.email,
+      language: 'en',
+      channel: 'email',
+      environment,
+      safeMetadata: {
+        emailSubject: 'ORBI portal security alert',
+        emailBody: `ORBI detected a security lockout on your Developer Portal account.${reason}${lockedUntil} If this was not you, contact ORBI support immediately.`,
+        eventType,
+        accountEmail: account.email,
+        ...metadata,
+      },
+    });
   }
 
   private accountFromRow(row: any): PortalAccount {

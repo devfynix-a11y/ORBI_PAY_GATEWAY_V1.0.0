@@ -12,36 +12,15 @@ export type OrbiTalkSendResult = {
 
 const renderEmailIntent = (intent: MessagingIntent) => {
   const metadata = intent.safeMetadata || {};
-  if (intent.templateCode === 'developer.portal.email_verification') {
-    const code = String(metadata.verificationCode || '');
-    const minutes = Number(metadata.expiresMinutes || 15);
+  const directSubject = String(metadata.emailSubject || '').trim();
+  const directBody = String(metadata.emailBody || '').trim();
+  if (directSubject && directBody) {
     return {
-      subject: 'Verify your ORBI developer account',
-      body: `Your ORBI developer verification code is ${code}. It expires in ${minutes} minutes. If you did not create this account, you can ignore this message.`,
+      subject: directSubject,
+      body: directBody,
     };
   }
-  if (intent.templateCode === 'developer.service.approved') {
-    return {
-      subject: 'Your ORBI integration was approved',
-      body: 'Your ORBI integration request has been approved. Sign in to the Developer Portal to continue.',
-    };
-  }
-  if (intent.templateCode === 'developer.portal.team_invitation') {
-    return {
-      subject: 'You have been invited to ORBI Pay Developer Portal',
-      body: `You have been invited to join ${String(metadata.serviceCodes || 'an ORBI Pay integration')}. Open this secure link to create your own staff account: ${String(metadata.inviteUrl || '')}. This invitation expires soon. If you did not expect this invitation, ignore this message.`,
-    };
-  }
-  if (intent.templateCode.includes('rotation')) {
-    return {
-      subject: 'ORBI credential security update',
-      body: 'A credential rotation activity occurred on your ORBI integration. Sign in to review the audited change.',
-    };
-  }
-  return {
-    subject: 'ORBI developer account update',
-    body: 'There is a new update on your ORBI developer account. Sign in to the Developer Portal for details.',
-  };
+  throw new Error('DIRECT_EMAIL_CONTENT_REQUIRED');
 };
 
 export class OrbiTalkClient {
@@ -54,7 +33,12 @@ export class OrbiTalkClient {
     if (!this.options.apiKey) return { status: 'failed', error: 'ORBI_TALK_API_KEY_REQUIRED' };
 
     const url = new URL(this.options.intentPath, this.options.baseUrl);
-    const email = renderEmailIntent(parsed);
+    let email: { subject: string; body: string };
+    try {
+      email = renderEmailIntent(parsed);
+    } catch (error: any) {
+      return { status: 'failed', error: error?.message || 'DIRECT_EMAIL_CONTENT_REQUIRED' };
+    }
     const body = JSON.stringify({
       recipient: parsed.recipientIdentityRef,
       channel: parsed.channel,
@@ -65,6 +49,7 @@ export class OrbiTalkClient {
       requestId: parsed.eventId,
       senderName: 'ORBI Pay',
       platformName: 'ORBI Pay',
+      deliveryMode: 'direct',
     });
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const nonce = crypto.randomUUID();

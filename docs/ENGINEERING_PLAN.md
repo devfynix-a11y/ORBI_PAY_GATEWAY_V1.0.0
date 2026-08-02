@@ -256,7 +256,7 @@ Why:
 ```text
 Developers need fast, clear messages for OTP, email confirmation, API key
 rotation, webhook incidents, PaySafe actions, and risk alerts. These messages
-must be template-controlled, language-aware, audited, and retryable.
+must be direct-message controlled, language-aware, audited, and retryable.
 ```
 
 Design:
@@ -265,7 +265,7 @@ Design:
 - Pay Gateway remains the BaaS/API boundary and emits messaging intents for
   gateway-owned events such as developer key rotation, webhook replay failure,
   service approval, domain approval, and hosted challenge updates.
-- ORBI Talk Gateway owns SMS, email, push, WhatsApp where supported, templates,
+- ORBI Talk Gateway owns SMS, email, push, WhatsApp where supported,
   delivery queues, retries, language routing, and delivery receipts.
 - Gateway/Core must never pass raw passwords, PINs, OTP secrets, API keys, or
   webhook signing secrets to notification payloads.
@@ -273,9 +273,9 @@ Design:
   fingerprint, event id, action name, environment, timestamp, and support path.
 - Every messaging request must carry `correlationId`, `eventId`,
   `serviceCode`, `recipientIdentityRef`, `language`, `channel`, and
-  `templateCode`.
+  a stable message code plus explicit subject/body for direct transactional email.
 
-Initial template families:
+Initial direct developer message families:
 
 ```text
 identity.otp.requested
@@ -301,8 +301,8 @@ Implementation phases:
 2. Add gateway adapter `OrbiTalkClient` with HMAC/mTLS-ready service auth.
 3. Emit messaging intents for developer key rotation and emergency rotation.
 4. Emit messaging intents for service approval/rejection and domain updates.
-5. Add hosted challenge OTP/email confirmation templates.
-6. Add PaySafe BaaS templates for action-required, release, refund, dispute,
+5. Add hosted challenge OTP/email confirmation direct messages.
+6. Add PaySafe BaaS direct messages for action-required, release, refund, dispute,
    expiry, and auto-refund events.
 7. Store delivery evidence and expose safe delivery status in Developer Portal.
 8. Add replay/retry controls for failed messaging deliveries without duplicating
@@ -312,7 +312,7 @@ Acceptance:
 
 ```text
 Security and BaaS messages are delivered through ORBI Talk with audited
-template, recipient, channel, language, correlation id, delivery status, and
+message code, recipient, channel, language, correlation id, delivery status, and
 retry evidence. Payment services do not send direct unaudited emails/SMS.
 ```
 

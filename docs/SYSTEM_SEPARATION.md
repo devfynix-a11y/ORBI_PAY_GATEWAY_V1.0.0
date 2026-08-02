@@ -17,7 +17,7 @@ ORBI Core is the banking and control engine.
 - owns transaction preview, settlement, reversal, escrow, refunds, and account/wallet locks
 - owns risk decisions, audit trails, limits, compliance alerts, and admin control workflows
 - calls ORBI Pay Gateway for external provider execution
-- calls ORBI Talk Gateway for templates, SMS, email, push, and staff/customer messages
+- calls ORBI Talk Gateway for SMS, email, push, and staff/customer messages
 
 ## ORBI Pay Gateway
 
@@ -41,9 +41,9 @@ Canonical root:
 https://talk.orbifinancial.com
 ```
 
-ORBI Talk Gateway is the communication and template service.
+ORBI Talk Gateway is the communication delivery service.
 
-- owns SMS, email, push, delivery queues, retries, templates, and template variables
+- owns SMS, email, push, delivery queues, and retries
 - never handles payment execution or ledger mutation
 - is used by ORBI Core for transactional, security, support, marketing, and operator messages
 
@@ -57,7 +57,7 @@ Messaging intents carry safe references only:
 ```txt
 eventId
 correlationId
-templateCode
+messageCode
 recipientIdentityRef
 language
 channel
@@ -73,5 +73,5 @@ webhook signing secrets, provider credentials, or full wallet authority data.
 
 - `ORBI_PAY_GATEWAY_BASE_URL` in Core means ORBI Pay Gateway only.
 - `PAYMENT_GATEWAY_*` belongs to Pay Gateway runtime, providers, and Core callback signing.
-- `ORBI_TALK_GATEWAY_*` belongs to Talk Gateway messaging, templates, email, SMS, and push.
+- `ORBI_TALK_GATEWAY_*` belongs to Talk Gateway messaging, email, SMS, and push.
 - Legacy ambiguous messaging variable names are not accepted in new Core configuration.

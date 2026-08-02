@@ -4,7 +4,7 @@
 
 ORBI Pay Gateway is trusted to execute provider calls and normalize provider responses. It is not trusted to mutate balances directly.
 
-It is separate from ORBI Talk Gateway. ORBI Talk Gateway handles SMS, email, push, delivery queues, and templates only; it never handles money movement or provider settlement.
+It is separate from ORBI Talk Gateway. ORBI Talk Gateway handles SMS, email, push, and delivery queues only; it never handles money movement or provider settlement. Pay Gateway sends explicit transactional subject/body payloads for developer security events.
 
 Only ORBI Core may:
 

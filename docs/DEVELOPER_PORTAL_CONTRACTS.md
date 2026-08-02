@@ -1092,7 +1092,7 @@ Response:
       "correlationId": "dev_evt_...",
       "serviceCode": "orbi-shop",
       "environment": "live",
-      "templateCode": "developer.api_key.emergency_rotated",
+      "templateCode": "developer.direct.email",
       "channel": "email",
       "language": "en",
       "recipientIdentityRef": "ops@merchant.example",
@@ -1107,7 +1107,7 @@ Response:
 Rules:
 
 ```text
-Delivery evidence may show template, channel, recipient reference, status,
+Delivery evidence may show message code, channel, recipient reference, status,
 attempt, safe metadata, and timestamps.
 It must never show raw OTP, PIN, password, API key, webhook secret, provider
 credential, authorization token, or signature material.
