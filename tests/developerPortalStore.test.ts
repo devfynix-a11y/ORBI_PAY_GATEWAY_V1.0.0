@@ -63,6 +63,94 @@ test('developer portal store grants sandbox scopes and provisions one-time crede
   assert.equal(JSON.stringify(store.getService(service.serviceCode)).includes(credentials.webhookSigningSecret), false);
 });
 
+test('developer portal automatic domain verification unlocks live credentials only after proof', async () => {
+  const store = DeveloperPortalStore.inMemory();
+  const application = await store.submitApplication({
+    legalName: 'Verified Domain Merchant Ltd',
+    displayName: 'Verified Domain Merchant',
+    contactEmail: 'ops@verified.example',
+    businessType: 'merchant',
+    countryCode: 'TZ',
+    requestedEnvironments: ['live'],
+    requestedScopes: ['payments:create', 'webhooks:receive'],
+    browserOrigins: ['https://checkout.verified.example'],
+    redirectUrls: ['https://checkout.verified.example/orbi/return'],
+    webhookUrls: ['https://hooks.verified.example/orbi/webhooks'],
+    useCases: ['Live checkout with verified domains'],
+    termsAccepted: true,
+  });
+  const service = await store.approveApplication(application.applicationId, {
+    initialStatus: 'active',
+    grantRequestedScopes: true,
+  });
+
+  await assert.rejects(
+    () => store.provisionServiceCredentials(service.serviceCode, {
+      environment: 'live',
+      requestedBy: 'operator@orbi.example',
+      reason: 'Attempt live key issue before domain proof.',
+    }),
+    /DEVELOPER_LIVE_DOMAIN_VERIFICATION_REQUIRED/,
+  );
+
+  const instructions = store.domainVerificationInstructions(service.serviceCode);
+  assert.deepEqual(instructions.missingDomains.sort(), ['checkout.verified.example', 'hooks.verified.example']);
+  assert.equal(instructions.challenges.length, 2);
+  assert.equal(String(instructions.challenges[0]?.dnsRecordValue || '').startsWith('orbi-pay-site-verification=orbi_domain_'), true);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: RequestInfo | URL) => {
+    const challenge = instructions.challenges.find((item) => String(url) === item.httpsUrl);
+    return new Response(challenge?.token || 'wrong-token', { status: challenge ? 200 : 404 });
+  }) as typeof fetch;
+
+  try {
+    const result = await store.verifyServiceDomainsAutomatically(service.serviceCode, {
+      requestedBy: 'developer@verified.example',
+    });
+    assert.equal(result.pending.length, 0);
+    assert.deepEqual(result.domainVerification.missingDomains, []);
+    assert.equal(result.domainVerification.ready, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const credentials = await store.provisionServiceCredentials(service.serviceCode, {
+    environment: 'live',
+    requestedBy: 'operator@orbi.example',
+    reason: 'Issue live credentials after automatic domain proof.',
+  });
+  assert.equal(credentials.apiKeySecret.startsWith('orbi_live_'), true);
+  assert.equal(credentials.webhookSigningSecret.startsWith('orbi_whsec_live_'), true);
+});
+
+test('developer portal automatic domain verification rejects domains outside service allowlist', async () => {
+  const store = DeveloperPortalStore.inMemory();
+  const application = await store.submitApplication({
+    legalName: 'Strict Domain Merchant Ltd',
+    displayName: 'Strict Domain Merchant',
+    contactEmail: 'ops@strict.example',
+    businessType: 'merchant',
+    countryCode: 'TZ',
+    requestedEnvironments: ['live'],
+    requestedScopes: ['payments:create'],
+    browserOrigins: ['https://strict.example'],
+    redirectUrls: ['https://strict.example/orbi/return'],
+    webhookUrls: ['https://strict.example/orbi/webhooks'],
+    useCases: ['Strict allowlist verification'],
+    termsAccepted: true,
+  });
+  const service = await store.approveApplication(application.applicationId, { initialStatus: 'active' });
+
+  await assert.rejects(
+    () => store.verifyServiceDomainsAutomatically(service.serviceCode, {
+      domains: ['attacker.example'],
+      requestedBy: 'developer@strict.example',
+    }),
+    /DEVELOPER_DOMAIN_NOT_ON_ALLOWLIST/,
+  );
+});
+
 test('developer portal store filters applications and services by owner', async () => {
   const store = DeveloperPortalStore.inMemory();
   const first = await store.submitApplication({
