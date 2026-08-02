@@ -2895,6 +2895,15 @@ const OperatorIncidentQuerySchema = z.object({
   incidentType: z.string().min(1).max(120).optional(),
 });
 
+const DeveloperServiceBillingPlanUpdateSchema = z.object({
+  planCode: z.enum(['sandbox_free', 'starter', 'business', 'enterprise']),
+  reason: z.string().trim().min(8).max(500),
+  assignedBy: z.string().trim().min(2).max(160),
+  dailyCallLimit: z.coerce.number().int().min(1).max(100000000).optional(),
+  monthlyCallLimit: z.coerce.number().int().min(1).max(3000000000).optional(),
+  status: z.enum(['active', 'suspended']).optional(),
+});
+
 const OperatorIncidentAcknowledgeSchema = z.object({
   acknowledgedBy: z.string().min(1).max(160),
   note: z.string().max(1000).optional(),
@@ -3048,6 +3057,7 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/service-applications\/[^/]+\/approve$/, permission: 'developer:approve_applications', confirmation: true },
   { pattern: /^\/v1\/developer\/service-applications\/[^/]+\/reject$/, permission: 'developer:approve_applications', confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/status$/, permission: 'developer:manage_services', confirmation: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/billing-plan$/, permission: 'developer:manage_services', confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/domain-verification$/, permission: 'developer:manage_services', confirmation: true },
   { pattern: /^\/v1\/developer\/sandbox-simulator\/reset$/, permission: 'developer:manage_sandbox', confirmation: true },
   { pattern: /^\/v1\/developer\/service-applications$/, permission: 'developer:request_access', developerAllowed: true },
@@ -3763,6 +3773,32 @@ app.post('/v1/developer/services/:serviceCode/status', requireOperatorDiscoveryA
   } catch (e: any) {
     if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_SERVICE_STATUS_INVALID', e.issues);
     const error = errorCodeFromException(e, 'DEVELOPER_SERVICE_STATUS_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/services/:serviceCode/billing-plan', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const serviceCode = String(req.params.serviceCode || '');
+    const payload = DeveloperServiceBillingPlanUpdateSchema.parse(req.body || {});
+    developerPortalStore.getService(serviceCode);
+    const assignment = await billingPlanStore.assignPlan(serviceCode, payload);
+    await developerPortalStore.recordOperationalEvent('developer.billing_plan.assigned', {
+      serviceCode: assignment.serviceCode,
+      environment: config.providerMode === 'live' ? 'live' : 'sandbox',
+      data: {
+        planCode: assignment.planCode,
+        status: assignment.status,
+        dailyCallLimit: assignment.dailyCallLimit,
+        monthlyCallLimit: assignment.monthlyCallLimit,
+        assignedBy: assignment.assignedBy,
+        reason: payload.reason,
+      },
+    });
+    return res.json({ success: true, data: assignment });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_SERVICE_BILLING_PLAN_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_SERVICE_BILLING_PLAN_FAILED');
     return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 });

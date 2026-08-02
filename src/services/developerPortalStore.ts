@@ -1244,6 +1244,20 @@ export class DeveloperPortalStore {
       : this.state.events;
   }
 
+  async recordOperationalEvent(
+    eventType: DeveloperPortalEvent['eventType'],
+    options: {
+      serviceCode?: string;
+      environment?: DeveloperPortalEvent['environment'];
+      data: Record<string, unknown>;
+    },
+  ) {
+    this.assertReady();
+    const event = this.addEvent(eventType, options);
+    await this.persist();
+    return event;
+  }
+
   private nextServiceCode(seed: string) {
     const base = slug(seed);
     let candidate = base;

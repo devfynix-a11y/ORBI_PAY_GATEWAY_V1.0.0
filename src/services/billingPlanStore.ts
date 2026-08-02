@@ -37,6 +37,15 @@ export type BillingPlanSummary = {
   }>;
 };
 
+export type BillingPlanAssignmentInput = {
+  planCode: BillingPlanCode;
+  assignedBy: string;
+  reason: string;
+  dailyCallLimit?: number;
+  monthlyCallLimit?: number;
+  status?: 'active' | 'suspended';
+};
+
 const PLAN_CATALOG: BillingPlanDefinition[] = [
   {
     planCode: 'sandbox_free',
@@ -119,6 +128,54 @@ export class BillingPlanStore {
 
   planCatalog() {
     return PLAN_CATALOG;
+  }
+
+  async assignPlan(serviceCode: string, input: BillingPlanAssignmentInput): Promise<BillingPlanAssignment> {
+    const normalized = String(serviceCode || '').trim();
+    if (!normalized) throw new Error('BILLING_PLAN_SERVICE_REQUIRED');
+    if (!String(input.reason || '').trim()) throw new Error('BILLING_PLAN_REASON_REQUIRED');
+    const plan = planByCode(input.planCode);
+    const now = new Date().toISOString();
+    const assignment: BillingPlanAssignment = {
+      serviceCode: normalized,
+      planCode: plan.planCode,
+      status: input.status || 'active',
+      dailyCallLimit: Math.max(1, Math.round(input.dailyCallLimit || plan.dailyCallLimit)),
+      monthlyCallLimit: Math.max(1, Math.round(input.monthlyCallLimit || plan.monthlyCallLimit)),
+      assignedBy: input.assignedBy,
+      assignedAt: now,
+      updatedAt: now,
+    };
+    await this.initialize();
+    if (!this.pool) {
+      this.memory.set(normalized, assignment);
+      return assignment;
+    }
+    await this.pool.query(
+      `insert into public.pay_gateway_service_billing_plans (
+         service_code, plan_code, status, daily_call_limit, monthly_call_limit,
+         assigned_by, assigned_at, updated_at
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8)
+       on conflict (service_code) do update set
+         plan_code = excluded.plan_code,
+         status = excluded.status,
+         daily_call_limit = excluded.daily_call_limit,
+         monthly_call_limit = excluded.monthly_call_limit,
+         assigned_by = excluded.assigned_by,
+         updated_at = excluded.updated_at
+       returning *`,
+      [
+        assignment.serviceCode,
+        assignment.planCode,
+        assignment.status,
+        assignment.dailyCallLimit,
+        assignment.monthlyCallLimit,
+        assignment.assignedBy || null,
+        assignment.assignedAt,
+        assignment.updatedAt,
+      ],
+    );
+    return assignment;
   }
 
   async listAssignments(serviceCodes: string[] = []): Promise<BillingPlanAssignment[]> {

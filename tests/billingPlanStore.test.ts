@@ -26,3 +26,19 @@ test('billing plan summary defaults services to sandbox free and watches limits'
   assert.equal(summary.overLimitServices[0].serviceCode, 'svc_demo');
   assert.equal(summary.overLimitServices[0].severity, 'warning');
 });
+
+test('billing plan assignment persists custom service limits in memory mode', async () => {
+  const store = new BillingPlanStore('');
+  const assignment = await store.assignPlan('svc_live', {
+    planCode: 'business',
+    assignedBy: 'operator@orbi.test',
+    reason: 'Approved live usage plan for production integration.',
+    dailyCallLimit: 250000,
+  });
+
+  assert.equal(assignment.planCode, 'business');
+  assert.equal(assignment.dailyCallLimit, 250000);
+  const summary = await store.summary({ services: [{ serviceCode: 'svc_live' }] });
+  assert.equal(summary.assignments[0].planCode, 'business');
+  assert.equal(summary.assignments[0].assignedBy, 'operator@orbi.test');
+});

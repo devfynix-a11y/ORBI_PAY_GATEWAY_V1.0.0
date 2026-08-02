@@ -275,6 +275,7 @@ export const DeveloperPortalEventSchema = z
       'developer.service.approved',
       'developer.service.status_updated',
       'developer.service.suspended',
+      'developer.billing_plan.assigned',
       'developer.scope_request.submitted',
       'developer.scope_request.approved',
       'developer.scope_request.rejected',
