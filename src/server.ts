@@ -3089,6 +3089,101 @@ const portalResult = (res: express.Response, result: any) => {
   return res.json({ success: true, data: result.data });
 };
 
+const buildPortalSecuritySummary = (input: {
+  events: Array<Record<string, any>>;
+  audit: Array<Record<string, any>>;
+  incidents: Array<Record<string, any>>;
+  webhookDeliveries: Array<Record<string, any>>;
+  messagingDeliveries: Array<Record<string, any>>;
+  services: Array<Record<string, any>>;
+  applications: Array<Record<string, any>>;
+  scopeRequests: Array<Record<string, any>>;
+  sdks: Array<Record<string, any>>;
+}) => {
+  const now = Date.now();
+  const within24h = (value: unknown) => {
+    const ts = Date.parse(String(value || ''));
+    return Number.isFinite(ts) && ts > now - 24 * 60 * 60 * 1000;
+  };
+  const auditActions = input.audit.map((event) => String(event.action || event.eventType || '').toLowerCase());
+  const portalEvents = input.events.map((event) => String(event.eventType || '').toLowerCase());
+  const allSignals = [...auditActions, ...portalEvents];
+  const countSignals = (patterns: RegExp[]) =>
+    allSignals.filter((signal) => patterns.some((pattern) => pattern.test(signal))).length;
+  const failedWebhooks = input.webhookDeliveries.filter((item) => String(item.status || '').toLowerCase() === 'failed');
+  const failedMessages = input.messagingDeliveries.filter((item) => String(item.status || '').toLowerCase() === 'failed');
+  const openIncidents = input.incidents.filter((item) => String(item.status || '').toLowerCase() !== 'resolved');
+  const criticalIncidents = openIncidents.filter((item) => String(item.severity || '').toLowerCase() === 'critical');
+  const activeServices = input.services.filter((service) => String(service.status || '').toLowerCase() === 'active');
+  const suspendedServices = input.services.filter((service) => ['suspended', 'revoked', 'failed'].includes(String(service.status || '').toLowerCase()));
+  const pendingAccess = [
+    ...input.applications.filter((app) => ['pending_review', 'draft'].includes(String(app.status || '').toLowerCase())),
+    ...input.scopeRequests.filter((request) => String(request.status || '').toLowerCase() === 'pending_review'),
+  ];
+  const apiCalls24h = [...input.events, ...input.audit].filter((event) =>
+    within24h(event.occurredAt || event.createdAt || event.updatedAt),
+  ).length;
+  const sdkReady = input.sdks.filter((sdk) => /live|available/i.test(String(sdk.status || sdk.badge || ''))).length;
+  const blockedRequests = countSignals([/denied/, /blocked/, /not_allowed/, /access_denied/, /suspended/]);
+  const signatureFailures = countSignals([/signature/, /nonce/, /hmac/]);
+  const idempotencyFailures = countSignals([/idempotency/]);
+  const originDenials = countSignals([/origin/, /redirect_url_denied/, /webhook_url_denied/]);
+  const rateLimitEvents = countSignals([/rate[_ .-]?limit/]);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    health: criticalIncidents.length
+      ? 'critical'
+      : openIncidents.length || failedWebhooks.length || failedMessages.length || suspendedServices.length
+        ? 'attention'
+        : 'healthy',
+    apiCalls24h,
+    blockedRequests,
+    signatureFailures,
+    idempotencyFailures,
+    originDenials,
+    rateLimitEvents,
+    failedWebhooks: failedWebhooks.length,
+    failedMessages: failedMessages.length,
+    openIncidents: openIncidents.length,
+    criticalIncidents: criticalIncidents.length,
+    activeServices: activeServices.length,
+    suspendedServices: suspendedServices.length,
+    pendingAccess: pendingAccess.length,
+    sdkReady,
+    controls: [
+      {
+        code: 'domain_control',
+        label: 'Domain control',
+        status: originDenials ? 'review' : 'ok',
+        detail: originDenials ? `${originDenials} origin or callback denials need review.` : 'Origin and callback controls are quiet.',
+      },
+      {
+        code: 'request_integrity',
+        label: 'Request integrity',
+        status: signatureFailures || idempotencyFailures ? 'review' : 'ok',
+        detail: signatureFailures || idempotencyFailures
+          ? `${signatureFailures + idempotencyFailures} signing/idempotency signals found.`
+          : 'Signing and idempotency controls are quiet.',
+      },
+      {
+        code: 'traffic_control',
+        label: 'Traffic control',
+        status: rateLimitEvents ? 'review' : 'ok',
+        detail: rateLimitEvents ? `${rateLimitEvents} rate-limit signals found.` : 'No rate-limit pressure detected.',
+      },
+      {
+        code: 'delivery_recovery',
+        label: 'Delivery recovery',
+        status: failedWebhooks.length || failedMessages.length ? 'review' : 'ok',
+        detail: failedWebhooks.length || failedMessages.length
+          ? `${failedWebhooks.length + failedMessages.length} failed deliveries need recovery.`
+          : 'No failed delivery is waiting.',
+      },
+    ],
+  };
+};
+
 app.post('/v1/portal/auth/login', requireOperatorDiscoveryAccess, async (req, res) => {
   try {
     const result = await portalAccessStore.login(req.body || {}, req);
@@ -3445,6 +3540,20 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
     : developerEnvironmentAllowed
       ? developerPortalStore.listScopeRequests(ownerFilter)
       : [];
+  const visibleSdks = developerSdkCatalog();
+  const securitySummary = operatorAllowed
+    ? buildPortalSecuritySummary({
+        events: visibleEvents,
+        audit: adminAudit.ok ? adminAudit.data : [],
+        incidents: visibleIncidents,
+        webhookDeliveries: visibleWebhookDeliveries,
+        messagingDeliveries: visibleMessagingDeliveries,
+        services: visibleServices,
+        applications: visibleApplications,
+        scopeRequests: visibleScopeRequests,
+        sdks: visibleSdks,
+      })
+    : undefined;
 
   return res.json({
     success: true,
@@ -3461,7 +3570,7 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
         webhookDeliveries: visibleWebhookDeliveries,
         messagingDeliveries: visibleMessagingDeliveries,
         docs: developerDocsCatalog(),
-        sdks: developerSdkCatalog(),
+        sdks: visibleSdks,
         consentScopes: (operatorAllowed || developerEnvironmentAllowed) ? consentScopeCatalog() : [],
         environmentProfiles: (operatorAllowed || developerEnvironmentAllowed)
           ? { profiles: developerEnvironmentProfiles(), separation: developerEnvironmentSeparationMatrix() }
@@ -3473,6 +3582,7 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
         portalUsers: adminUsers.ok ? adminUsers.data : [],
         portalTeamInvitations: adminInvitations.ok ? adminInvitations.data : [],
         portalAudit: adminAudit.ok ? adminAudit.data : [],
+        securitySummary,
       },
       errors,
     },
