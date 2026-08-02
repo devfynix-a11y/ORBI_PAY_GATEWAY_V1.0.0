@@ -1492,6 +1492,18 @@ export class DeveloperPortalStore {
       add column if not exists owner_email text;
       create index if not exists pay_gateway_developer_services_owner_idx
         on public.pay_gateway_developer_services (owner_email, created_at desc);
+
+      alter table if exists public.pay_gateway_developer_api_keys
+      drop constraint if exists pay_gateway_developer_api_keys_status_check;
+      alter table if exists public.pay_gateway_developer_api_keys
+      add constraint pay_gateway_developer_api_keys_status_check
+      check (status = any (array['active'::text, 'pending_cutover'::text, 'revoked'::text, 'expired'::text]));
+
+      alter table if exists public.pay_gateway_developer_webhook_secrets
+      drop constraint if exists pay_gateway_developer_webhook_secrets_status_check;
+      alter table if exists public.pay_gateway_developer_webhook_secrets
+      add constraint pay_gateway_developer_webhook_secrets_status_check
+      check (status = any (array['active'::text, 'pending_cutover'::text, 'revoked'::text, 'expired'::text]));
     `);
   }
 

@@ -112,6 +112,9 @@ npm run release:gate
 
 The gate checks SDKs, OpenAPI/docs catalog, gateway build, runtime controls,
 sandbox certification flow, and writes local evidence under `.release-gate/`.
+It discovers the current sandbox smoke script from the organized ORBI
+infrastructure tree. If the Core checkout is custom, pass `-CoreRepoPath` to the
+current Core backend root.
 
 ## Publish
 

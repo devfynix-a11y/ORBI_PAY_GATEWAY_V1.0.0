@@ -30,8 +30,57 @@ function Invoke-OrbiCommand([string]$Label, [string]$File, [string[]]$Arguments 
 }
 
 $gatewayRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$coreRoot = (Resolve-Path $CoreRepoPath).Path
 Set-Location $gatewayRoot
+
+function Resolve-OrbiCoreSmokeScript([string]$RequestedCoreRepoPath, [string]$GatewayRoot) {
+  $candidateRoots = @()
+  if ($RequestedCoreRepoPath) {
+    $candidateRoots += $RequestedCoreRepoPath
+  }
+  $candidateRoots += @(
+    "D:\FYNIX\ORBI\Orbi Infrastructures\ORBI CORE\Core Backend\ORBI-Insitutional-Core-V2.0.4-Preview Stable",
+    "D:\FYNIX\ORBI\Orbi Infrastructures\ORBI CORE\Core Backend",
+    "D:\FYNIX\ORBI\Orbi Infrastructures\ORBI CORE",
+    (Join-Path $GatewayRoot "..\..\ORBI CORE\Core Backend"),
+    (Join-Path $GatewayRoot "..\..\ORBI CORE")
+  )
+
+  foreach ($candidate in $candidateRoots) {
+    if (-not $candidate) {
+      continue
+    }
+    $resolvedCandidate = $null
+    try {
+      $resolvedCandidate = (Resolve-Path $candidate -ErrorAction Stop).Path
+    } catch {
+      continue
+    }
+
+    $directSmokeScript = Join-Path $resolvedCandidate "ops\self-hosted\scripts\test-sandbox-pay-gateway.ps1"
+    if (Test-Path -LiteralPath $directSmokeScript) {
+      return [ordered]@{
+        coreRoot = $resolvedCandidate
+        smokeScript = $directSmokeScript
+      }
+    }
+
+    $foundSmokeScript = Get-ChildItem -LiteralPath $resolvedCandidate -Recurse -Filter "test-sandbox-pay-gateway.ps1" -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+    if ($foundSmokeScript) {
+      $coreRoot = $foundSmokeScript.FullName -replace "\\ops\\self-hosted\\scripts\\test-sandbox-pay-gateway\.ps1$", ""
+      return [ordered]@{
+        coreRoot = $coreRoot
+        smokeScript = $foundSmokeScript.FullName
+      }
+    }
+  }
+
+  throw "Unable to locate test-sandbox-pay-gateway.ps1. Pass -CoreRepoPath to the current ORBI Core checkout or restore the sandbox smoke script."
+}
+
+$coreSmoke = Resolve-OrbiCoreSmokeScript -RequestedCoreRepoPath $CoreRepoPath -GatewayRoot $gatewayRoot
+$coreRoot = $coreSmoke.coreRoot
+$resolvedSandboxSmokeScript = $coreSmoke.smokeScript
 
 Assert-Command "npm"
 Assert-Command "docker"
@@ -64,18 +113,7 @@ if (-not $SkipBuild) {
   Invoke-OrbiCommand "Building Pay Gateway Docker image $GatewayImage" "docker" @("build", "-t", $GatewayImage, ".")
 }
 
-if (-not $SkipRuntimeSmoke) {
-  $previousSmokeBaseUrl = $env:PAYMENT_GATEWAY_SMOKE_BASE_URL
-  try {
-    $env:PAYMENT_GATEWAY_SMOKE_BASE_URL = $GatewayBaseUrl
-    Invoke-OrbiCommand "Running runtime controls smoke" "npm" @("run", "smoke:runtime-controls")
-  } finally {
-    $env:PAYMENT_GATEWAY_SMOKE_BASE_URL = $previousSmokeBaseUrl
-  }
-}
-
 if (-not $SkipSandboxGate) {
-  $smokeScript = Join-Path $coreRoot "ops\self-hosted\scripts\test-sandbox-pay-gateway.ps1"
   $smokeArgs = @(
     "-GatewayRepoPath", $gatewayRoot,
     "-GatewayBaseUrl", $GatewayBaseUrl,
@@ -90,10 +128,20 @@ if (-not $SkipSandboxGate) {
 
   $powershellArgs = @(
     "-ExecutionPolicy", "Bypass",
-    "-File", $smokeScript
+    "-File", $resolvedSandboxSmokeScript
   ) + $smokeArgs
 
   Invoke-OrbiCommand "Running Pay Gateway sandbox smoke gate" "powershell" $powershellArgs
+}
+
+if (-not $SkipRuntimeSmoke) {
+  $previousSmokeBaseUrl = $env:PAYMENT_GATEWAY_SMOKE_BASE_URL
+  try {
+    $env:PAYMENT_GATEWAY_SMOKE_BASE_URL = $GatewayBaseUrl
+    Invoke-OrbiCommand "Running runtime controls smoke" "npm" @("run", "smoke:runtime-controls")
+  } finally {
+    $env:PAYMENT_GATEWAY_SMOKE_BASE_URL = $previousSmokeBaseUrl
+  }
 }
 
 $commitSha = (& git rev-parse HEAD).Trim()
@@ -109,6 +157,8 @@ if (-not (Test-Path $evidenceDirectory)) {
   generatedAtUtc = [datetime]::UtcNow.ToString("o")
   gatewayImage = $GatewayImage
   coreRepoPath = $CoreRepoPath
+  resolvedCoreRepoPath = $coreRoot
+  sandboxSmokeScript = $resolvedSandboxSmokeScript
   gatewayBaseUrl = $GatewayBaseUrl
   sdkChecksSkipped = [bool]$SkipSdkChecks
   docsChecksSkipped = [bool]$SkipDocsChecks
