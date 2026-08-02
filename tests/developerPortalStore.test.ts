@@ -28,6 +28,34 @@ test('developer portal store persists service application lifecycle', async () =
   assert.equal(service.browserOrigins.includes('https://shop.orbifinancial.com'), true);
 });
 
+test('developer portal store rejects service application with audit reason', async () => {
+  const store = DeveloperPortalStore.inMemory();
+  const application = await store.submitApplication({
+    legalName: 'Unsafe Demo Merchant',
+    displayName: 'Unsafe Demo',
+    contactEmail: 'ops@unsafe.example',
+    businessType: 'merchant',
+    countryCode: 'TZ',
+    requestedEnvironments: ['live'],
+    requestedScopes: ['payments:create'],
+    browserOrigins: ['https://unsafe.example'],
+    redirectUrls: ['https://unsafe.example/return'],
+    webhookUrls: ['https://unsafe.example/webhooks/orbi'],
+    useCases: ['Live checkout'],
+    termsAccepted: true,
+  });
+
+  const rejected = await store.rejectApplication(application.applicationId, {
+    decidedBy: 'operator@orbifinancial.com',
+    reason: 'Business verification is incomplete.',
+  });
+
+  assert.equal(rejected.status, 'rejected');
+  assert.equal(rejected.decisionReason, 'Business verification is incomplete.');
+  assert.equal(store.listServices().length, 0);
+  assert.equal(store.listEvents().some((event) => event.eventType === 'developer.service_application.rejected'), true);
+});
+
 test('developer portal store grants sandbox scopes and provisions one-time credentials', async () => {
   const store = DeveloperPortalStore.inMemory();
   const application = await store.submitApplication({

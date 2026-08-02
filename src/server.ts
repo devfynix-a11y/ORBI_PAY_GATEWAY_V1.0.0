@@ -2944,6 +2944,7 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/services\/[^/]+\/scope-requests$/, permission: 'developer:manage_scopes' },
   { pattern: /^\/v1\/developer\/scope-requests\/[^/]+\/decision$/, permission: 'developer:manage_scopes', confirmation: true },
   { pattern: /^\/v1\/developer\/service-applications\/[^/]+\/approve$/, permission: 'developer:approve_applications', confirmation: true },
+  { pattern: /^\/v1\/developer\/service-applications\/[^/]+\/reject$/, permission: 'developer:approve_applications', confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/status$/, permission: 'developer:manage_services', confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/domain-verification$/, permission: 'developer:manage_services', confirmation: true },
   { pattern: /^\/v1\/developer\/sandbox-simulator\/reset$/, permission: 'developer:manage_sandbox', confirmation: true },
@@ -3417,6 +3418,11 @@ const DeveloperServiceApproveSchema = z.object({
   reason: z.string().trim().min(10).max(1000).optional(),
 });
 
+const DeveloperServiceRejectSchema = z.object({
+  decidedBy: z.string().trim().min(3).max(180).optional(),
+  reason: z.string().trim().min(10).max(1000),
+});
+
 const DeveloperDomainVerificationSchema = z.object({
   domains: z.array(z.string().trim().min(3).max(253)).min(1).max(25).optional(),
 });
@@ -3464,6 +3470,18 @@ app.post('/v1/developer/service-applications/:applicationId/approve', requireOpe
   } catch (e: any) {
     if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_SERVICE_APPROVAL_INVALID', e.issues);
     const error = errorCodeFromException(e, 'DEVELOPER_SERVICE_APPROVAL_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/service-applications/:applicationId/reject', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const payload = DeveloperServiceRejectSchema.parse(req.body || {});
+    const application = await developerPortalStore.rejectApplication(String(req.params.applicationId || ''), payload);
+    return res.json({ success: true, data: application });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_SERVICE_REJECTION_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_SERVICE_REJECTION_FAILED');
     return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 });

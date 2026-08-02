@@ -27,6 +27,9 @@ type DeveloperServiceApplication = z.infer<typeof DeveloperServiceApplicationSch
   ownerPortalUserId?: string;
   ownerEmail?: string;
   submittedAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
+  decisionReason?: string;
   updatedAt: string;
 };
 
@@ -475,6 +478,33 @@ export class DeveloperPortalStore {
     });
     await this.persist();
     return service;
+  }
+
+  async rejectApplication(applicationId: string, input: {
+    decidedBy?: string;
+    reason: string;
+  }) {
+    this.assertReady();
+    const application = this.state.applications.find((item) => item.applicationId === applicationId);
+    if (!application) throw new Error('DEVELOPER_APPLICATION_NOT_FOUND');
+    if (application.status !== 'pending_review') throw new Error('DEVELOPER_APPLICATION_ALREADY_DECIDED');
+    const now = new Date().toISOString();
+    application.status = 'rejected';
+    application.decidedAt = now;
+    application.decidedBy = input.decidedBy;
+    application.decisionReason = input.reason;
+    application.updatedAt = now;
+    this.addEvent('developer.service_application.rejected', {
+      serviceCode: application.serviceCode || application.applicationId,
+      environment: application.requestedEnvironments.includes('live') ? 'live' : application.requestedEnvironments[0],
+      data: {
+        applicationId,
+        decidedBy: input.decidedBy,
+        reason: input.reason,
+      },
+    });
+    await this.persist();
+    return application;
   }
 
   async provisionServiceCredentials(serviceCode: string, input: {
@@ -1286,6 +1316,9 @@ export class DeveloperPortalStore {
       ownerPortalUserId: row.owner_portal_user_id || undefined,
       ownerEmail: row.owner_email || undefined,
       submittedAt: iso(row.submitted_at) || new Date().toISOString(),
+      decidedAt: iso(row.decided_at),
+      decidedBy: row.decided_by || undefined,
+      decisionReason: row.decision_reason || undefined,
       updatedAt: iso(row.updated_at) || new Date().toISOString(),
     }));
 
@@ -1426,6 +1459,12 @@ export class DeveloperPortalStore {
         on public.pay_gateway_developer_service_applications (status, submitted_at desc);
       create index if not exists pay_gateway_developer_applications_owner_idx
         on public.pay_gateway_developer_service_applications (owner_email, submitted_at desc);
+      alter table if exists public.pay_gateway_developer_service_applications
+      add column if not exists decided_at timestamptz;
+      alter table if exists public.pay_gateway_developer_service_applications
+      add column if not exists decided_by text;
+      alter table if exists public.pay_gateway_developer_service_applications
+      add column if not exists decision_reason text;
 
       create table if not exists public.pay_gateway_developer_scope_requests (
         request_id text primary key,
@@ -1485,9 +1524,9 @@ export class DeveloperPortalStore {
           requested_environments, requested_scopes, browser_origins,
           redirect_urls, webhook_urls, use_cases, support_email,
           status, service_code, owner_portal_user_id, owner_email,
-          metadata, submitted_at, updated_at
+          decided_at, decided_by, decision_reason, metadata, submitted_at, updated_at
         ) values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25
         ) on conflict (application_id) do update set
           external_developer_id = excluded.external_developer_id,
           legal_name = excluded.legal_name,
@@ -1507,6 +1546,9 @@ export class DeveloperPortalStore {
           service_code = excluded.service_code,
           owner_portal_user_id = excluded.owner_portal_user_id,
           owner_email = excluded.owner_email,
+          decided_at = excluded.decided_at,
+          decided_by = excluded.decided_by,
+          decision_reason = excluded.decision_reason,
           metadata = excluded.metadata,
           updated_at = excluded.updated_at`,
         [
@@ -1529,6 +1571,9 @@ export class DeveloperPortalStore {
           application.serviceCode || null,
           application.ownerPortalUserId || null,
           application.ownerEmail || null,
+          application.decidedAt || null,
+          application.decidedBy || null,
+          application.decisionReason || null,
           application.metadata || {},
           application.submittedAt,
           application.updatedAt,

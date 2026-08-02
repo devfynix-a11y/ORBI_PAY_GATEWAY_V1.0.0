@@ -271,6 +271,7 @@ export const DeveloperPortalEventSchema = z
     eventId: z.string().trim().min(1),
     eventType: z.enum([
       'developer.service_application.submitted',
+      'developer.service_application.rejected',
       'developer.service.approved',
       'developer.service.status_updated',
       'developer.service.suspended',
