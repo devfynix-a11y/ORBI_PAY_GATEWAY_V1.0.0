@@ -103,6 +103,7 @@ import { messagingDeliveryStore } from './services/messagingDeliveryStore.js';
 import { orbiTalkClient } from './services/orbiTalkClient.js';
 import { portalRealtimeHub } from './services/portalRealtimeHub.js';
 import { portalAccessStore, type PortalRole } from './services/portalAccessStore.js';
+import { usageMeteringStore } from './services/usageMeteringStore.js';
 import { ServiceConsentGuard, subjectIdForConsent } from './services/serviceConsentGuard.js';
 import { scopeForPaymentIntent, scopeForPaymentOperation } from './services/serviceScopePolicy.js';
 import { buildDeveloperHealthSummary } from './services/developerHealthService.js';
@@ -1211,6 +1212,21 @@ app.use((req, res, next) => {
         userAgent: req.get('user-agent') || undefined,
       },
     });
+    void usageMeteringStore.record({
+      requestId: auditContext.requestId,
+      traceId: auditContext.traceId,
+      correlationId: auditContext.correlationId,
+      environment: config.providerMode === 'sandbox' ? 'sandbox' : 'live',
+      serviceCode: String(req.get('x-orbi-service-code') || req.get('x-orbi-client-id') || '').trim() || undefined,
+      actorRef: String(req.get('x-orbi-developer-id') || req.get('x-worker-id') || '').trim() || undefined,
+      method: req.method,
+      route: req.route?.path ? String(req.route.path) : req.path,
+      statusCode: res.statusCode,
+      durationMs,
+      origin: req.get('origin') || undefined,
+      userAgent: req.get('user-agent') || undefined,
+      occurredAt: new Date(auditContext.startedAtMs).toISOString(),
+    }).catch((error) => logger.warn('usage_metering_record_failed', { error: error instanceof Error ? error.message : String(error) }));
   });
 
   next();
@@ -3532,6 +3548,7 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
       ? developerPortalStore.listScopeRequests(ownerFilter)
       : [];
   const visibleSdks = developerSdkCatalog();
+  const usageMetering = operatorAllowed ? await usageMeteringStore.summary(24) : undefined;
   const securitySummary = operatorAllowed
     ? buildPortalSecuritySummary({
         events: visibleEvents,
@@ -3574,6 +3591,7 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
         portalTeamInvitations: adminInvitations.ok ? adminInvitations.data : [],
         portalAudit: adminAudit.ok ? adminAudit.data : [],
         securitySummary,
+        usageMetering,
       },
       errors,
     },
@@ -4590,6 +4608,7 @@ const start = async () => {
   await oauthAuthorizationStore.initialize();
   await pushedAuthorizationRequestStore.initialize();
   await refreshTokenStore.initialize();
+  await usageMeteringStore.initialize();
   developerPortalStore.onEvent((event) => developerMessagingDispatcher.handleDeveloperEvent(event));
   await serviceAccessTokenRevocationStore.initialize();
   await operatorIncidentStore.initialize();
