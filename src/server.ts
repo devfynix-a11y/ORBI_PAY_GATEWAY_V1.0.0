@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import fs from 'fs';
+import http from 'http';
 import path from 'path';
 import express from 'express';
 import { z } from 'zod';
@@ -97,6 +98,7 @@ import { developerPortalStore } from './services/developerPortalStore.js';
 import { developerMessagingDispatcher } from './services/developerMessagingDispatcher.js';
 import { messagingDeliveryStore } from './services/messagingDeliveryStore.js';
 import { orbiTalkClient } from './services/orbiTalkClient.js';
+import { portalRealtimeHub } from './services/portalRealtimeHub.js';
 import { portalAccessStore, type PortalRole } from './services/portalAccessStore.js';
 import { ServiceConsentGuard, subjectIdForConsent } from './services/serviceConsentGuard.js';
 import { scopeForPaymentIntent, scopeForPaymentOperation } from './services/serviceScopePolicy.js';
@@ -4059,6 +4061,7 @@ app.post('/v1/developer/messages', requireOperatorDiscoveryAccess, async (req, r
   } as const;
   const result = await orbiTalkClient.sendIntent(intent);
   const delivery = messagingDeliveryStore.record(intent, result);
+  portalRealtimeHub.broadcastMessageDelivery(delivery);
   void auditEventSink.emit({
     eventType: 'developer.message.sent',
     severity: result.status === 'failed' ? 'warning' : 'info',
@@ -4373,7 +4376,9 @@ const start = async () => {
   reconciliationEvidenceScheduler.start();
   operatorIncidentEscalationScheduler.start();
 
-  app.listen(config.port, () => {
+  const httpServer = http.createServer(app);
+  portalRealtimeHub.attach(httpServer);
+  httpServer.listen(config.port, () => {
     logger.info('payment_gateway_started', {
       port: config.port,
       publicBaseUrl: config.publicBaseUrl,
