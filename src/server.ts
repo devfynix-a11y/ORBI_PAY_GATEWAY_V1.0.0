@@ -104,6 +104,7 @@ import { orbiTalkClient } from './services/orbiTalkClient.js';
 import { portalRealtimeHub } from './services/portalRealtimeHub.js';
 import { portalAccessStore, type PortalRole } from './services/portalAccessStore.js';
 import { usageMeteringStore } from './services/usageMeteringStore.js';
+import { billingPlanStore } from './services/billingPlanStore.js';
 import { ServiceConsentGuard, subjectIdForConsent } from './services/serviceConsentGuard.js';
 import { scopeForPaymentIntent, scopeForPaymentOperation } from './services/serviceScopePolicy.js';
 import { buildDeveloperHealthSummary } from './services/developerHealthService.js';
@@ -3549,6 +3550,7 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
       : [];
   const visibleSdks = developerSdkCatalog();
   const usageMetering = operatorAllowed ? await usageMeteringStore.summary(24) : undefined;
+  const billingPlanSummary = operatorAllowed ? await billingPlanStore.summary({ services: visibleServices, usageMetering }) : undefined;
   const securitySummary = operatorAllowed
     ? buildPortalSecuritySummary({
         events: visibleEvents,
@@ -3592,6 +3594,7 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
         portalAudit: adminAudit.ok ? adminAudit.data : [],
         securitySummary,
         usageMetering,
+        billingPlanSummary,
       },
       errors,
     },
@@ -4609,6 +4612,7 @@ const start = async () => {
   await pushedAuthorizationRequestStore.initialize();
   await refreshTokenStore.initialize();
   await usageMeteringStore.initialize();
+  await billingPlanStore.initialize();
   developerPortalStore.onEvent((event) => developerMessagingDispatcher.handleDeveloperEvent(event));
   await serviceAccessTokenRevocationStore.initialize();
   await operatorIncidentStore.initialize();
