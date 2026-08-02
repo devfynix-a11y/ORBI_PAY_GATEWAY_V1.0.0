@@ -8,6 +8,7 @@ export type MessagingDeliveryRecord = {
   deliveryId: string;
   eventId: string;
   correlationId: string;
+  threadId?: string;
   serviceCode?: string;
   environment?: 'sandbox' | 'live';
   templateCode: string;
@@ -19,6 +20,8 @@ export type MessagingDeliveryRecord = {
   statusCode?: number;
   error?: string;
   attempt: number;
+  readBy?: string[];
+  readAtBy?: Record<string, string>;
   safeMetadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -49,10 +52,12 @@ export class MessagingDeliveryStore {
   }) {
     const now = new Date().toISOString();
     const previousAttempts = this.state.deliveries.filter((item) => item.eventId === intent.eventId).length;
+    const threadId = this.threadIdFor(intent);
     const record: MessagingDeliveryRecord = {
       deliveryId: `msgdel_${crypto.randomUUID()}`,
       eventId: intent.eventId,
       correlationId: intent.correlationId,
+      threadId,
       serviceCode: intent.serviceCode,
       environment: intent.environment,
       templateCode: intent.templateCode,
@@ -64,7 +69,12 @@ export class MessagingDeliveryStore {
       statusCode: result.statusCode,
       error: result.error,
       attempt: previousAttempts + 1,
-      safeMetadata: intent.safeMetadata,
+      readBy: [],
+      readAtBy: {},
+      safeMetadata: {
+        ...(intent.safeMetadata || {}),
+        threadId,
+      },
       createdAt: now,
       updatedAt: now,
     };
@@ -81,6 +91,50 @@ export class MessagingDeliveryStore {
       if (filters.environment && record.environment !== filters.environment) return false;
       return true;
     });
+  }
+
+  markRead(deliveryId: string, actorEmail: string) {
+    const actor = actorEmail.trim().toLowerCase();
+    if (!actor) throw new Error('MESSAGING_READ_ACTOR_REQUIRED');
+    const record = this.state.deliveries.find((item) => item.deliveryId === deliveryId);
+    if (!record) throw new Error('MESSAGING_DELIVERY_NOT_FOUND');
+    this.applyRead(record, actor);
+    this.persist();
+    return record;
+  }
+
+  markThreadRead(threadId: string, actorEmail: string) {
+    const actor = actorEmail.trim().toLowerCase();
+    if (!actor) throw new Error('MESSAGING_READ_ACTOR_REQUIRED');
+    const thread = threadId.trim();
+    if (!thread) throw new Error('MESSAGING_THREAD_REQUIRED');
+    const records = this.state.deliveries.filter((item) => item.threadId === thread || item.safeMetadata?.threadId === thread);
+    for (const record of records) this.applyRead(record, actor);
+    this.persist();
+    return records;
+  }
+
+  private applyRead(record: MessagingDeliveryRecord, actor: string) {
+    const now = new Date().toISOString();
+    const readBy = new Set((record.readBy || []).map((item) => item.toLowerCase()));
+    readBy.add(actor);
+    record.readBy = [...readBy];
+    record.readAtBy = {
+      ...(record.readAtBy || {}),
+      [actor]: now,
+    };
+    record.updatedAt = now;
+  }
+
+  private threadIdFor(intent: MessagingIntent) {
+    const metadataThreadId = typeof intent.safeMetadata?.threadId === 'string' ? intent.safeMetadata.threadId.trim() : '';
+    if (metadataThreadId) return metadataThreadId;
+    const stableKey = [
+      intent.serviceCode || 'general',
+      intent.safeMetadata?.sentBy || 'orbi',
+      intent.recipientIdentityRef,
+    ].map((part) => String(part).trim().toLowerCase()).join(':');
+    return `thread_${crypto.createHash('sha256').update(stableKey).digest('hex').slice(0, 24)}`;
   }
 
   private load(): MessagingDeliveryState {
@@ -102,4 +156,3 @@ export class MessagingDeliveryStore {
 }
 
 export const messagingDeliveryStore = new MessagingDeliveryStore();
-

@@ -2842,6 +2842,7 @@ const OperatorIncidentResolveSchema = z.object({
 const DeveloperDirectMessageSchema = z.object({
   recipientIdentityRef: z.string().trim().min(3).max(240),
   recipientName: z.string().trim().min(2).max(160).optional(),
+  threadId: z.string().trim().min(6).max(160).optional(),
   channel: z.enum(['email', 'sms', 'push', 'whatsapp', 'in_app']).default('email'),
   language: z.enum(['en', 'sw']).default('en'),
   subject: z.string().trim().min(3).max(160).optional(),
@@ -2959,7 +2960,11 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/webhook-deliveries$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/messaging-deliveries$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/messages$/, permission: 'developer:read_own', developerAllowed: true },
+  { pattern: /^\/v1\/developer\/messages\/[^/]+\/read$/, permission: 'developer:read_own', developerAllowed: true },
+  { pattern: /^\/v1\/developer\/message-threads\/[^/]+\/read$/, permission: 'developer:read_own', developerAllowed: true },
   { pattern: /^\/v1\/developer\/messages$/, permission: 'developer:manage_services' },
+  { pattern: /^\/v1\/developer\/messages\/[^/]+\/read$/, permission: 'developer:manage_services' },
+  { pattern: /^\/v1\/developer\/message-threads\/[^/]+\/read$/, permission: 'developer:manage_services' },
   { pattern: /^\/v1\/developer\/docs-catalog$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/sdk-catalog$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/consent-scopes$/, permission: 'developer:read_all', methods: ['GET'] },
@@ -4038,6 +4043,11 @@ app.post('/v1/developer/messages', requireOperatorDiscoveryAccess, async (req, r
   const tags = normalizeMessageTags(parsed.data.message, parsed.data.endpointTags);
   const eventId = `developer_message_${crypto.randomUUID()}`;
   const subject = parsed.data.subject || (developerToSupport ? 'Developer support message' : 'ORBI Developer Portal message');
+  const threadId = parsed.data.threadId || `thread_${crypto.createHash('sha256').update([
+    parsed.data.serviceCode || 'general',
+    developerToSupport ? actorEmail : recipientIdentityRef,
+    developerToSupport ? recipientIdentityRef : actorEmail,
+  ].map((part) => String(part).trim().toLowerCase()).join(':')).digest('hex').slice(0, 24)}`;
   const intent = {
     eventId,
     correlationId: req.auditContext?.correlationId || eventId,
@@ -4050,6 +4060,7 @@ app.post('/v1/developer/messages', requireOperatorDiscoveryAccess, async (req, r
     safeMetadata: {
       emailSubject: subject,
       emailBody: parsed.data.message,
+      threadId,
       messageType: developerToSupport ? 'developer_support_message' : 'operator_direct_message',
       recipientName: parsed.data.recipientName,
       serviceCode: parsed.data.serviceCode,
@@ -4088,6 +4099,42 @@ app.post('/v1/developer/messages', requireOperatorDiscoveryAccess, async (req, r
     data: delivery,
     error: result.status === 'failed' ? result.error || 'DEVELOPER_DIRECT_MESSAGE_FAILED' : undefined,
   });
+});
+
+app.post('/v1/developer/messages/:deliveryId/read', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const actor = req.body?.actor && typeof req.body.actor === 'object' ? req.body.actor as Record<string, unknown> : {};
+    const actorEmail = String(actor.email || req.body?.readBy || '').trim();
+    const record = messagingDeliveryStore.markRead(String(req.params.deliveryId || ''), actorEmail);
+    portalRealtimeHub.broadcastMessageRead({
+      threadId: record.threadId,
+      deliveryIds: [record.deliveryId],
+      readBy: actorEmail.toLowerCase(),
+      readAt: record.readAtBy?.[actorEmail.toLowerCase()] || new Date().toISOString(),
+    });
+    return res.json({ success: true, data: record });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'DEVELOPER_MESSAGE_READ_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error, 404), error);
+  }
+});
+
+app.post('/v1/developer/message-threads/:threadId/read', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const actor = req.body?.actor && typeof req.body.actor === 'object' ? req.body.actor as Record<string, unknown> : {};
+    const actorEmail = String(actor.email || req.body?.readBy || '').trim();
+    const records = messagingDeliveryStore.markThreadRead(String(req.params.threadId || ''), actorEmail);
+    portalRealtimeHub.broadcastMessageRead({
+      threadId: String(req.params.threadId || ''),
+      deliveryIds: records.map((record) => record.deliveryId),
+      readBy: actorEmail.toLowerCase(),
+      readAt: new Date().toISOString(),
+    });
+    return res.json({ success: true, data: records });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'DEVELOPER_MESSAGE_THREAD_READ_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error, 404), error);
+  }
 });
 
 app.post('/v1/developer/webhook-deliveries/:deliveryId/replay', requireOperatorDiscoveryAccess, async (req, res) => {

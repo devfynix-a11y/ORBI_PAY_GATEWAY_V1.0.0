@@ -81,6 +81,17 @@ export class PortalRealtimeHub {
       client.socket.send(message);
     }
   }
+
+  broadcastMessageRead(payload: { threadId?: string; deliveryIds: string[]; readBy: string; readAt: string }) {
+    const message = JSON.stringify({
+      type: 'portal.message.read',
+      payload,
+    });
+    for (const client of this.clients) {
+      if (client.socket.readyState !== client.socket.OPEN) continue;
+      client.socket.send(message);
+    }
+  }
 }
 
 export const portalRealtimeHub = new PortalRealtimeHub();

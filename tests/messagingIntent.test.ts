@@ -60,6 +60,32 @@ test('developer messaging dispatcher records delivery evidence without raw secre
   assert.match(String(delivery.safeMetadata?.emailSubject), /credential/i);
 });
 
+test('developer message delivery supports thread read state', () => {
+  const deliveryStore = MessagingDeliveryStore.inMemory();
+  const delivery = deliveryStore.record({
+    eventId: 'dev_msg_thread_001',
+    correlationId: 'dev_msg_thread_001',
+    templateCode: 'developer.direct.email',
+    recipientIdentityRef: 'developer@example.com',
+    language: 'en',
+    channel: 'email',
+    serviceCode: 'merchant-service',
+    environment: 'sandbox',
+    safeMetadata: {
+      threadId: 'thread_support_001',
+      sentBy: 'admin@orbi.example',
+      emailSubject: 'Webhook review',
+      emailBody: 'Please review webhook delivery failures.',
+    },
+  }, { status: 'delivered', providerMessageId: 'talk_msg_002', statusCode: 202 });
+
+  assert.equal(delivery.threadId, 'thread_support_001');
+  const readRecords = deliveryStore.markThreadRead('thread_support_001', 'developer@example.com');
+  assert.equal(readRecords.length, 1);
+  assert.deepEqual(readRecords[0].readBy, ['developer@example.com']);
+  assert.equal(Boolean(readRecords[0].readAtBy?.['developer@example.com']), true);
+});
+
 test('developer messaging dispatcher fails closed when environment is missing', async () => {
   const deliveryStore = MessagingDeliveryStore.inMemory();
   let sent = false;
