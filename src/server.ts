@@ -96,6 +96,7 @@ import { consentReceiptStore } from './services/consentReceiptStore.js';
 import { developerPortalStore } from './services/developerPortalStore.js';
 import { developerMessagingDispatcher } from './services/developerMessagingDispatcher.js';
 import { messagingDeliveryStore } from './services/messagingDeliveryStore.js';
+import { orbiTalkClient } from './services/orbiTalkClient.js';
 import { portalAccessStore, type PortalRole } from './services/portalAccessStore.js';
 import { ServiceConsentGuard, subjectIdForConsent } from './services/serviceConsentGuard.js';
 import { scopeForPaymentIntent, scopeForPaymentOperation } from './services/serviceScopePolicy.js';
@@ -2836,6 +2837,26 @@ const OperatorIncidentResolveSchema = z.object({
   resolution: z.string().min(3).max(2000),
 });
 
+const DeveloperDirectMessageSchema = z.object({
+  recipientIdentityRef: z.string().trim().min(3).max(240),
+  recipientName: z.string().trim().min(2).max(160).optional(),
+  channel: z.enum(['email', 'sms', 'push', 'whatsapp', 'in_app']).default('email'),
+  language: z.enum(['en', 'sw']).default('en'),
+  subject: z.string().trim().min(3).max(160).optional(),
+  message: z.string().trim().min(8).max(4000),
+  serviceCode: z.string().trim().min(2).max(80).optional(),
+  endpointTags: z.array(z.string().trim().min(2).max(120)).max(30).default([]),
+  reason: z.string().trim().min(10).max(1000),
+});
+
+const tagsFromMessage = (message: string) => {
+  const matches = message.match(/@[A-Za-z0-9_.:/-]{2,120}/g) || [];
+  return [...new Set(matches.map((tag) => tag.slice(1)))].slice(0, 30);
+};
+
+const normalizeMessageTags = (message: string, explicitTags: string[]) =>
+  [...new Set([...explicitTags, ...tagsFromMessage(message)].map((tag) => tag.trim()).filter(Boolean))].slice(0, 30);
+
 const emitOperatorIncidentAudit = (
   action: 'acknowledged' | 'assigned' | 'resolved',
   incident: OperatorIncident,
@@ -2935,6 +2956,8 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/events$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/webhook-deliveries$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/messaging-deliveries$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/messages$/, permission: 'developer:read_own', developerAllowed: true },
+  { pattern: /^\/v1\/developer\/messages$/, permission: 'developer:manage_services' },
   { pattern: /^\/v1\/developer\/docs-catalog$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/sdk-catalog$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/consent-scopes$/, permission: 'developer:read_all', methods: ['GET'] },
@@ -3321,7 +3344,17 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
     : developerEnvironmentAllowed
       ? visibleServices.flatMap((service) => webhookDeliveryStore.list({ serviceCode: service.serviceCode }))
       : [];
-  const visibleMessagingDeliveries = operatorAllowed ? messagingDeliveryStore.list({}) : [];
+  const visibleMessagingDeliveries = operatorAllowed
+    ? messagingDeliveryStore.list({})
+    : developerEnvironmentAllowed
+      ? messagingDeliveryStore.list({ environment }).filter((delivery) => {
+          const developerEmail = session.claims.email;
+          const sentBy = String(delivery.safeMetadata?.sentBy || '').toLowerCase();
+          const recipient = String(delivery.recipientIdentityRef || '').toLowerCase();
+          const serviceAllowed = delivery.serviceCode ? visibleServiceCodes.has(delivery.serviceCode) : false;
+          return recipient === developerEmail.toLowerCase() || sentBy === developerEmail.toLowerCase() || serviceAllowed;
+        })
+      : [];
   const visibleHealth = operatorAllowed
     ? await buildDeveloperHealthSummary()
     : developerEnvironmentAllowed
@@ -3987,6 +4020,70 @@ app.get('/v1/developer/messaging-deliveries', requireOperatorDiscoveryAccess, (r
   return res.json({
     success: true,
     data: messagingDeliveryStore.list({ serviceCode, eventId, status, environment }),
+  });
+});
+
+app.post('/v1/developer/messages', requireOperatorDiscoveryAccess, async (req, res) => {
+  const parsed = DeveloperDirectMessageSchema.safeParse(req.body || {});
+  if (!parsed.success) return sendValidationError(res, 'DEVELOPER_DIRECT_MESSAGE_INVALID', parsed.error.issues);
+  const environment = String(req.get('x-orbi-environment') || '').toLowerCase().includes('production') ? 'live' : 'sandbox';
+  const actor = req.body?.actor && typeof req.body.actor === 'object' ? req.body.actor as Record<string, unknown> : {};
+  const actorRole = String(actor.role || '').toLowerCase();
+  const actorEmail = String(actor.email || actor.name || 'orbi-operator');
+  const developerToSupport = actorRole === 'developer';
+  const recipientIdentityRef = developerToSupport ? config.portal.supportEmail : parsed.data.recipientIdentityRef;
+  if (developerToSupport && !config.portal.supportEmail) return sendApiError(res, 500, 'DEVELOPER_SUPPORT_EMAIL_NOT_CONFIGURED');
+  const tags = normalizeMessageTags(parsed.data.message, parsed.data.endpointTags);
+  const eventId = `developer_message_${crypto.randomUUID()}`;
+  const subject = parsed.data.subject || (developerToSupport ? 'Developer support message' : 'ORBI Developer Portal message');
+  const intent = {
+    eventId,
+    correlationId: req.auditContext?.correlationId || eventId,
+    templateCode: 'developer.direct.email',
+    recipientIdentityRef,
+    language: parsed.data.language,
+    channel: developerToSupport && parsed.data.channel !== 'email' ? 'email' : parsed.data.channel,
+    serviceCode: parsed.data.serviceCode,
+    environment,
+    safeMetadata: {
+      emailSubject: subject,
+      emailBody: parsed.data.message,
+      messageType: developerToSupport ? 'developer_support_message' : 'operator_direct_message',
+      recipientName: parsed.data.recipientName,
+      serviceCode: parsed.data.serviceCode,
+      endpointTags: tags,
+      sentBy: actorEmail,
+      sentByRole: actorRole || 'operator',
+      reason: parsed.data.reason,
+    },
+  } as const;
+  const result = await orbiTalkClient.sendIntent(intent);
+  const delivery = messagingDeliveryStore.record(intent, result);
+  void auditEventSink.emit({
+    eventType: 'developer.message.sent',
+    severity: result.status === 'failed' ? 'warning' : 'info',
+    outcome: result.status === 'failed' ? 'failure' : 'success',
+    actor: {
+      requestedBy: actorEmail,
+    },
+    resource: {
+      type: 'developer_message',
+      id: delivery.deliveryId,
+    },
+    metadata: {
+      channel: parsed.data.channel,
+      serviceCode: parsed.data.serviceCode,
+      endpointTags: tags,
+      recipientIdentityRef,
+      reason: parsed.data.reason,
+      deliveryStatus: result.status,
+      direction: developerToSupport ? 'developer_to_support' : 'staff_to_developer',
+    },
+  });
+  return res.status(result.status === 'failed' ? 502 : 202).json({
+    success: result.status !== 'failed',
+    data: delivery,
+    error: result.status === 'failed' ? result.error || 'DEVELOPER_DIRECT_MESSAGE_FAILED' : undefined,
   });
 });
 

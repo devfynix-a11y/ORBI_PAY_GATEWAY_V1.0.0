@@ -43,6 +43,7 @@ export const config = {
     mfaLockoutSeconds: Number(process.env.PAYMENT_GATEWAY_PORTAL_MFA_LOCKOUT_SECONDS || 900),
     emailVerificationTtlSeconds: Number(process.env.PAYMENT_GATEWAY_PORTAL_EMAIL_VERIFICATION_TTL_SECONDS || 900),
     emailVerificationResendSeconds: Number(process.env.PAYMENT_GATEWAY_PORTAL_EMAIL_VERIFICATION_RESEND_SECONDS || 60),
+    supportEmail: process.env.PAYMENT_GATEWAY_PORTAL_SUPPORT_EMAIL || 'orbi.developers@gmail.com',
     totpIssuer: process.env.PAYMENT_GATEWAY_PORTAL_TOTP_ISSUER || 'ORBI Pay Developer Portal',
     operatorMfaRequired: boolFromEnv(process.env.PAYMENT_GATEWAY_PORTAL_OPERATOR_MFA_REQUIRED, true),
     bootstrapAdmin: {

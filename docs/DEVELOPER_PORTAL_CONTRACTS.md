@@ -1078,6 +1078,30 @@ Messaging delivery evidence:
 ```http
 GET /v1/developer/messaging-deliveries
 GET /v1/developer/messaging-deliveries?serviceCode=orbi-shop&status=failed
+
+POST /v1/developer/messages
+
+Staff/admin use this endpoint to send a direct operational message to a developer.
+Developers use the same endpoint from the portal to contact ORBI IT/Admin support.
+Messages are sent as direct subject/body payloads through the approved messaging
+rail and are recorded as delivery evidence.
+
+```json
+{
+  "recipientIdentityRef": "developer@example.com",
+  "channel": "email",
+  "language": "en",
+  "subject": "Webhook delivery needs review",
+  "message": "Please review @orbi-shop failures on @/v1/payment-intents.",
+  "serviceCode": "orbi-shop",
+  "endpointTags": ["/v1/payment-intents"],
+  "reason": "Notify developer about repeated webhook delivery failures."
+}
+```
+
+`@tags` may reference an integration code or endpoint. They are stored as safe
+message context and help operators/developers understand which service needs
+attention.
 ```
 
 Response:
