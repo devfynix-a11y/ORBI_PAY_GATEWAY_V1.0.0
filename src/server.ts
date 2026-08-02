@@ -3202,6 +3202,14 @@ app.post('/v1/portal/auth/email/resend', requireOperatorDiscoveryAccess, async (
   return portalResult(res, await portalAccessStore.resendDeveloperEmailVerification(req, req.body || {}));
 });
 
+app.post('/v1/portal/auth/password-reset/request', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.requestPasswordReset(req, req.body || {}));
+});
+
+app.post('/v1/portal/auth/password-reset/complete', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.completePasswordReset(req, req.body || {}));
+});
+
 app.get('/v1/portal/auth/session', requireOperatorDiscoveryAccess, (req, res) => {
   const session = portalAccessStore.requireSession(req, 'developer');
   if (!session.ok) return res.status(session.status).json({ success: false, error: session.error });

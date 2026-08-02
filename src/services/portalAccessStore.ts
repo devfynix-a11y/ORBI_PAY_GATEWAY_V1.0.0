@@ -171,6 +171,9 @@ const hashPassword = (password: string, salt: string, iterations: number): strin
 const hashInviteToken = (token: string): string =>
   crypto.createHash('sha256').update(`portal-team-invite:${token}`).digest('base64url');
 
+const hashPasswordResetToken = (token: string): string =>
+  crypto.createHash('sha256').update(`portal-password-reset:${token}`).digest('base64url');
+
 const base64UrlJson = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString('base64url');
 
 const base32Decode = (value: string): Buffer => {
@@ -993,6 +996,140 @@ export class PortalAccessStore {
     };
   }
 
+  async requestPasswordReset(req: express.Request, input: Record<string, unknown>) {
+    const email = normalizeEmail(input.email);
+    if (!isValidEmail(email)) {
+      return { ok: false as const, status: 400, error: 'Enter a valid email address.' };
+    }
+    const accepted = { ok: true as const, data: { accepted: true, nextStep: 'If the account exists, password reset instructions will be sent.' } };
+    const account = await this.findAccount(email);
+    if (!account?.userId || !account.emailVerifiedAt) return accepted;
+
+    const recent = await this.db().query(
+      `select reset_id
+       from public.pay_gateway_portal_password_resets
+       where user_id = $1 and created_at > now() - interval '90 seconds'
+       limit 1`,
+      [account.userId],
+    );
+    if (recent.rows[0]) return accepted;
+
+    const token = `orbi_reset_${crypto.randomBytes(32).toString('base64url')}`;
+    const resetUrlTemplate = String(input.resetUrl || '').trim();
+    const resetUrl = resetUrlTemplate.includes('{token}')
+      ? resetUrlTemplate.replace('{token}', encodeURIComponent(token))
+      : resetUrlTemplate;
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    await this.withClient(async (client) => {
+      await client.query('begin');
+      try {
+        await client.query(
+          `update public.pay_gateway_portal_password_resets
+           set consumed_at = now()
+           where user_id = $1 and consumed_at is null`,
+          [account.userId],
+        );
+        await client.query(
+          `insert into public.pay_gateway_portal_password_resets (
+             reset_id, user_id, token_hash, expires_at
+           ) values ($1,$2,$3,$4)`,
+          [`portal_password_reset_${crypto.randomUUID()}`, account.userId, hashPasswordResetToken(token), expiresAt],
+        );
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      }
+    });
+
+    const eventId = `portal_password_reset_${crypto.randomUUID()}`;
+    const delivery = await orbiTalkClient.sendIntent({
+      eventId,
+      correlationId: eventId,
+      templateCode: 'developer.direct.email',
+      recipientIdentityRef: account.email,
+      channel: 'email',
+      language: 'en',
+      environment: String(req.headers['x-orbi-environment'] || '').toLowerCase().includes('production') ? 'live' : 'sandbox',
+      safeMetadata: {
+        emailSubject: 'Reset your ORBI Developer Portal password',
+        emailBody: `Use this secure link to reset your ORBI Developer Portal password: ${resetUrl}. This link expires in 30 minutes. If you did not request this, ignore the message and contact ORBI support if you notice suspicious activity.`,
+        resetUrl,
+        expiresMinutes: 30,
+      },
+    });
+    await this.writeAuditEvent(req, {
+      action: 'portal.auth.password_reset_requested',
+      target: account.email,
+      metadata: { deliveryStatus: delivery.status, providerMessageId: delivery.providerMessageId },
+    });
+    return accepted;
+  }
+
+  async completePasswordReset(req: express.Request, input: Record<string, unknown>) {
+    const token = String(input.token || '').trim();
+    const password = String(input.password || '').trim();
+    if (!token.startsWith('orbi_reset_')) return { ok: false as const, status: 400, error: 'Password reset link is invalid.' };
+    if (password.length < 12) return { ok: false as const, status: 400, error: 'Password must contain at least 12 characters.' };
+
+    const result = await this.db().query(
+      `select r.*, u.*
+       from public.pay_gateway_portal_password_resets r
+       join public.pay_gateway_portal_users u on u.user_id = r.user_id
+       where r.token_hash = $1 and r.consumed_at is null and r.expires_at > now() and u.enabled = true
+       limit 1`,
+      [hashPasswordResetToken(token)],
+    );
+    const row = result.rows[0];
+    if (!row) return { ok: false as const, status: 400, error: 'Password reset link is invalid or expired.' };
+    const account = this.accountFromRow(row);
+    const salt = crypto.randomBytes(16).toString('base64url');
+    const iterations = 210000;
+    await this.withClient(async (client) => {
+      await client.query('begin');
+      try {
+        await client.query(
+          `update public.pay_gateway_portal_users
+           set password_salt = $2,
+               password_hash = $3,
+               password_iterations = $4,
+               mfa_failed_attempts = 0,
+               mfa_locked_until = null,
+               updated_at = now()
+           where user_id = $1`,
+          [account.userId, salt, hashPassword(password, salt, iterations), iterations],
+        );
+        await client.query(
+          `update public.pay_gateway_portal_password_resets
+           set consumed_at = now(), attempts = attempts + 1
+           where reset_id = $1`,
+          [row.reset_id],
+        );
+        const sessions = await client.query(
+          `update public.pay_gateway_portal_sessions
+           set revoked_at = now(), revoke_reason = 'password_reset'
+           where user_id = $1 and revoked_at is null
+           returning session_id`,
+          [account.userId],
+        );
+        for (const session of sessions.rows) this.activeSessions.delete(String(session.session_id));
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      }
+    });
+    await this.writeAuditEvent(req, {
+      action: 'portal.auth.password_reset_completed',
+      target: account.email,
+      metadata: { userId: account.userId, sessionsRevoked: true },
+    });
+    await this.sendPortalSecurityEmail(account, 'portal.auth.password_reset_completed', {
+      reason: 'Your Developer Portal password was changed and existing sessions were signed out.',
+    }, req);
+    return { ok: true as const, data: { reset: true, sessionsRevoked: true, nextStep: 'Sign in with your new password.' } };
+  }
+
   async updateUser(req: express.Request, userId: string, input: Record<string, unknown>) {
     const session = this.requirePermission(req, 'portal:manage_users', 'admin');
     if (!session.ok) return session;
@@ -1631,6 +1768,15 @@ export class PortalAccessStore {
           consumed_at timestamptz,
           created_at timestamptz not null default now()
         );
+        create table if not exists public.pay_gateway_portal_password_resets (
+          reset_id text primary key,
+          user_id text not null references public.pay_gateway_portal_users(user_id) on delete cascade,
+          token_hash text not null unique,
+          attempts integer not null default 0,
+          expires_at timestamptz not null,
+          consumed_at timestamptz,
+          created_at timestamptz not null default now()
+        );
         create table if not exists public.pay_gateway_portal_team_invitations (
           invitation_id text primary key,
           email text not null,
@@ -1651,6 +1797,9 @@ export class PortalAccessStore {
         );
         create index if not exists pay_gateway_portal_email_verification_active_idx
           on public.pay_gateway_portal_email_verifications (user_id, created_at desc)
+          where consumed_at is null;
+        create index if not exists pay_gateway_portal_password_resets_active_idx
+          on public.pay_gateway_portal_password_resets (user_id, created_at desc)
           where consumed_at is null;
         create index if not exists pay_gateway_portal_recovery_codes_unused_idx
           on public.pay_gateway_portal_recovery_codes (user_id)
