@@ -7,6 +7,8 @@ param(
   [switch]$InstallDependencies,
   [switch]$SkipBuild,
   [switch]$SkipSdkChecks,
+  [switch]$SkipDocsChecks,
+  [switch]$SkipRuntimeSmoke,
   [switch]$SkipSandboxGate,
   [switch]$SkipNegativeTests
 )
@@ -41,12 +43,35 @@ if ($InstallDependencies) {
 }
 
 if (-not $SkipSdkChecks) {
+  Invoke-OrbiCommand "Checking SDK release metadata" "npm" @("run", "sdk:metadata:check")
   Invoke-OrbiCommand "Checking Node SDK" "npm" @("run", "sdk:node:check")
+  Invoke-OrbiCommand "Checking Python SDK" "npm" @("run", "sdk:python:check")
+  if (Get-Command php -ErrorAction SilentlyContinue) {
+    Invoke-OrbiCommand "Checking PHP SDK" "npm" @("run", "sdk:php:check")
+  } else {
+    Write-Warning "PHP was not found in PATH. PHP SDK syntax check skipped by runtime availability."
+  }
+  Invoke-OrbiCommand "Dry-run Node SDK package" "npm" @("run", "sdk:node:pack")
+}
+
+if (-not $SkipDocsChecks) {
+  Invoke-OrbiCommand "Checking OpenAPI contract" "npm" @("run", "openapi:check")
+  Invoke-OrbiCommand "Checking developer docs and SDK catalog" "tsx" @("--test", "--test-force-exit", "tests/developerResourceCatalog.test.ts")
 }
 
 if (-not $SkipBuild) {
   Invoke-OrbiCommand "Building Pay Gateway" "npm" @("run", "build")
   Invoke-OrbiCommand "Building Pay Gateway Docker image $GatewayImage" "docker" @("build", "-t", $GatewayImage, ".")
+}
+
+if (-not $SkipRuntimeSmoke) {
+  $previousSmokeBaseUrl = $env:PAYMENT_GATEWAY_SMOKE_BASE_URL
+  try {
+    $env:PAYMENT_GATEWAY_SMOKE_BASE_URL = $GatewayBaseUrl
+    Invoke-OrbiCommand "Running runtime controls smoke" "npm" @("run", "smoke:runtime-controls")
+  } finally {
+    $env:PAYMENT_GATEWAY_SMOKE_BASE_URL = $previousSmokeBaseUrl
+  }
 }
 
 if (-not $SkipSandboxGate) {
@@ -86,8 +111,17 @@ if (-not (Test-Path $evidenceDirectory)) {
   coreRepoPath = $CoreRepoPath
   gatewayBaseUrl = $GatewayBaseUrl
   sdkChecksSkipped = [bool]$SkipSdkChecks
+  docsChecksSkipped = [bool]$SkipDocsChecks
+  runtimeSmokeSkipped = [bool]$SkipRuntimeSmoke
   sandboxGateSkipped = [bool]$SkipSandboxGate
   negativeTestsSkipped = [bool]$SkipNegativeTests
+  releaseChecks = [ordered]@{
+    sdkReleaseSync = -not [bool]$SkipSdkChecks
+    developerDocsAndOpenApi = -not [bool]$SkipDocsChecks
+    runtimeControlsSmoke = -not [bool]$SkipRuntimeSmoke
+    sandboxCertification = -not [bool]$SkipSandboxGate
+    operatorEvidenceWritten = $true
+  }
 } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $evidenceFullPath -Encoding ASCII
 
 Write-Output "Release gate evidence written to $evidenceFullPath"

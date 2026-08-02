@@ -202,15 +202,13 @@ CORS, and unsigned internal ingress rejection.
 ## Release Gate
 
 Every Pay Gateway release candidate must pass the local sandbox release gate
-before the live container is restarted. The gate builds the Node SDK, runs SDK
-tests, builds the gateway service and Docker image, starts the isolated sandbox
-Core and Pay Gateway containers, rotates sandbox fixture secrets, creates and
-approves a sandbox PaySafe payment through the public SDK contract, verifies
-webhook delivery and replay, and runs negative checks for auth, redirect, and
-idempotency behavior.
+before the live container is restarted. The gate checks official SDKs, OpenAPI,
+developer docs catalog, gateway build, runtime browser/internal protections,
+sandbox certification flow, webhook delivery/replay, and negative checks for
+auth, redirect, and idempotency behavior.
 
 ```powershell
-.\scripts\release-gate.ps1
+npm run release:gate
 ```
 
 The gate depends on the Core repository because the sandbox Core and fixture
@@ -227,6 +225,16 @@ do not commit it or copy sandbox secrets into Git.
 
 Use `-SkipSandboxGate` only for an explicitly documented incident diagnostic.
 It is not a valid production release path.
+
+Quick checks for an already-running sandbox host:
+
+```powershell
+npm run release:gate -- -SkipBuild -SkipSandboxGate
+```
+
+This still checks SDKs, OpenAPI/docs, and runtime controls against the configured
+Gateway base URL. Use it for fast verification, not as a replacement for the full
+sandbox certification gate.
 
 ## Browser Origin Policy
 

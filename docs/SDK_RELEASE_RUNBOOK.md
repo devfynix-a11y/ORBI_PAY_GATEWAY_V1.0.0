@@ -91,16 +91,27 @@ Get-ChildItem src -Filter *.php | ForEach-Object { php -l $_.FullName }
 ## Preflight
 
 ```powershell
-npm run sdk:node:check
-npm run sdk:python:check
+npm run sdk:check
 npm run sdk:node:pack
+npm run openapi:check
 ```
 
-If PHP is installed locally:
+`npm run sdk:check` verifies:
+
+- SDK package names and versions are aligned.
+- Node SDK builds and tests.
+- Python SDK tests.
+- PHP Composer metadata and PHP syntax when PHP is installed.
+- Developer docs mention Node, Python, and PHP installation commands.
+
+Full release gate:
 
 ```powershell
-Get-ChildItem sdk/php/src -Filter *.php | ForEach-Object { php -l $_.FullName }
+npm run release:gate
 ```
+
+The gate checks SDKs, OpenAPI/docs catalog, gateway build, runtime controls,
+sandbox certification flow, and writes local evidence under `.release-gate/`.
 
 ## Publish
 
@@ -134,6 +145,20 @@ npm run sdk:publish -- -PythonOnly
 4. Tag the release in Git.
 5. Update Developer Portal SDK catalog with the published versions.
 6. Update [SDK Changelog](./SDK_CHANGELOG.md) with developer-facing changes.
+
+## Operator Release Checklist
+
+Before a live release, the operator must confirm:
+
+- `npm run release:gate` passed or the skipped gate is documented as an
+  emergency diagnostic.
+- `.release-gate/pay-gateway-release-gate.json` contains the expected commit SHA.
+- Developer Portal shows healthy Security Command controls or every warning has
+  an assigned owner.
+- SDK package versions match the Developer Portal SDK catalog.
+- Webhook replay and idempotency examples are still SDK-first.
+- No registry token, API key, webhook secret, OAuth secret, or service credential
+  was printed into docs, logs, screenshots, or Git.
 
 Never publish SDKs from a machine where production service keys are printed in
 terminal history. Registry tokens must be rotated if accidentally exposed.
