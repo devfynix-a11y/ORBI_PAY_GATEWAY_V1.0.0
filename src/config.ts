@@ -82,6 +82,8 @@ export const config = {
       Number(process.env.PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_TTL_SECONDS || 900),
     oauthIssuerUrl:
       process.env.PAYMENT_GATEWAY_OAUTH_ISSUER_URL || process.env.PAYMENT_GATEWAY_PUBLIC_BASE_URL || 'https://pay.orbifinancial.com',
+    oauthJwksUrl:
+      process.env.PAYMENT_GATEWAY_OAUTH_JWKS_URL || '',
     oidcIdentityIssuer:
       process.env.PAYMENT_GATEWAY_OIDC_IDENTITY_ISSUER || '',
     oidcIdentityAudience:

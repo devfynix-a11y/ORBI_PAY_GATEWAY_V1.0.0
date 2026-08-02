@@ -155,6 +155,7 @@ This reference is for maintainability only. It intentionally does not store secr
 | `PAYMENT_GATEWAY_SERVICE_ACCESS_TOKEN_TTL_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Service access token lifetime in seconds. Default `900`, clamped between 60 and 3600. |
 | `PAYMENT_GATEWAY_OAUTH_PAR_TTL_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Short lifetime in seconds for OAuth pushed authorization request `request_uri` records. Default `90`. |
 | `PAYMENT_GATEWAY_OAUTH_ISSUER_URL` | Runtime | Non-secret | No | Payment gateway only | Optional OAuth metadata issuer URL. Defaults to `PAYMENT_GATEWAY_PUBLIC_BASE_URL`. |
+| `PAYMENT_GATEWAY_OAUTH_JWKS_URL` | Runtime | Non-secret | No | Payment gateway only | Optional OAuth metadata JWKS URL. Configure only when asymmetric JWT access-token signing is enabled. Opaque service tokens use introspection and revocation instead. |
 | `PAYMENT_GATEWAY_PORTAL_OPERATOR_MFA_REQUIRED` | Runtime | Non-secret | No | Payment gateway only | Requires MFA-verified portal sessions for operator/admin accounts and sensitive control-plane actions. Default `true`. |
 | `PAYMENT_GATEWAY_PORTAL_EMAIL_VERIFICATION_TTL_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Lifetime of a developer email verification code. Default `900` seconds. |
 | `PAYMENT_GATEWAY_PORTAL_EMAIL_VERIFICATION_RESEND_SECONDS` | Runtime | Non-secret | No | Payment gateway only | Minimum server-side interval between verification-code sends. Default `60` seconds. |

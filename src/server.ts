@@ -37,6 +37,7 @@ import {
   PRIVATE_KEY_JWT_ASSERTION_TYPE,
   verifyOAuthPrivateKeyJwt,
 } from './security/oauthClientAssertion.js';
+import { buildOAuthAuthorizationServerMetadata } from './security/oauthAuthorizationServerMetadata.js';
 import {
   expectedDpopHtuForRequest,
   verifyDpopProof,
@@ -669,29 +670,11 @@ const tokenRequestClientSecret = (req: express.Request, body: { client_secret?: 
 const gatewayIssuerUrl = () => String(config.security.oauthIssuerUrl || config.publicBaseUrl).replace(/\/+$/, '');
 
 const oauthAuthorizationServerMetadata = () => {
-  const issuer = gatewayIssuerUrl();
-  return {
-    issuer,
-    authorization_endpoint: `${issuer}/oauth/authorize`,
-    pushed_authorization_request_endpoint: `${issuer}/oauth/par`,
-    token_endpoint: `${issuer}/oauth/token`,
-    introspection_endpoint: `${issuer}/oauth/introspect`,
-    revocation_endpoint: `${issuer}/oauth/revoke`,
-    service_documentation: `${issuer}/docs`,
-    grant_types_supported: ['authorization_code', 'refresh_token', 'client_credentials', TOKEN_EXCHANGE_GRANT_TYPE],
-    subject_token_types_supported: [ACCESS_TOKEN_TYPE],
-    requested_token_types_supported: [ACCESS_TOKEN_TYPE],
-    audiences_supported: [config.security.financialTokenAudience],
-    token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post', 'private_key_jwt'],
-    revocation_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post', 'private_key_jwt'],
-    introspection_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post', 'private_key_jwt'],
-    scopes_supported: DeveloperScopeSchema.options,
-    response_types_supported: ['code'],
-    code_challenge_methods_supported: ['S256'],
-    require_pushed_authorization_requests: false,
-    token_endpoint_auth_signing_alg_values_supported: ['RS256', 'PS256', 'ES256'],
-    dpop_signing_alg_values_supported: ['ES256', 'RS256', 'PS256'],
-  };
+  return buildOAuthAuthorizationServerMetadata({
+    issuer: gatewayIssuerUrl(),
+    jwksUri: config.security.oauthJwksUrl,
+    financialTokenAudience: config.security.financialTokenAudience,
+  });
 };
 
 const requestedOAuthScopes = (scope: z.infer<typeof OAuthTokenRequestSchema>['scope']): string[] => {
