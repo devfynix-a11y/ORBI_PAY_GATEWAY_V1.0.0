@@ -47,6 +47,7 @@ import {
   isInternalGatewayPath,
   isOriginAllowed,
   parseOriginAllowlist,
+  securityHeadersForRequest,
   type RequestAuditContext,
 } from './security/runtimeControls.js';
 import {
@@ -1117,6 +1118,16 @@ const sanitizePaymentIntent = (intent: PaymentIntent) => {
 const app = express();
 
 const allowedBrowserOrigins = parseOriginAllowlist(config.security.allowedBrowserOrigins, [config.publicBaseUrl]);
+
+app.use((req, res, next) => {
+  const securityHeaders = securityHeadersForRequest({
+    path: req.path,
+    env: config.env,
+    secure: req.secure || req.get('x-forwarded-proto') === 'https',
+  });
+  for (const [name, value] of Object.entries(securityHeaders)) res.setHeader(name, value);
+  return next();
+});
 
 app.use((req, res, next) => {
   const auditContext = createRequestAuditContext(req);

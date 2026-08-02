@@ -68,6 +68,30 @@ Adapters must reject:
 - amount/currency mismatches when provider payload contains expected values
 - callbacks for unknown references
 
+## Browser And Response Hardening
+
+Gateway responses apply a common security header policy before route handling:
+
+- `x-content-type-options: nosniff`
+- `x-frame-options: DENY`
+- `referrer-policy: no-referrer`
+- restrictive `permissions-policy`
+- `cache-control: no-store` on OAuth, Developer Portal, payment, PaySafe,
+  payment profile, and transfer routes
+- HSTS on production HTTPS traffic
+
+The global browser origin allowlist is only for ORBI-owned browser surfaces.
+Merchant or developer domains are approved through Developer Portal domain and
+callback allowlists, then enforced per service at runtime.
+
+## Request Audit Correlation
+
+Every non-health request receives a request ID, trace ID, and correlation ID.
+The same IDs are returned in response headers and emitted into gateway audit
+events. Developers should send their own stable request or correlation ID from
+server-side integrations so failed payments, webhook retries, and support cases
+can be traced without exposing customer secrets.
+
 ## Tokenized Provider Credentials
 
 Provider credentials are represented by token references such as:

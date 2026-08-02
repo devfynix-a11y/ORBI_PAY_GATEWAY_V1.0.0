@@ -7,6 +7,12 @@ export type RequestAuditContext = {
   startedAtMs: number;
 };
 
+export type SecurityHeaderInput = {
+  path: string;
+  env?: string;
+  secure?: boolean;
+};
+
 export const parseOriginAllowlist = (value: string | undefined, defaults: string[] = []): string[] => {
   const configured = String(value || '')
     .split(',')
@@ -102,4 +108,34 @@ export const createRequestAuditContext = (req: HeaderGetter): RequestAuditContex
     correlationId: requestHeader(req, 'x-correlation-id') || requestId,
     startedAtMs: Date.now(),
   };
+};
+
+const sensitiveRuntimePath = (path: string): boolean =>
+  /^\/(?:oauth|v1\/developer|v1\/portal|v1\/payment-intents|v1\/paysafe|v1\/payment-profiles|v1\/transfers)(?:\/|$)/i.test(path);
+
+export const securityHeadersForRequest = (input: SecurityHeaderInput): Record<string, string> => {
+  const headers: Record<string, string> = {
+    'x-content-type-options': 'nosniff',
+    'x-frame-options': 'DENY',
+    'referrer-policy': 'no-referrer',
+    'cross-origin-resource-policy': 'same-site',
+    'permissions-policy': [
+      'camera=()',
+      'microphone=()',
+      'geolocation=()',
+      'payment=()',
+      'usb=()',
+    ].join(', '),
+  };
+
+  if (sensitiveRuntimePath(input.path)) {
+    headers['cache-control'] = 'no-store, max-age=0';
+    headers.pragma = 'no-cache';
+  }
+
+  if (input.env === 'production' && input.secure) {
+    headers['strict-transport-security'] = 'max-age=31536000; includeSubDomains';
+  }
+
+  return headers;
 };

@@ -8,6 +8,7 @@ import {
   isProductionBrowserOrigin,
   isProductionPublicHttpsUrl,
   parseOriginAllowlist,
+  securityHeadersForRequest,
 } from '../src/security/runtimeControls.js';
 
 const reqWithHeaders = (headers: Record<string, string>) => ({
@@ -73,4 +74,29 @@ test('request audit context preserves supplied correlation ids', () => {
   assert.equal(context.traceId, 'trace_123');
   assert.equal(context.correlationId, 'corr_123');
   assert.equal(typeof context.startedAtMs, 'number');
+});
+
+test('security headers disable caching for sensitive runtime routes', () => {
+  const headers = securityHeadersForRequest({
+    path: '/v1/payment-intents',
+    env: 'development',
+    secure: false,
+  });
+
+  assert.equal(headers['x-content-type-options'], 'nosniff');
+  assert.equal(headers['x-frame-options'], 'DENY');
+  assert.equal(headers['cache-control'], 'no-store, max-age=0');
+  assert.equal(headers.pragma, 'no-cache');
+  assert.equal(headers['strict-transport-security'], undefined);
+});
+
+test('production secure requests receive HSTS', () => {
+  const headers = securityHeadersForRequest({
+    path: '/v1/developer/services',
+    env: 'production',
+    secure: true,
+  });
+
+  assert.equal(headers['strict-transport-security'], 'max-age=31536000; includeSubDomains');
+  assert.equal(headers['cache-control'], 'no-store, max-age=0');
 });
