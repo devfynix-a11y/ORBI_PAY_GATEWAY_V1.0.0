@@ -20,6 +20,7 @@ test('developer docs catalog exposes public rendered guides only', () => {
   assert.equal(docs.some((entry) => entry.id === 'webhooks'), true);
   assert.equal(docs.some((entry) => entry.id === 'sandbox-live'), true);
   assert.equal(docs.some((entry) => entry.id === 'error-handling'), true);
+  assert.equal(docs.some((entry) => entry.id === 'terms-of-use'), true);
   assert.equal(docs.some((entry) => entry.id === 'developer-portal-ui-blueprint'), false);
   assert.equal(docs.some((entry) => entry.id === 'security-model'), false);
   assert.equal(docs.some((entry) => entry.id === 'deployment-runbook'), false);
