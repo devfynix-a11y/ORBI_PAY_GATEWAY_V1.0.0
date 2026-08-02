@@ -135,14 +135,18 @@ const controls = [
     'Keep portal backend-driven, MFA-protected for operators, and database-backed.',
   ),
   control(
-    'oauth.oidc_authority',
-    hasValue('PAYMENT_GATEWAY_OAUTH_ISSUER_URL') && hasValue('PAYMENT_GATEWAY_OAUTH_JWKS_URL') ? 'pass' : 'attention',
+    'oauth.token_authority',
+    hasValue('PAYMENT_GATEWAY_OAUTH_ISSUER_URL') &&
+      hasValue('PAYMENT_GATEWAY_OAUTH_INTROSPECTION_URL')
+      ? 'pass'
+      : 'attention',
     {
       issuerConfigured: hasValue('PAYMENT_GATEWAY_OAUTH_ISSUER_URL'),
       jwksConfigured: hasValue('PAYMENT_GATEWAY_OAUTH_JWKS_URL'),
       tokenIntrospectionConfigured: hasValue('PAYMENT_GATEWAY_OAUTH_INTROSPECTION_URL'),
+      asymmetricJwtAccessTokensEnabled: hasValue('PAYMENT_GATEWAY_OAUTH_JWKS_URL'),
     },
-    'Implement OAuth2/OIDC issuer, JWKS/introspection, client registration, PKCE, and revocation.',
+    'Use issuer metadata, token introspection, and revocation for opaque access tokens. Add JWKS when asymmetric JWT access tokens are introduced.',
   ),
   control(
     'observability.siem',

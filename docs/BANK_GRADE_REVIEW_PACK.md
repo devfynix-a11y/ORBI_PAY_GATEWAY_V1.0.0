@@ -35,6 +35,14 @@ This pack is for external readiness review, partner due diligence, and internal 
 - Reconciliation exports must be written to a configured durable path.
 - Production incidents must have severity, owner, SLA, and resolution evidence.
 
+## Runtime Control Plane
+
+- Identity: the gateway publishes OAuth metadata and supports token introspection/revocation for service access tokens. Sensitive operations should validate the token subject, integration, scopes, environment, and expiry before execution.
+- Monitoring: security denials, OAuth events, request audit events, webhook failures, reconciliation exports, and operator actions must be emitted to the configured audit event sink. Self-hosted deployments may use a mounted JSONL collector path; larger deployments may forward to a SIEM endpoint.
+- Reconciliation: signed evidence exports must be written to the configured reconciliation export directory or approved storage target. Each export should include a requestor, time window, counts, exceptions, and signature evidence.
+- Operator controls: staff actions for approve, suspend, revoke, rotate, replay, escalate, and resolve must remain role-controlled and auditable. Operators should use incident records for abnormal activity instead of ad-hoc manual notes.
+- Environment separation: sandbox and live may use the same API contract, but credentials, audit paths, service tokens, webhook secrets, and reconciliation evidence must remain isolated.
+
 ## Developer Responsibilities
 
 - Keep production keys server-side.
