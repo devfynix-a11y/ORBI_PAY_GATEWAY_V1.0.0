@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { promises as dns } from 'node:dns';
 import test from 'node:test';
 import { DeveloperPortalStore } from '../src/services/developerPortalStore.js';
 
@@ -149,6 +150,44 @@ test('developer portal automatic domain verification rejects domains outside ser
     }),
     /DEVELOPER_DOMAIN_NOT_ON_ALLOWLIST/,
   );
+});
+
+test('developer portal automatic domain verification accepts DNS TXT proof', async () => {
+  const store = DeveloperPortalStore.inMemory();
+  const application = await store.submitApplication({
+    legalName: 'DNS Domain Merchant Ltd',
+    displayName: 'DNS Domain Merchant',
+    contactEmail: 'ops@dns-domain.example',
+    businessType: 'merchant',
+    countryCode: 'TZ',
+    requestedEnvironments: ['live'],
+    requestedScopes: ['payments:create'],
+    browserOrigins: ['https://dns-domain.example'],
+    redirectUrls: ['https://dns-domain.example/orbi/return'],
+    webhookUrls: ['https://dns-domain.example/orbi/webhooks'],
+    useCases: ['DNS TXT verification'],
+    termsAccepted: true,
+  });
+  const service = await store.approveApplication(application.applicationId, { initialStatus: 'active' });
+  const instructions = store.domainVerificationInstructions(service.serviceCode);
+  const challenge = instructions.challenges[0];
+  const originalResolveTxt = dns.resolveTxt;
+  dns.resolveTxt = (async (hostname: string) => {
+    assert.equal(hostname, challenge.dnsRecordName);
+    return [[challenge.dnsRecordValue]];
+  }) as typeof dns.resolveTxt;
+
+  try {
+    const result = await store.verifyServiceDomainsAutomatically(service.serviceCode, {
+      requestedBy: 'developer@dns-domain.example',
+    });
+    assert.deepEqual(result.pending, []);
+    assert.deepEqual(result.verifiedDomains, ['dns-domain.example']);
+    assert.equal(result.domainVerification.ready, true);
+    assert.equal(result.domainVerification.metadata.challenges?.['dns-domain.example']?.verificationMethod, 'dns_txt');
+  } finally {
+    dns.resolveTxt = originalResolveTxt;
+  }
 });
 
 test('developer portal store filters applications and services by owner', async () => {

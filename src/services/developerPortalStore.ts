@@ -216,13 +216,16 @@ const verifyDomainChallenge = async (
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
-    const response = await fetch(challenge.httpsUrl, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (response.ok) {
-      const body = (await response.text()).trim();
-      if (body === challenge.token || body.includes(challenge.token)) {
-        return { verified: true, method: 'https_file', evidence: { httpsUrl: challenge.httpsUrl } };
+    try {
+      const response = await fetch(challenge.httpsUrl, { signal: controller.signal });
+      if (response.ok) {
+        const body = (await response.text()).trim();
+        if (body === challenge.token || body.includes(challenge.token)) {
+          return { verified: true, method: 'https_file', evidence: { httpsUrl: challenge.httpsUrl } };
+        }
       }
+    } finally {
+      clearTimeout(timeout);
     }
   } catch {
     // The caller receives a pending result with setup instructions.
