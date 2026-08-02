@@ -50,6 +50,84 @@ Next enterprise gates:
 - long-term time-series monitoring for latency, uptime, failure rate, traffic
   pressure, and developer risk scoring.
 
+## Next BaaS Development Plan
+
+Status: active next-build queue
+
+Recently completed foundation:
+
+- persistent gateway usage metering for API calls, status codes, latency,
+  integration activity, and route-level operations;
+- operator portal usage summary with top integrations and top operations;
+- billing plan catalog for Sandbox Free, Starter, Business, and Enterprise;
+- operator-controlled plan assignment with confirmation, reason, audit event,
+  and portal controls;
+- plan enforcement mode remains `observe` until limits, appeals, customer
+  communication, and suspension workflows are fully reviewed.
+
+Next build sequence:
+
+1. **Plan enforcement policy**
+   - Define warning, grace, throttle, suspend, and emergency override rules.
+   - Keep financial safety first: never create accidental duplicate payment
+     movement because of a limit check.
+   - Add tests for over-limit behavior before switching from observe mode.
+
+2. **Developer usage dashboard**
+   - Show each developer their own API usage, webhook attempts, failed
+     requests, plan limits, and warning state.
+   - Keep language simple: “You used X of Y calls today” rather than internal
+     platform terms.
+   - Operators see all developers; developers see only their own integrations.
+
+3. **Billing evidence export**
+   - Produce monthly usage evidence by integration and environment.
+   - Include API calls, payment intents, webhooks, failed requests, retries,
+     plan changes, and operator overrides.
+   - Export must be auditable and reproducible from stored events.
+
+4. **Plan change workflow**
+   - Add developer request flow for upgrades, live access expansion, or higher
+     limits.
+   - Add operator approval, rejection, notes, and direct developer messaging.
+   - Every plan change must include actor, reason, previous plan, next plan,
+     and timestamp.
+
+5. **Automated limit notifications**
+   - Send direct email/message when usage reaches defined thresholds.
+   - Suggested thresholds: 70%, 90%, 100%, grace-started, suspended.
+   - Messages must be direct, developer-friendly, and environment-aware.
+
+6. **Production enforcement switch**
+   - Add environment flag to move selected integrations from observe mode to
+     enforce mode.
+   - Support per-service overrides so trusted enterprise integrations can have
+     custom limits.
+   - Require runbook, audit proof, and rollback path before enforcement is
+     enabled broadly.
+
+7. **SaaS revenue readiness**
+   - Add plan pricing metadata without exposing internal billing machinery.
+   - Prepare invoice-ready records for later finance/accounting integration.
+   - Keep payment collection separate from usage measurement until finance
+     policy is approved.
+
+8. **Operational risk scoring**
+   - Combine metering, failed requests, origin denials, signature failures,
+     webhook failures, and support incidents into a service risk score.
+   - Use score for operator review and customer protection, not automatic
+     punishment until governance rules are approved.
+
+Definition of done:
+
+- every new control has tests, portal visibility, audit evidence, and safe
+  rollback;
+- developers receive understandable usage and access messages;
+- operators can review, change, suspend, and restore access without direct DB
+  edits;
+- no billing or limit feature can interrupt completed financial flows or create
+  duplicate movement.
+
 ## 1. OAuth 2.1 And OIDC Authorization
 
 Status: in progress
