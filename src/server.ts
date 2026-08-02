@@ -2928,6 +2928,7 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/operator\/incidents\/[^/]+\/resolve$/, permission: 'operator:manage_incidents', confirmation: true },
   { pattern: /^\/v1\/developer\/services$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/services\/[^/]+$/, permission: 'developer:read_all', methods: ['GET'] },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/domain-verification$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/service-applications$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/events$/, permission: 'developer:read_all', methods: ['GET'] },
   { pattern: /^\/v1\/developer\/webhook-deliveries$/, permission: 'developer:read_all', methods: ['GET'] },
@@ -2942,11 +2943,14 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/scope-requests\/[^/]+\/decision$/, permission: 'developer:manage_scopes', confirmation: true },
   { pattern: /^\/v1\/developer\/service-applications\/[^/]+\/approve$/, permission: 'developer:approve_applications', confirmation: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/status$/, permission: 'developer:manage_services', confirmation: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/domain-verification$/, permission: 'developer:manage_services', confirmation: true },
   { pattern: /^\/v1\/developer\/sandbox-simulator\/reset$/, permission: 'developer:manage_sandbox', confirmation: true },
   { pattern: /^\/v1\/developer\/service-applications$/, permission: 'developer:request_access', developerAllowed: true },
   { pattern: /^\/v1\/developer\/services$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/service-applications$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/domain-verification$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
+  { pattern: /^\/v1\/developer\/services\/[^/]+\/domain-verification$/, permission: 'developer:request_access', methods: ['POST'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/events$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/integration-health$/, permission: 'developer:read_own', methods: ['GET'], developerAllowed: true },
   { pattern: /^\/v1\/developer\/services\/[^/]+\/scope-requests$/, permission: 'developer:request_access', developerAllowed: true },
@@ -2963,8 +2967,12 @@ const portalOperatorPaths = [
   { pattern: /^\/v1\/developer\/services\/[^/]+\/webhook-secrets\/[^/]+\/revoke$/, permission: 'developer:manage_keys', confirmation: true },
 ] as const;
 
-const portalRuleForPath = (path: string, role: PortalRole) => {
-  const matches = portalOperatorPaths.filter((item) => item.pattern.test(path));
+const portalRuleForPath = (path: string, role: PortalRole, method = 'GET') => {
+  const matches = portalOperatorPaths.filter((item) => {
+    if (!item.pattern.test(path)) return false;
+    const allowedMethods = ('methods' in item ? item.methods : ['POST', 'PATCH', 'PUT', 'DELETE']) as readonly string[];
+    return allowedMethods.includes(method);
+  });
   if (role === 'developer') {
     return matches.find((item) => 'developerAllowed' in item && item.developerAllowed);
   }
@@ -3070,7 +3078,7 @@ app.post('/v1/portal/gateway', requireOperatorDiscoveryAccess, async (req, res) 
   const baseSession = portalAccessStore.requireSession(req, 'developer');
   if (!baseSession.ok) return res.status(baseSession.status).json({ success: false, error: baseSession.error });
 
-  const rule = portalRuleForPath(path, baseSession.claims.role);
+  const rule = portalRuleForPath(path, baseSession.claims.role, method);
 
   if (!rule) return sendApiError(res, 403, 'PORTAL_GATEWAY_ACTION_NOT_ALLOWED');
   const allowedMethods = 'methods' in rule ? rule.methods : ['POST', 'PATCH', 'PUT', 'DELETE'];
@@ -3105,7 +3113,7 @@ app.post('/v1/portal/gateway', requireOperatorDiscoveryAccess, async (req, res) 
   if (developerScoped && method === 'GET' && path === '/v1/developer/services') {
     return res.json({ success: true, data: developerPortalStore.listServices(ownerFilter) });
   }
-  if (developerScoped && method === 'GET' && requestedServiceCode) {
+  if (developerScoped && method === 'GET' && requestedServiceCode && /^\/v1\/developer\/services\/[^/]+$/.test(path)) {
     if (!developerPortalStore.portalUserCanAccessService(requestedServiceCode, ownerFilter)) {
       return sendApiError(res, 403, 'PORTAL_GATEWAY_SERVICE_ACCESS_DENIED');
     }
@@ -3407,6 +3415,10 @@ const DeveloperServiceApproveSchema = z.object({
   reason: z.string().trim().min(10).max(1000).optional(),
 });
 
+const DeveloperDomainVerificationSchema = z.object({
+  domains: z.array(z.string().trim().min(3).max(253)).min(1).max(25).optional(),
+});
+
 app.post('/v1/developer/service-applications', requireOperatorDiscoveryAccess, async (req, res) => {
   try {
     const payload = DeveloperServiceApplicationSchema.parse(req.body || {});
@@ -3530,6 +3542,32 @@ app.post('/v1/developer/services/:serviceCode/allowlists', requireOperatorDiscov
   } catch (e: any) {
     if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_ALLOWLIST_INVALID', e.issues);
     const error = errorCodeFromException(e, 'DEVELOPER_ALLOWLIST_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.get('/v1/developer/services/:serviceCode/domain-verification', requireOperatorDiscoveryAccess, (req, res) => {
+  try {
+    const status = developerPortalStore.domainVerificationInstructions(String(req.params.serviceCode || ''));
+    return res.json({ success: true, data: status });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'DEVELOPER_DOMAIN_VERIFICATION_STATUS_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
+});
+
+app.post('/v1/developer/services/:serviceCode/domain-verification', requireOperatorDiscoveryAccess, async (req, res) => {
+  try {
+    const actorEmail = String(req.body?.actor?.email || '').trim().toLowerCase();
+    const payload = DeveloperDomainVerificationSchema.parse(req.body || {});
+    const result = await developerPortalStore.verifyServiceDomainsAutomatically(String(req.params.serviceCode || ''), {
+      domains: payload.domains,
+      requestedBy: actorEmail || 'portal-user',
+    });
+    return res.json({ success: true, data: result });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return sendValidationError(res, 'DEVELOPER_DOMAIN_VERIFICATION_INVALID', e.issues);
+    const error = errorCodeFromException(e, 'DEVELOPER_DOMAIN_VERIFICATION_FAILED');
     return sendApiError(res, httpStatusForGatewayError(error), error);
   }
 });

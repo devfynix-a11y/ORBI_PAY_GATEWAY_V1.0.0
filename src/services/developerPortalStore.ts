@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { promises as dns } from 'dns';
 import { Pool, type PoolClient } from 'pg';
 import { z } from 'zod';
 import { config } from '../config.js';
@@ -94,6 +95,24 @@ type DeveloperPortalActor = {
 
 export type DeveloperPortalEventHandler = (event: DeveloperPortalEvent) => void | Promise<void>;
 
+type DomainVerificationMetadata = {
+  verifiedDomains?: string[];
+  verifiedBy?: string;
+  verifiedAt?: string;
+  verificationMethod?: string;
+  reason?: string;
+  challenges?: Record<string, {
+    token: string;
+    dnsRecordName: string;
+    dnsRecordValue: string;
+    httpsUrl: string;
+    status: 'pending' | 'verified';
+    verifiedAt?: string;
+    verificationMethod?: string;
+  }>;
+  metadata?: Record<string, unknown>;
+};
+
 const emptyState = (): DeveloperPortalState => ({
   applications: [],
   services: [],
@@ -129,6 +148,87 @@ const iso = (value: unknown): string | undefined => {
 const normalizeOwnerEmail = (value: unknown): string | undefined => {
   const email = String(value || '').trim().toLowerCase();
   return email || undefined;
+};
+
+const hostnameFromUrl = (value: string): string | undefined => {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+};
+
+const serviceLiveHostnames = (service: Pick<DeveloperServiceRecord, 'browserOrigins' | 'redirectUrls' | 'webhookUrls'>): string[] =>
+  unique([
+    ...(service.browserOrigins || []).map(hostnameFromUrl),
+    ...(service.redirectUrls || []).map(hostnameFromUrl),
+    ...(service.webhookUrls || []).map(hostnameFromUrl),
+  ].filter((item): item is string => Boolean(item)));
+
+const domainVerificationMetadata = (service: unknown): DomainVerificationMetadata => {
+  const record = service && typeof service === 'object' ? service as { metadata?: unknown } : {};
+  const metadata = (record.metadata && typeof record.metadata === 'object' ? record.metadata : {}) as { domainVerification?: DomainVerificationMetadata };
+  return metadata.domainVerification || {};
+};
+
+const domainChallengeSecret = (): string =>
+  config.security.serviceAccessTokenSecret ||
+  config.portal.authSecret ||
+  config.secretEncryptionKey ||
+  'orbi-pay-domain-verification-development-secret';
+
+const domainChallengeToken = (serviceCode: string, domain: string): string =>
+  `orbi_domain_${crypto
+    .createHmac('sha256', domainChallengeSecret())
+    .update(`${slug(serviceCode)}:${domain.toLowerCase()}`)
+    .digest('base64url')
+    .slice(0, 43)}`;
+
+const domainChallengeFor = (serviceCode: string, domain: string) => {
+  const normalized = domain.toLowerCase();
+  const token = domainChallengeToken(serviceCode, normalized);
+  return {
+    token,
+    dnsRecordName: `_orbi-pay-verify.${normalized}`,
+    dnsRecordValue: `orbi-pay-site-verification=${token}`,
+    httpsUrl: `https://${normalized}/.well-known/orbi-pay-domain-verification.txt`,
+  };
+};
+
+const flattenTxtRecords = (records: string[][]): string[] =>
+  records.map((record) => record.join('')).map((record) => record.trim());
+
+const verifyDomainChallenge = async (
+  serviceCode: string,
+  domain: string,
+): Promise<{ verified: boolean; method?: 'dns_txt' | 'https_file'; evidence?: Record<string, unknown> }> => {
+  const challenge = domainChallengeFor(serviceCode, domain);
+
+  try {
+    const txtRecords = flattenTxtRecords(await dns.resolveTxt(challenge.dnsRecordName));
+    if (txtRecords.some((record) => record === challenge.dnsRecordValue || record.includes(challenge.token))) {
+      return { verified: true, method: 'dns_txt', evidence: { dnsRecordName: challenge.dnsRecordName } };
+    }
+  } catch {
+    // DNS proof is optional because HTTPS file proof can satisfy the same challenge.
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(challenge.httpsUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (response.ok) {
+      const body = (await response.text()).trim();
+      if (body === challenge.token || body.includes(challenge.token)) {
+        return { verified: true, method: 'https_file', evidence: { httpsUrl: challenge.httpsUrl } };
+      }
+    }
+  } catch {
+    // The caller receives a pending result with setup instructions.
+  }
+
+  return { verified: false };
 };
 
 const serviceBelongsTo = (service: DeveloperServiceRecord, filter?: DeveloperOwnerFilter): boolean => {
@@ -279,6 +379,14 @@ export class DeveloperPortalStore {
     };
   }
 
+  private assertLiveCredentialEligibility(serviceCode: string, environment: 'sandbox' | 'live') {
+    if (environment !== 'live') return;
+    const service = this.getMutableService(serviceCode);
+    if (!service.environments.includes('live')) throw new Error('DEVELOPER_LIVE_ENVIRONMENT_NOT_ENABLED');
+    const status = this.liveDomainVerificationStatus(service.serviceCode);
+    if (!status.ready) throw new Error('DEVELOPER_LIVE_DOMAIN_VERIFICATION_REQUIRED');
+  }
+
   resolveApiKey(secret: string) {
     this.assertReady();
     const fp = fingerprint(secret);
@@ -371,6 +479,7 @@ export class DeveloperPortalStore {
     requestedBy: string;
     reason: string;
   }) {
+    this.assertLiveCredentialEligibility(serviceCode, input.environment);
     const apiKey = await this.issueApiKey(serviceCode, {
       environment: input.environment,
       requestedBy: input.requestedBy,
@@ -523,6 +632,170 @@ export class DeveloperPortalStore {
     return { service, update: record };
   }
 
+  async verifyServiceDomains(serviceCode: string, input: {
+    domains: string[];
+    verifiedBy: string;
+    verificationMethod: 'dns_txt' | 'https_file' | 'manual_review';
+    reason: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    this.assertReady();
+    const service = this.getMutableService(serviceCode);
+    const now = new Date().toISOString();
+    const requested = unique(input.domains.map((domain) => domain.trim().toLowerCase()).filter(Boolean));
+    const allowed = new Set(serviceLiveHostnames(service));
+    const invalid = requested.filter((domain) => !allowed.has(domain));
+    if (!requested.length) throw new Error('DEVELOPER_DOMAIN_VERIFICATION_EMPTY');
+    if (invalid.length) throw new Error('DEVELOPER_DOMAIN_NOT_ON_ALLOWLIST');
+    const current = domainVerificationMetadata(service).verifiedDomains || [];
+    service.metadata = {
+      ...(service.metadata || {}),
+      domainVerification: {
+        ...domainVerificationMetadata(service),
+        verifiedDomains: unique([...current, ...requested]),
+        verifiedBy: input.verifiedBy,
+        verifiedAt: now,
+        verificationMethod: input.verificationMethod,
+        reason: input.reason,
+        metadata: input.metadata || {},
+      },
+    };
+    service.updatedAt = now;
+    this.addEvent('developer.allowlist.updated', {
+      serviceCode: service.serviceCode,
+      environment: 'live',
+      data: {
+        action: 'domain_verification',
+        verifiedDomains: requested,
+        verifiedBy: input.verifiedBy,
+        verificationMethod: input.verificationMethod,
+      },
+    });
+    await this.persist();
+    return this.publicService(service);
+  }
+
+  domainVerificationInstructions(serviceCode: string) {
+    this.assertReady();
+    const service = this.getMutableService(serviceCode);
+    const status = this.liveDomainVerificationStatus(service.serviceCode);
+    return {
+      ...status,
+      challenges: status.requiredDomains.map((domain) => ({
+        domain,
+        ...domainChallengeFor(service.serviceCode, domain),
+        verified: status.verifiedDomains.includes(domain),
+      })),
+      instructions: {
+        dns: 'Create the TXT record exactly as shown. DNS propagation can take a few minutes.',
+        https: 'Alternatively, publish the token as plain text at the HTTPS URL shown for the domain.',
+      },
+    };
+  }
+
+  async verifyServiceDomainsAutomatically(serviceCode: string, input: {
+    domains?: string[];
+    requestedBy: string;
+  }) {
+    this.assertReady();
+    const service = this.getMutableService(serviceCode);
+    const now = new Date().toISOString();
+    const allowed = new Set(serviceLiveHostnames(service));
+    const requested = unique(
+      (input.domains?.length ? input.domains : [...allowed])
+        .map((domain) => domain.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    const invalid = requested.filter((domain) => !allowed.has(domain));
+    if (!requested.length) throw new Error('DEVELOPER_DOMAIN_VERIFICATION_EMPTY');
+    if (invalid.length) throw new Error('DEVELOPER_DOMAIN_NOT_ON_ALLOWLIST');
+
+    const currentMetadata = domainVerificationMetadata(service);
+    const currentVerified = unique((currentMetadata.verifiedDomains || []).map((domain) => domain.toLowerCase()));
+    const challengeRecords = { ...(currentMetadata.challenges || {}) };
+    const verifiedNow: string[] = [];
+    const pending: Array<Record<string, unknown>> = [];
+
+    for (const domain of requested) {
+      const challenge = domainChallengeFor(service.serviceCode, domain);
+      if (currentVerified.includes(domain)) {
+        challengeRecords[domain] = {
+          ...challenge,
+          status: 'verified',
+          verifiedAt: currentMetadata.challenges?.[domain]?.verifiedAt || currentMetadata.verifiedAt || now,
+          verificationMethod: currentMetadata.challenges?.[domain]?.verificationMethod || currentMetadata.verificationMethod,
+        };
+        continue;
+      }
+
+      const result = await verifyDomainChallenge(service.serviceCode, domain);
+      if (result.verified && result.method) {
+        verifiedNow.push(domain);
+        challengeRecords[domain] = {
+          ...challenge,
+          status: 'verified',
+          verifiedAt: now,
+          verificationMethod: result.method,
+        };
+      } else {
+        challengeRecords[domain] = {
+          ...challenge,
+          status: 'pending',
+        };
+        pending.push({
+          domain,
+          dnsRecordName: challenge.dnsRecordName,
+          dnsRecordValue: challenge.dnsRecordValue,
+          httpsUrl: challenge.httpsUrl,
+        });
+      }
+    }
+
+    if (verifiedNow.length) {
+      service.metadata = {
+        ...(service.metadata || {}),
+        domainVerification: {
+          ...currentMetadata,
+          verifiedDomains: unique([...currentVerified, ...verifiedNow]),
+          verifiedBy: input.requestedBy,
+          verifiedAt: now,
+          verificationMethod: 'automatic',
+          reason: 'Automatic DNS TXT or HTTPS file ownership proof verified.',
+          challenges: challengeRecords,
+        },
+      };
+      service.updatedAt = now;
+      this.addEvent('developer.allowlist.updated', {
+        serviceCode: service.serviceCode,
+        environment: 'live',
+        data: {
+          action: 'domain_verification',
+          mode: 'automatic',
+          verifiedDomains: verifiedNow,
+          requestedBy: input.requestedBy,
+        },
+      });
+      await this.persist();
+    } else {
+      service.metadata = {
+        ...(service.metadata || {}),
+        domainVerification: {
+          ...currentMetadata,
+          challenges: challengeRecords,
+        },
+      };
+      service.updatedAt = now;
+      await this.persist();
+    }
+
+    return {
+      service: this.publicService(service),
+      domainVerification: this.domainVerificationInstructions(service.serviceCode),
+      verifiedDomains: verifiedNow,
+      pending,
+    };
+  }
+
   async requestApiKeyRotation(serviceCode: string, request: z.infer<typeof DeveloperApiKeyRotationRequestSchema>) {
     this.assertReady();
     const service = this.getMutableService(serviceCode);
@@ -598,6 +871,7 @@ export class DeveloperPortalStore {
   async issueApiKey(serviceCode: string, request: z.infer<typeof DeveloperSecretIssueRequestSchema>) {
     this.assertReady();
     const service = this.getMutableService(serviceCode);
+    this.assertLiveCredentialEligibility(service.serviceCode, request.environment);
     const now = new Date().toISOString();
     const keyId = `key_${crypto.randomUUID()}`;
     const secret = oneTimeSecret(`orbi_${request.environment}`);
@@ -798,6 +1072,7 @@ export class DeveloperPortalStore {
   async issueWebhookSecret(serviceCode: string, request: z.infer<typeof DeveloperSecretIssueRequestSchema>) {
     this.assertReady();
     const service = this.getMutableService(serviceCode);
+    this.assertLiveCredentialEligibility(service.serviceCode, request.environment);
     const now = new Date().toISOString();
     const secretId = `whsec_${crypto.randomUUID()}`;
     const secret = oneTimeSecret(`orbi_whsec_${request.environment}`);
@@ -911,6 +1186,21 @@ export class DeveloperPortalStore {
     this.assertReady();
     if (!value) return true;
     return this.state.services.some((service) => (service.browserOrigins || []).includes(value));
+  }
+
+  liveDomainVerificationStatus(serviceCode: string) {
+    this.assertReady();
+    const service = this.getMutableService(serviceCode);
+    const requiredDomains = serviceLiveHostnames(service);
+    const verifiedDomains = unique((domainVerificationMetadata(service).verifiedDomains || []).map((item) => item.toLowerCase()));
+    const missingDomains = requiredDomains.filter((domain) => !verifiedDomains.includes(domain));
+    return {
+      requiredDomains,
+      verifiedDomains,
+      missingDomains,
+      ready: missingDomains.length === 0,
+      metadata: domainVerificationMetadata(service),
+    };
   }
 
   listEvents(serviceCode?: string) {

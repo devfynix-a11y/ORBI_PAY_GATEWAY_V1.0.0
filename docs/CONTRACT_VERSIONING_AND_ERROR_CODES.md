@@ -208,6 +208,12 @@ stable.
 | `DEVELOPER_SCOPE_DECISION_FAILED` | Scope decision could not be applied. | Retry or investigate operator state. |
 | `DEVELOPER_ALLOWLIST_INVALID` | Redirect/webhook allowlist payload failed validation. | Correct URL list and environment. |
 | `DEVELOPER_ALLOWLIST_FAILED` | Allowlist update could not be applied. | Retry or contact operator. |
+| `DEVELOPER_DOMAIN_VERIFICATION_EMPTY` | Domain verification was requested without any live hostname. | Add a live website origin, return URL, or payment update URL first. |
+| `DEVELOPER_DOMAIN_NOT_ON_ALLOWLIST` | Domain verification requested a hostname that is not registered on the service. | Add the hostname to the service allowlist before verifying it. |
+| `DEVELOPER_DOMAIN_VERIFICATION_INVALID` | Domain verification payload failed validation. | Send a valid `domains` array or omit it to verify all required domains. |
+| `DEVELOPER_DOMAIN_VERIFICATION_FAILED` | Automatic DNS TXT or HTTPS file verification could not be completed. | Publish the proof token and retry after DNS/HTTPS propagation. |
+| `DEVELOPER_LIVE_DOMAIN_VERIFICATION_REQUIRED` | Live credentials cannot be issued until all live domains are verified. | Complete domain verification in the Developer Portal. |
+| `DEVELOPER_LIVE_ENVIRONMENT_NOT_ENABLED` | Live credentials were requested for a service that is not enabled for live. | Request and receive live environment approval first. |
 | `DEVELOPER_REDIRECT_URL_NOT_ALLOWED` | Runtime return/redirect URL is not allowlisted for this service. | Use an allowlisted redirect URL. |
 | `DEVELOPER_WEBHOOK_URL_NOT_ALLOWED` | Runtime callback/webhook URL is not allowlisted for this service. | Use an allowlisted webhook URL. |
 | `DEVELOPER_API_KEY_ROTATION_INVALID` | API key rotation request failed validation. | Correct actor, reason, and environment. |

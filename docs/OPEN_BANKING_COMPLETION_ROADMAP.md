@@ -127,10 +127,14 @@ Focus:
   their own keys, and replay only their own payment update deliveries.
 - Sandbox and live must expose the same developer contract while using
   separate credentials, base URLs, audit trails, and simulator behavior.
+- Live credential issuance must fail closed until every live website, return,
+  and payment update hostname passes automatic DNS TXT or HTTPS file ownership
+  verification.
 
 Immediate backlog:
 
-- complete domain ownership verification before live credential issuance;
+- add richer domain verification audit evidence, including last checked time,
+  proof method, and developer-facing troubleshooting hints;
 - finish customer-facing consent review and revoke screens;
 - add password recovery with strong identity proofing;
 - add downloadable evidence packs for approved integrations;

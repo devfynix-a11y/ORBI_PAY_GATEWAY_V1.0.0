@@ -321,6 +321,12 @@ test('developer portal emergency key rotation issues a one-time secret and audit
     termsAccepted: true,
   });
   const service = await store.approveApplication(application.applicationId, { initialStatus: 'active' });
+  await store.verifyServiceDomains(service.serviceCode, {
+    domains: ['emergency.example'],
+    verifiedBy: 'operator@orbi.example',
+    verificationMethod: 'manual_review',
+    reason: 'Verified live domain ownership before issuing credentials.',
+  });
   const first = await store.issueApiKey(service.serviceCode, {
     environment: 'live',
     reason: 'Issue initial live key for emergency rotation test.',

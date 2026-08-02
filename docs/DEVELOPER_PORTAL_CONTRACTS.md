@@ -205,29 +205,49 @@ HTTPS only. Localhost callbacks, private-network callbacks, plain HTTP, and
 wildcard hosts are sandbox-only because live callbacks affect money movement,
 consent continuation, and webhook delivery truth.
 
-Live services must also complete domain verification before they are considered
-operationally healthy. Operators should record verified domains on the service
-metadata:
+Live services must also complete automatic domain verification before live keys
+or live webhook secrets can be issued. The portal gives the developer a proof
+token for every hostname used by `browserOrigins`, `redirectUrls`, and
+`webhookUrls`.
+
+The developer can prove ownership using either method:
 
 ```json
 {
-  "metadata": {
-    "domainVerification": {
-      "method": "dns_txt",
-      "verifiedDomains": [
-        "www.tag.co.tz",
-        "api.tag.co.tz"
-      ],
-      "verifiedAt": "2026-07-30T10:00:00.000Z",
-      "verifiedBy": "orbi-operator"
-    }
+  "dnsTxt": {
+    "name": "_orbi-pay-verify.www.tag.co.tz",
+    "value": "orbi-pay-site-verification=orbi_domain_example"
+  },
+  "httpsFile": {
+    "url": "https://www.tag.co.tz/.well-known/orbi-pay-domain-verification.txt",
+    "body": "orbi_domain_example"
   }
 }
 ```
 
-Every hostname used by `browserOrigins`, `redirectUrls`, and `webhookUrls` must
-appear in `metadata.domainVerification.verifiedDomains`. If any live hostname is
-missing, integration health reports `DOMAIN_VERIFICATION_PENDING`.
+The Gateway verifies DNS TXT or HTTPS file proof automatically. Every live
+hostname must be verified. If any live hostname is missing proof, integration
+health reports `DOMAIN_VERIFICATION_PENDING` and live credential issuance fails
+closed.
+
+Domain verification endpoints:
+
+```http
+GET  /v1/developer/services/{serviceCode}/domain-verification
+POST /v1/developer/services/{serviceCode}/domain-verification
+```
+
+`GET` returns required domains, verified domains, missing domains, and challenge
+setup instructions. `POST` attempts verification immediately:
+
+```json
+{
+  "domains": ["www.tag.co.tz", "api.tag.co.tz"]
+}
+```
+
+If `domains` is omitted, the Gateway checks every required live hostname for
+that service.
 
 Allowed `businessType` values:
 

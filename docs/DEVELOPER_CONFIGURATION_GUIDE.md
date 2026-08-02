@@ -83,6 +83,12 @@ ORBI_PAY_OAUTH_CLIENT_ID=your-approved-live-client-id
 ORBI_PAY_WEBHOOK_SECRET=orbi_whsec_live_xxx
 ```
 
+Live credentials are issued only after every hostname used by your website
+origin, customer return URL, and payment update URL passes automatic ownership
+verification. The Developer Portal gives you a DNS TXT token and an HTTPS file
+token option. If a hostname is not verified, live key issuance stops until proof
+is published and verified.
+
 Emergency key rotation:
 
 ```text
