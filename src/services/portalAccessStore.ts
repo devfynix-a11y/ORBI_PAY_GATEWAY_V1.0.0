@@ -63,6 +63,24 @@ type PortalAuditEvent = {
   createdAt: string;
 };
 
+type PortalTeamInvitation = {
+  invitationId: string;
+  email: string;
+  name?: string;
+  role: PortalRole;
+  permissions: string[];
+  liveAccess: boolean;
+  serviceCodes: string[];
+  invitedBy: string;
+  status: 'pending' | 'accepted' | 'revoked' | 'expired';
+  expiresAt: string;
+  acceptedAt?: string;
+  revokedAt?: string;
+  deliveryStatus?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 const ROLE_ORDER: Record<PortalRole, number> = { developer: 1, operator: 2, admin: 3 };
 
 const ROLE_PERMISSIONS: Record<PortalRole, string[]> = {
@@ -149,6 +167,9 @@ const portalMfaRequiredFor = (account: Pick<PortalAccount, 'role' | 'mfaRequired
 
 const hashPassword = (password: string, salt: string, iterations: number): string =>
   crypto.pbkdf2Sync(password, salt, iterations, 32, 'sha256').toString('base64url');
+
+const hashInviteToken = (token: string): string =>
+  crypto.createHash('sha256').update(`portal-team-invite:${token}`).digest('base64url');
 
 const base64UrlJson = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString('base64url');
 
@@ -562,6 +583,225 @@ export class PortalAccessStore {
       data: {
         ...publicAccount(account),
         mfaEnrollmentRequired: account.mfaRequired,
+      },
+    };
+  }
+
+  async listTeamInvitations(req: express.Request) {
+    const session = this.requirePermission(req, 'portal:manage_users', 'admin');
+    if (!session.ok) return session;
+    const result = await this.db().query(
+      `select invitation_id, email, name, role, permissions, live_access, service_codes,
+              invited_by, status, expires_at, accepted_at, revoked_at, delivery_status,
+              created_at, updated_at
+       from public.pay_gateway_portal_team_invitations
+       order by created_at desc
+       limit 200`,
+    );
+    return { ok: true as const, data: result.rows.map((row) => this.invitationFromRow(row)) };
+  }
+
+  async inviteTeamMember(req: express.Request, input: Record<string, unknown>) {
+    const session = this.requirePermission(req, 'portal:manage_users', 'admin');
+    if (!session.ok) return session;
+    const sensitive = this.requireSensitiveWrite(req, 'portal.team.invite');
+    if (!sensitive.ok) return sensitive;
+    const email = normalizeEmail(input.email);
+    const name = String(input.name || '').trim();
+    const role = roleFrom(input.role);
+    const serviceCodes = uniqueStrings(input.serviceCodes);
+    const permissions = uniqueStrings(input.permissions);
+    const liveAccess = Boolean(input.liveAccess);
+    if (!isValidEmail(email)) return { ok: false as const, status: 400, error: 'Enter a valid staff email address.' };
+    if (name.length < 2) return { ok: false as const, status: 400, error: 'Enter the staff member name.' };
+    if (!serviceCodes.length && role === 'developer') {
+      return { ok: false as const, status: 400, error: 'Developer staff must be linked to at least one integration code.' };
+    }
+    const existing = await this.db().query(
+      'select user_id from public.pay_gateway_portal_users where lower(email) = lower($1) limit 1',
+      [email],
+    );
+    if (existing.rows[0]) return { ok: false as const, status: 409, error: 'A portal account already exists for this email.' };
+
+    const token = `orbi_invite_${crypto.randomBytes(32).toString('base64url')}`;
+    const invitationId = `portal_invite_${crypto.randomUUID()}`;
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+    const inviteUrl = String(input.inviteUrl || '').includes('{token}')
+      ? String(input.inviteUrl).replace('{token}', encodeURIComponent(token))
+      : String(input.inviteUrl || '');
+    const eventId = `portal_team_invite_${crypto.randomUUID()}`;
+    const delivery = await orbiTalkClient.sendIntent({
+      eventId,
+      correlationId: eventId,
+      templateCode: 'developer.portal.team_invitation',
+      recipientIdentityRef: email,
+      channel: 'email',
+      language: 'en',
+      environment: String(req.headers['x-orbi-environment'] || '').toLowerCase().includes('production') ? 'live' : 'sandbox',
+      safeMetadata: {
+        inviteUrl,
+        serviceCodes: serviceCodes.join(', '),
+        role,
+      },
+    });
+    const result = await this.db().query(
+      `insert into public.pay_gateway_portal_team_invitations (
+        invitation_id, email, name, role, permissions, live_access, service_codes,
+        invited_by, token_hash, status, expires_at, delivery_status
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11)
+      returning invitation_id, email, name, role, permissions, live_access, service_codes,
+                invited_by, status, expires_at, accepted_at, revoked_at, delivery_status,
+                created_at, updated_at`,
+      [
+        invitationId,
+        email,
+        name,
+        role,
+        permissions,
+        liveAccess,
+        serviceCodes,
+        session.claims.email,
+        hashInviteToken(token),
+        expiresAt,
+        delivery.status,
+      ],
+    );
+    await this.writeAuditEvent(req, {
+      action: 'portal.team.invited',
+      target: email,
+      metadata: { role, serviceCodes, liveAccess, invitationId, deliveryStatus: delivery.status },
+    });
+    return {
+      ok: true as const,
+      data: {
+        invitation: this.invitationFromRow(result.rows[0]),
+        inviteToken: token,
+        inviteUrl,
+        deliveryStatus: delivery.status,
+      },
+    };
+  }
+
+  async revokeTeamInvitation(req: express.Request, invitationId: string, input: Record<string, unknown>) {
+    const session = this.requirePermission(req, 'portal:manage_users', 'admin');
+    if (!session.ok) return session;
+    const sensitive = this.requireSensitiveWrite(req, 'portal.team.invite_revoke');
+    if (!sensitive.ok) return sensitive;
+    const reason = String(input.reason || '').trim();
+    if (reason.length < 10) return { ok: false as const, status: 400, error: 'Add a clear revocation reason.' };
+    const result = await this.db().query(
+      `update public.pay_gateway_portal_team_invitations
+       set status = 'revoked', revoked_at = now(), updated_at = now()
+       where invitation_id = $1 and status = 'pending'
+       returning invitation_id, email, name, role, permissions, live_access, service_codes,
+                 invited_by, status, expires_at, accepted_at, revoked_at, delivery_status,
+                 created_at, updated_at`,
+      [invitationId],
+    );
+    if (!result.rows[0]) return { ok: false as const, status: 404, error: 'Pending invitation not found.' };
+    await this.writeAuditEvent(req, {
+      action: 'portal.team.invitation_revoked',
+      target: result.rows[0].email,
+      metadata: { invitationId, reason },
+    });
+    return { ok: true as const, data: this.invitationFromRow(result.rows[0]) };
+  }
+
+  async acceptTeamInvitation(req: express.Request, input: Record<string, unknown>) {
+    const token = String(input.token || '').trim();
+    const password = String(input.password || '').trim();
+    const username = normalizeUsername(input.username);
+    if (!token.startsWith('orbi_invite_')) return { ok: false as const, status: 400, error: 'Invitation link is invalid.' };
+    if (!isValidUsername(username)) {
+      return { ok: false as const, status: 400, error: 'Choose a username with 3-32 characters using letters, numbers, underscore, or hyphen.' };
+    }
+    if (password.length < 12) return { ok: false as const, status: 400, error: 'Password must contain at least 12 characters.' };
+    const invitationResult = await this.db().query(
+      `select *
+       from public.pay_gateway_portal_team_invitations
+       where token_hash = $1 and status = 'pending'
+       limit 1`,
+      [hashInviteToken(token)],
+    );
+    const invitation = invitationResult.rows[0];
+    if (!invitation) return { ok: false as const, status: 400, error: 'Invitation link is invalid or already used.' };
+    if (new Date(invitation.expires_at).getTime() <= Date.now()) {
+      await this.db().query(
+        `update public.pay_gateway_portal_team_invitations set status = 'expired', updated_at = now() where invitation_id = $1`,
+        [invitation.invitation_id],
+      );
+      return { ok: false as const, status: 410, error: 'Invitation has expired. Ask your admin to send a new invite.' };
+    }
+    const existing = await this.db().query(
+      `select user_id, email, username
+       from public.pay_gateway_portal_users
+       where lower(email) = lower($1) or lower(username) = lower($2)
+       limit 1`,
+      [invitation.email, username],
+    );
+    if (existing.rows[0]) {
+      return {
+        ok: false as const,
+        status: 409,
+        error:
+          normalizeEmail(existing.rows[0].email) === normalizeEmail(invitation.email)
+            ? 'A portal account already exists for this email.'
+            : 'That username is already taken.',
+      };
+    }
+    const salt = crypto.randomBytes(16).toString('base64url');
+    const iterations = 210000;
+    const userId = `portal_user_${crypto.randomUUID()}`;
+    const accountResult = await this.withClient(async (client) => {
+      await client.query('begin');
+      try {
+        const created = await client.query(
+          `insert into public.pay_gateway_portal_users (
+            user_id, username, email, name, role, permissions, live_access, service_codes,
+            password_salt, password_hash, password_iterations, totp_secret, mfa_required, mfa_status, enabled,
+            email_verified_at
+          ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,null,$12,'disabled',true,now())
+          returning *`,
+          [
+            userId,
+            username,
+            normalizeEmail(invitation.email),
+            String(invitation.name || invitation.email),
+            roleFrom(invitation.role),
+            invitation.permissions || [],
+            Boolean(invitation.live_access),
+            invitation.service_codes || [],
+            salt,
+            hashPassword(password, salt, iterations),
+            iterations,
+            portalMfaRequiredFor({ role: roleFrom(invitation.role), mfaRequired: true }),
+          ],
+        );
+        await client.query(
+          `update public.pay_gateway_portal_team_invitations
+           set status = 'accepted', accepted_at = now(), updated_at = now()
+           where invitation_id = $1`,
+          [invitation.invitation_id],
+        );
+        await client.query('commit');
+        return created;
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      }
+    });
+    const account = this.accountFromRow(accountResult.rows[0]);
+    await this.writeAuditEvent(req, {
+      action: 'portal.team.invitation_accepted',
+      target: account.email,
+      metadata: { invitationId: invitation.invitation_id, role: account.role, serviceCodes: account.serviceCodes },
+    });
+    return {
+      ok: true as const,
+      data: {
+        user: publicAccount(account),
+        mfaEnrollmentRequired: account.mfaRequired,
+        nextStep: account.mfaRequired ? 'Set up authenticator before using protected actions.' : 'Sign in with your new staff account.',
       },
     };
   }
@@ -1261,6 +1501,26 @@ export class PortalAccessStore {
     };
   }
 
+  private invitationFromRow(row: any): PortalTeamInvitation {
+    return {
+      invitationId: row.invitation_id,
+      email: row.email,
+      name: row.name || undefined,
+      role: roleFrom(row.role),
+      permissions: row.permissions || [],
+      liveAccess: Boolean(row.live_access),
+      serviceCodes: row.service_codes || [],
+      invitedBy: row.invited_by,
+      status: row.status || 'pending',
+      expiresAt: iso(row.expires_at) || new Date().toISOString(),
+      acceptedAt: iso(row.accepted_at),
+      revokedAt: iso(row.revoked_at),
+      deliveryStatus: row.delivery_status || undefined,
+      createdAt: iso(row.created_at) || new Date().toISOString(),
+      updatedAt: iso(row.updated_at) || new Date().toISOString(),
+    };
+  }
+
   private async ensureSchema() {
     await this.withClient(async (client) => {
       await client.query(`
@@ -1329,6 +1589,24 @@ export class PortalAccessStore {
           consumed_at timestamptz,
           created_at timestamptz not null default now()
         );
+        create table if not exists public.pay_gateway_portal_team_invitations (
+          invitation_id text primary key,
+          email text not null,
+          name text,
+          role text not null check (role in ('developer','operator','admin')),
+          permissions text[] not null default '{}',
+          live_access boolean not null default false,
+          service_codes text[] not null default '{}',
+          invited_by text not null,
+          token_hash text not null unique,
+          status text not null default 'pending' check (status in ('pending','accepted','revoked','expired')),
+          expires_at timestamptz not null,
+          accepted_at timestamptz,
+          revoked_at timestamptz,
+          delivery_status text,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        );
         create index if not exists pay_gateway_portal_email_verification_active_idx
           on public.pay_gateway_portal_email_verifications (user_id, created_at desc)
           where consumed_at is null;
@@ -1340,6 +1618,10 @@ export class PortalAccessStore {
           where revoked_at is null;
         create index if not exists pay_gateway_portal_audit_created_idx
           on public.pay_gateway_portal_audit_events (created_at desc);
+        create index if not exists pay_gateway_portal_team_invites_email_idx
+          on public.pay_gateway_portal_team_invitations (lower(email), created_at desc);
+        create index if not exists pay_gateway_portal_team_invites_status_idx
+          on public.pay_gateway_portal_team_invitations (status, created_at desc);
       `);
       await client.query(`
         alter table public.pay_gateway_portal_users

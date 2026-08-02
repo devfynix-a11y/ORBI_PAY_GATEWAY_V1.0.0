@@ -3010,6 +3010,10 @@ app.post('/v1/portal/auth/signup', requireOperatorDiscoveryAccess, async (req, r
   return portalResult(res, await portalAccessStore.signupDeveloper(req, req.body || {}));
 });
 
+app.post('/v1/portal/auth/invitations/accept', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.acceptTeamInvitation(req, req.body || {}));
+});
+
 app.post('/v1/portal/auth/email/verify', requireOperatorDiscoveryAccess, async (req, res) => {
   return portalResult(res, await portalAccessStore.verifyDeveloperEmail(req, req.body || {}));
 });
@@ -3064,6 +3068,18 @@ app.patch('/v1/portal/users/:userId', requireOperatorDiscoveryAccess, async (req
 
 app.post('/v1/portal/users/:userId/mfa/reset', requireOperatorDiscoveryAccess, async (req, res) => {
   return portalResult(res, await portalAccessStore.resetUserMfa(req, String(req.params.userId || ''), req.body || {}));
+});
+
+app.get('/v1/portal/team-invitations', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.listTeamInvitations(req));
+});
+
+app.post('/v1/portal/team-invitations', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.inviteTeamMember(req, req.body || {}));
+});
+
+app.post('/v1/portal/team-invitations/:invitationId/revoke', requireOperatorDiscoveryAccess, async (req, res) => {
+  return portalResult(res, await portalAccessStore.revokeTeamInvitation(req, String(req.params.invitationId || ''), req.body || {}));
 });
 
 app.get('/v1/portal/audit-events', requireOperatorDiscoveryAccess, async (req, res) => {
@@ -3276,8 +3292,10 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
   }
   const adminAllowed = accessLevel === 'admin' && session.ok && session.claims.role === 'admin';
   const adminUsers = adminAllowed ? await portalAccessStore.listUsers(req) : { ok: true as const, data: [] };
+  const adminInvitations = adminAllowed ? await portalAccessStore.listTeamInvitations(req) : { ok: true as const, data: [] };
   const adminAudit = adminAllowed ? await portalAccessStore.listAuditEvents(req) : { ok: true as const, data: [] };
   if (!adminUsers.ok) errors.push({ name: 'portalUsers', error: adminUsers.error });
+  if (!adminInvitations.ok) errors.push({ name: 'portalTeamInvitations', error: adminInvitations.error });
   if (!adminAudit.ok) errors.push({ name: 'portalAudit', error: adminAudit.error });
   const ownerFilter = developerEnvironmentAllowed
     ? { serviceCodes: session.claims.serviceCodes || [], ownerEmail: session.claims.email }
@@ -3341,6 +3359,7 @@ app.get('/v1/portal/snapshot', requireOperatorDiscoveryAccess, async (req, res) 
         incidents: visibleIncidents,
         serviceProfile: undefined,
         portalUsers: adminUsers.ok ? adminUsers.data : [],
+        portalTeamInvitations: adminInvitations.ok ? adminInvitations.data : [],
         portalAudit: adminAudit.ok ? adminAudit.data : [],
       },
       errors,

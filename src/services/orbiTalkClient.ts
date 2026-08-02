@@ -26,6 +26,12 @@ const renderEmailIntent = (intent: MessagingIntent) => {
       body: 'Your ORBI integration request has been approved. Sign in to the Developer Portal to continue.',
     };
   }
+  if (intent.templateCode === 'developer.portal.team_invitation') {
+    return {
+      subject: 'You have been invited to ORBI Pay Developer Portal',
+      body: `You have been invited to join ${String(metadata.serviceCodes || 'an ORBI Pay integration')}. Open this secure link to create your own staff account: ${String(metadata.inviteUrl || '')}. This invitation expires soon. If you did not expect this invitation, ignore this message.`,
+    };
+  }
   if (intent.templateCode.includes('rotation')) {
     return {
       subject: 'ORBI credential security update',
