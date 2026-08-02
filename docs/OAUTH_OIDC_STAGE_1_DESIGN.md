@@ -39,7 +39,7 @@ Status: complete
 
 Evidence:
 
-- `database/migrations/001_pay_gateway_consent_authority.sql`;
+- `database/main.sql`;
 - `npm run consent:readiness`;
 - automated consent, hosted challenge, and service consent guard tests.
 

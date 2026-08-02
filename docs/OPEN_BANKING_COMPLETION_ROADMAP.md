@@ -206,12 +206,12 @@ Evidence:
   was added.
 - `npm run consent:readiness` passed create, authorize, revoke, and deny
   against the production PostgreSQL engine on 2026-07-31;
-- migration `database/migrations/001_pay_gateway_consent_authority.sql` was
+- consolidated schema `database/main.sql` was
   applied successfully and temporary readiness evidence was removed.
 - Gateway build and all 126 automated tests passed after refresh-token
   rotation, reuse detection, and subject revocation propagation were added on
   2026-07-31.
-- migration `database/migrations/004_pay_gateway_oauth_par.sql` adds
+- consolidated schema `database/main.sql` includes
   PostgreSQL-backed PAR records. PAR request URIs are hashed, short-lived,
   one-time, client-bound, and environment-bound.
 - `private_key_jwt` assertions require signed JWTs with approved service JWKS,

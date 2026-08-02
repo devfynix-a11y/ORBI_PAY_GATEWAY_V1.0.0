@@ -1,3 +1,144 @@
+-- ORBI PAY GATEWAY MASTER SCHEMA
+-- Consolidated schema. Use this file as the single SQL source of truth.
+-- Generated from retired database/migrations SQL files.
+
+
+-- BEGIN CONSOLIDATED: 001_pay_gateway_consent_authority.sql
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.pay_gateway_consent_receipts (
+  consent_id text PRIMARY KEY,
+  service_code text NOT NULL,
+  environment text NOT NULL CHECK (environment IN ('sandbox', 'live')),
+  subject_type text NOT NULL CHECK (subject_type IN ('user', 'business')),
+  subject_id text NOT NULL,
+  evidence_hash text NOT NULL,
+  status text NOT NULL CHECK (status IN ('active', 'revoked')),
+  expires_at timestamptz NOT NULL,
+  revoked_at timestamptz,
+  receipt jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (service_code, evidence_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pay_gateway_consent_subject
+ON public.pay_gateway_consent_receipts
+  (service_code, subject_id, environment, expires_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_pay_gateway_consent_status
+ON public.pay_gateway_consent_receipts (status, expires_at);
+
+COMMENT ON TABLE public.pay_gateway_consent_receipts IS
+  'Authoritative ORBI Open Banking consent receipts and revocation evidence.';
+COMMENT ON COLUMN public.pay_gateway_consent_receipts.receipt IS
+  'Validated versioned consent receipt. Indexed authority fields remain relational.';
+
+COMMIT;
+-- END CONSOLIDATED: 001_pay_gateway_consent_authority.sql
+
+-- BEGIN CONSOLIDATED: 002_pay_gateway_oauth_authorization.sql
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.pay_gateway_oauth_authorizations (
+  request_id text PRIMARY KEY,
+  upstream_state_hash text UNIQUE NOT NULL,
+  service_code text NOT NULL,
+  environment text NOT NULL CHECK (environment IN ('sandbox','live')),
+  redirect_uri text NOT NULL,
+  requested_scopes text[] NOT NULL,
+  client_state text NOT NULL,
+  code_challenge text NOT NULL,
+  nonce text NOT NULL,
+  upstream_verifier jsonb NOT NULL,
+  approval_token jsonb NOT NULL,
+  approval_token_hash text NOT NULL,
+  subject_id text,
+  status text NOT NULL CHECK (status IN ('pending_identity','pending_consent','approved','denied')),
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pay_gateway_oauth_authorization_expiry
+  ON public.pay_gateway_oauth_authorizations (expires_at, status);
+
+CREATE TABLE IF NOT EXISTS public.pay_gateway_oauth_codes (
+  code_hash text PRIMARY KEY,
+  service_code text NOT NULL,
+  environment text NOT NULL CHECK (environment IN ('sandbox','live')),
+  redirect_uri text NOT NULL,
+  scopes text[] NOT NULL,
+  subject_id text NOT NULL,
+  consent_id text NOT NULL REFERENCES public.pay_gateway_consent_receipts(consent_id),
+  code_challenge text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pay_gateway_oauth_code_expiry
+  ON public.pay_gateway_oauth_codes (expires_at, consumed_at);
+
+COMMIT;
+-- END CONSOLIDATED: 002_pay_gateway_oauth_authorization.sql
+
+-- BEGIN CONSOLIDATED: 003_pay_gateway_refresh_token_families.sql
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.pay_gateway_refresh_token_families (
+  family_id text PRIMARY KEY,
+  service_code text NOT NULL,
+  environment text NOT NULL CHECK(environment IN ('sandbox','live')),
+  subject_id text NOT NULL,
+  consent_id text NOT NULL REFERENCES public.pay_gateway_consent_receipts(consent_id),
+  scopes text[] NOT NULL,
+  identity_issuer text NOT NULL,
+  access_token_claims jsonb NOT NULL DEFAULT '[]'::jsonb,
+  absolute_expires_at timestamptz NOT NULL,
+  revoked_at timestamptz,
+  revoke_reason text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pay_gateway_refresh_family_consent
+  ON public.pay_gateway_refresh_token_families(consent_id,revoked_at);
+
+CREATE TABLE IF NOT EXISTS public.pay_gateway_refresh_tokens (
+  token_hash text PRIMARY KEY,
+  family_id text NOT NULL REFERENCES public.pay_gateway_refresh_token_families(family_id),
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz,
+  revoked_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pay_gateway_refresh_token_family
+  ON public.pay_gateway_refresh_tokens(family_id,created_at DESC);
+
+COMMIT;
+-- END CONSOLIDATED: 003_pay_gateway_refresh_token_families.sql
+
+-- BEGIN CONSOLIDATED: 004_pay_gateway_oauth_par.sql
+CREATE TABLE IF NOT EXISTS public.pay_gateway_oauth_pushed_authorization_requests (
+  request_uri_hash text PRIMARY KEY,
+  service_code text NOT NULL,
+  environment text NOT NULL CHECK (environment IN ('sandbox','live')),
+  payload jsonb NOT NULL,
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pay_gateway_oauth_par_expiry
+  ON public.pay_gateway_oauth_pushed_authorization_requests (expires_at, consumed_at);
+
+COMMENT ON TABLE public.pay_gateway_oauth_pushed_authorization_requests IS
+  'Short-lived one-time OAuth PAR request_uri records. The browser carries only request_uri; sensitive authorization parameters remain server-side.';
+-- END CONSOLIDATED: 004_pay_gateway_oauth_par.sql
+
+-- BEGIN CONSOLIDATED: 005_pay_gateway_portal_runtime_schema.sql
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -391,3 +532,4 @@ COMMENT ON TABLE public.pay_gateway_usage_meter_events IS
   'Request metering evidence used for limits, monitoring, and developer activity reports.';
 
 COMMIT;
+-- END CONSOLIDATED: 005_pay_gateway_portal_runtime_schema.sql
