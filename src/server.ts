@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import express from 'express';
 import { z } from 'zod';
 import { config, requireGatewayRuntimeSecrets } from './config.js';
@@ -3765,6 +3767,17 @@ app.get('/v1/developer/integration-health', requireOperatorDiscoveryAccess, asyn
 
 app.get('/v1/developer/docs-catalog', requireOperatorDiscoveryAccess, (_req, res) => {
   return res.json({ success: true, data: developerDocsCatalog() });
+});
+
+app.get('/v1/developer/openapi', requireOperatorDiscoveryAccess, (_req, res) => {
+  try {
+    const specPath = path.join(process.cwd(), 'docs', 'openapi', 'orbi-pay-gateway.openapi.json');
+    const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
+    return res.json({ success: true, data: spec });
+  } catch (e: any) {
+    const error = errorCodeFromException(e, 'DEVELOPER_OPENAPI_SPEC_FAILED');
+    return sendApiError(res, httpStatusForGatewayError(error), error);
+  }
 });
 
 app.get('/v1/developer/sandbox-tools', requireOperatorDiscoveryAccess, (_req, res) => {

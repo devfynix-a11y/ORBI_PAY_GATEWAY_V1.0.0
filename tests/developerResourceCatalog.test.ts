@@ -10,19 +10,21 @@ import {
   developerEnvironmentSeparationMatrix,
 } from '../src/services/developerEnvironmentCatalog.js';
 
-test('developer docs catalog includes core integration references', () => {
+test('developer docs catalog exposes public rendered guides only', () => {
   const docs = developerDocsCatalog();
-  assert.equal(docs.some((entry) => entry.id === 'platform-integration-contracts'), true);
-  assert.equal(docs.some((entry) => entry.id === 'developer-portal-contracts'), true);
-  assert.equal(docs.some((entry) => entry.id === 'developer-portal-ui-blueprint'), true);
-  assert.equal(docs.some((entry) => entry.id === 'language-integration-configs'), true);
-  assert.equal(docs.some((entry) => entry.id === 'openapi-spec'), true);
-  assert.equal(docs.some((entry) => entry.id === 'postman-collection'), true);
-  assert.equal(docs.some((entry) => entry.id === 'environment-separation'), true);
-  assert.equal(docs.some((entry) => entry.id === 'merchant-checkout-example'), true);
-  assert.equal(docs.some((entry) => entry.id === 'seller-linking-example'), true);
-  assert.equal(docs.some((entry) => entry.id === 'saccos-member-payments-example'), true);
-  assert.equal(docs.every((entry) => entry.path.startsWith('/docs/') || entry.path.startsWith('/examples/')), true);
+  assert.equal(docs.some((entry) => entry.id === 'quick-start'), true);
+  assert.equal(docs.some((entry) => entry.id === 'sdk-setup'), true);
+  assert.equal(docs.some((entry) => entry.id === 'domain-verification'), true);
+  assert.equal(docs.some((entry) => entry.id === 'payment-intents'), true);
+  assert.equal(docs.some((entry) => entry.id === 'paysafe-escrow'), true);
+  assert.equal(docs.some((entry) => entry.id === 'webhooks'), true);
+  assert.equal(docs.some((entry) => entry.id === 'sandbox-live'), true);
+  assert.equal(docs.some((entry) => entry.id === 'error-handling'), true);
+  assert.equal(docs.some((entry) => entry.id === 'developer-portal-ui-blueprint'), false);
+  assert.equal(docs.some((entry) => entry.id === 'security-model'), false);
+  assert.equal(docs.some((entry) => entry.id === 'deployment-runbook'), false);
+  assert.equal(docs.every((entry) => !('path' in entry)), true);
+  assert.equal(docs.every((entry) => Array.isArray(entry.sections) && entry.sections.length > 0), true);
 });
 
 test('developer sandbox catalog exposes safe bootstrap tools', () => {
