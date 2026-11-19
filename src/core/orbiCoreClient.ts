@@ -16,6 +16,9 @@ import type {
 } from '../types.js';
 import { buildSignedInternalHeaders } from '../security/internalSigner.js';
 
+const runtimeEnvironment = (): 'sandbox' | 'live' =>
+  config.providerMode === 'sandbox' ? 'sandbox' : 'live';
+
 const postJsonWithNodeHttp = async (url: URL, headers: Record<string, string>, body: unknown): Promise<unknown> =>
   new Promise((resolve, reject) => {
     const bodyText = JSON.stringify(body);
@@ -84,6 +87,7 @@ export class OrbiCoreClient {
       scopes: config.worker.scopes,
       signingSecret: config.worker.signingSecret,
       keyId: config.worker.keyId,
+      environment: runtimeEnvironment(),
     });
 
     return postJsonWithNodeHttp(endpoint, headers, event);
@@ -99,6 +103,7 @@ export class OrbiCoreClient {
       scopes: [...new Set([...config.worker.scopes, 'gateway:service-payments:write'])],
       signingSecret: config.worker.signingSecret,
       keyId: config.worker.keyId,
+      environment: runtimeEnvironment(),
     });
 
     return postJsonWithNodeHttp(endpoint, headers, request);
@@ -117,6 +122,7 @@ export class OrbiCoreClient {
       scopes: [...new Set([...config.worker.scopes, 'gateway:service-payments:write', 'gateway:service-payments:result'])],
       signingSecret: config.worker.signingSecret,
       keyId: config.worker.keyId,
+      environment: runtimeEnvironment(),
     });
 
     return postJsonWithNodeHttp(endpoint, {
@@ -136,6 +142,7 @@ export class OrbiCoreClient {
       scopes: [...new Set([...config.worker.scopes, 'gateway:paysafe-balances:read'])],
       signingSecret: config.worker.signingSecret,
       keyId: config.worker.keyId,
+      environment: runtimeEnvironment(),
     });
 
     return postJsonWithNodeHttp(endpoint, headers, request);
@@ -151,6 +158,7 @@ export class OrbiCoreClient {
       scopes: [...new Set([...config.worker.scopes, 'gateway:service-payments:write', 'gateway:service-payments:result'])],
       signingSecret: config.worker.signingSecret,
       keyId: config.worker.keyId,
+      environment: runtimeEnvironment(),
     });
 
     return postJsonWithNodeHttp(endpoint, {
@@ -170,6 +178,7 @@ export class OrbiCoreClient {
       scopes: [...new Set([...config.worker.scopes, 'gateway:identity:read'])],
       signingSecret: config.worker.signingSecret,
       keyId: config.worker.keyId,
+      environment: runtimeEnvironment(),
     });
 
     return postJsonWithNodeHttp(endpoint, headers, request);
@@ -185,6 +194,7 @@ export class OrbiCoreClient {
       scopes: [...new Set([...config.worker.scopes, 'gateway:business-registration:write'])],
       signingSecret: config.worker.signingSecret,
       keyId: config.worker.keyId,
+      environment: runtimeEnvironment(),
     });
 
     return postJsonWithNodeHttp(endpoint, headers, request);
@@ -200,6 +210,7 @@ export class OrbiCoreClient {
       scopes: [...new Set([...config.worker.scopes, 'gateway:payment-profiles:write'])],
       signingSecret: config.worker.signingSecret,
       keyId: config.worker.keyId,
+      environment: runtimeEnvironment(),
     });
 
     return postJsonWithNodeHttp(endpoint, {
@@ -221,6 +232,7 @@ export class OrbiCoreClient {
       scopes: [...new Set([...config.worker.scopes, 'gateway:merchant-payments:read'])],
       signingSecret: config.worker.signingSecret,
       keyId: config.worker.keyId,
+      environment: runtimeEnvironment(),
     });
 
     return postJsonWithNodeHttp(endpoint, headers, request);
@@ -236,6 +248,7 @@ export class OrbiCoreClient {
       scopes: [...new Set([...config.worker.scopes, 'gateway:merchant-settlements:read'])],
       signingSecret: config.worker.signingSecret,
       keyId: config.worker.keyId,
+      environment: runtimeEnvironment(),
     });
 
     return postJsonWithNodeHttp(endpoint, headers, request);

@@ -23,6 +23,7 @@ export type SignedInternalHeadersInput = {
   scopes: string[];
   signingSecret: string;
   keyId?: string;
+  environment?: 'sandbox' | 'live';
 };
 
 export type VerifySignedInternalHeadersInput = SignedInternalHeadersInput & {
@@ -39,6 +40,7 @@ export const buildSignedInternalHeaders = (input: SignedInternalHeadersInput): R
   const timestamp = new Date().toISOString();
   const nonce = crypto.randomUUID();
   const requestId = crypto.randomUUID();
+  const environment = input.environment || 'live';
   const bodySha256 = hashInternalRequestBody(input.body);
   const canonicalPayload = [
     input.method.toUpperCase(),
@@ -48,6 +50,7 @@ export const buildSignedInternalHeaders = (input: SignedInternalHeadersInput): R
     timestamp,
     nonce,
     requestId,
+    environment,
     bodySha256,
   ].join('\n');
   const signature = crypto.createHmac('sha256', input.signingSecret).update(canonicalPayload).digest('hex');
@@ -59,6 +62,7 @@ export const buildSignedInternalHeaders = (input: SignedInternalHeadersInput): R
     'x-worker-request-id': requestId,
     'x-worker-timestamp': timestamp,
     'x-worker-nonce': nonce,
+    'x-orbi-environment': environment,
     'x-worker-signature': signature,
     ...(input.keyId ? { 'x-worker-key-id': input.keyId } : {}),
   };

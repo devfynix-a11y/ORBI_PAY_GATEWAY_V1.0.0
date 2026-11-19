@@ -1065,25 +1065,37 @@ const requireServiceMerchantContext = (service: PayServiceDefinition) => {
   };
 };
 
-const buildCoreServicePaymentRequest = (intent: PaymentIntent): ServicePaymentRequest => ({
-  intentId: intent.id,
-  serviceCode: intent.serviceCode,
-  operation: intent.operation,
-  paymentCategory: intent.paymentCategory,
-  paymentRail: intent.paymentRail,
-  providerCode: intent.providerCode,
-  reference: intent.reference,
-  amount: intent.amount,
-  currency: intent.currency,
-  description: intent.description,
-  customer: intent.customer,
-  walletId: intent.walletId,
-  accountNumber: intent.accountNumber,
-  metadata: intent.metadata,
-  checkoutUrl: intent.checkoutUrl,
-  returnUrl: intent.returnUrl,
-  createdAt: intent.createdAt,
-});
+const buildCoreServicePaymentRequest = (intent: PaymentIntent): ServicePaymentRequest => {
+  const environment = config.providerMode === 'sandbox' ? 'sandbox' : 'live';
+  const requestedScenario = String(
+    intent.metadata?.simulationScenario || intent.metadata?.simulation_scenario || 'success',
+  ).trim().toLowerCase();
+  const simulationScenario = ['success', 'decline', 'timeout', 'requires_action'].includes(requestedScenario)
+    ? requestedScenario as ServicePaymentRequest['simulationScenario']
+    : 'success';
+
+  return {
+    environment,
+    ...(environment === 'sandbox' ? { simulationScenario } : {}),
+    intentId: intent.id,
+    serviceCode: intent.serviceCode,
+    operation: intent.operation,
+    paymentCategory: intent.paymentCategory,
+    paymentRail: intent.paymentRail,
+    providerCode: intent.providerCode,
+    reference: intent.reference,
+    amount: intent.amount,
+    currency: intent.currency,
+    description: intent.description,
+    customer: intent.customer,
+    walletId: intent.walletId,
+    accountNumber: intent.accountNumber,
+    metadata: intent.metadata,
+    checkoutUrl: intent.checkoutUrl,
+    returnUrl: intent.returnUrl,
+    createdAt: intent.createdAt,
+  };
+};
 
 const hostedChallengeUrlForIntent = (intent: PaymentIntent): string | undefined =>
   intent.coreResult?.challenge
@@ -2367,6 +2379,32 @@ const submitPaymentIntentToCore = async (service: PayServiceDefinition, intent: 
   }
 };
 
+const recordTerminalWebhookDelivery = async (
+  service: PayServiceDefinition,
+  intent: PaymentIntent,
+): Promise<PaymentIntent> => {
+  if (!['completed', 'failed'].includes(intent.status) || intent.webhookDelivery) {
+    return intent;
+  }
+
+  const webhookDelivery = await deliverServiceWebhook(service, intent);
+  if (webhookDelivery.attempted) {
+    webhookDeliveryStore.record({
+      eventId: webhookDelivery.eventId || crypto.randomUUID(),
+      serviceCode: service.code,
+      intentId: intent.id,
+      eventType: webhookDelivery.eventType || 'payment_intent.updated',
+      payload: webhookDelivery.payload,
+      callbackUrl: webhookDelivery.callbackUrl,
+      status: webhookDelivery.delivered ? 'delivered' : 'failed',
+      attempt: 1,
+      statusCode: webhookDelivery.statusCode,
+      error: webhookDelivery.error,
+    });
+  }
+
+  return paymentIntentStore.applyWebhookDelivery(intent, webhookDelivery);
+};
 const createPaymentIntentForService = async (
   req: express.Request,
   res: express.Response,
@@ -2422,9 +2460,10 @@ const createPaymentIntentForService = async (
     }
 
     const confirmed = await submitPaymentIntentToCore(service, intent);
+    const settledIntent = await recordTerminalWebhookDelivery(service, confirmed.intent);
     return res.status(201).json({
       success: true,
-      data: sanitizePaymentIntent(confirmed.intent),
+      data: sanitizePaymentIntent(settledIntent),
       core: confirmed.coreResult,
     });
   } catch (e: any) {
@@ -2472,7 +2511,8 @@ app.post('/v1/payment-intents/:intentId/confirm', requirePayServiceAccess, async
     }
 
     const confirmed = await submitPaymentIntentToCore(service, intent);
-    return res.json({ success: true, data: sanitizePaymentIntent(confirmed.intent), core: confirmed.coreResult });
+    const settledIntent = await recordTerminalWebhookDelivery(service, confirmed.intent);
+    return res.json({ success: true, data: sanitizePaymentIntent(settledIntent), core: confirmed.coreResult });
   } catch (e: any) {
     logger.error('payment_intent_confirm_failed', {
       serviceCode: (res.locals.payService as PayServiceDefinition | undefined)?.code,
@@ -2818,22 +2858,7 @@ app.post('/v1/internal/core/service-payment-events', async (req, res) => {
     }
     const intent = paymentIntentStore.get(service.code, event.intentId);
     const updatedIntent = paymentIntentStore.applyCoreEvent(intent, event);
-    const webhookDelivery = await deliverServiceWebhook(service, updatedIntent);
-    if (webhookDelivery.attempted) {
-      webhookDeliveryStore.record({
-        eventId: webhookDelivery.eventId || crypto.randomUUID(),
-        serviceCode: service.code,
-        intentId: updatedIntent.id,
-        eventType: webhookDelivery.eventType || 'payment_intent.updated',
-        payload: webhookDelivery.payload,
-        callbackUrl: webhookDelivery.callbackUrl,
-        status: webhookDelivery.delivered ? 'delivered' : 'failed',
-        attempt: 1,
-        statusCode: webhookDelivery.statusCode,
-        error: webhookDelivery.error,
-      });
-    }
-    const deliveredIntent = paymentIntentStore.applyWebhookDelivery(updatedIntent, webhookDelivery);
+    const deliveredIntent = await recordTerminalWebhookDelivery(service, updatedIntent);
 
     return res.json({
       success: true,

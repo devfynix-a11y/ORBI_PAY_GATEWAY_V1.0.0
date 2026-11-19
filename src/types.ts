@@ -250,6 +250,8 @@ export type PaymentIntent = {
 };
 
 export type ServicePaymentRequest = {
+  environment: 'sandbox' | 'live';
+  simulationScenario?: 'success' | 'decline' | 'timeout' | 'requires_action';
   intentId: string;
   serviceCode: string;
   operation: PayServiceOperation;

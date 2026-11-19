@@ -23,5 +23,6 @@ test('signed internal headers include Core worker authentication headers', () =>
   assert.equal(headers['x-worker-id'], 'orbi-payment-gateway');
   assert.equal(headers['x-worker-scopes'], 'gateway:events:write');
   assert.equal(headers['x-worker-key-id'], 'gateway-test');
+  assert.equal(headers['x-orbi-environment'], 'live');
   assert.match(headers['x-worker-signature'], /^[a-f0-9]{64}$/);
 });
